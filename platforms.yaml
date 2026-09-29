@@ -56,6 +56,7 @@ _rhoai_common: &rhoai_common
     - "*-design"
     - "*enhancements"
     - "*/test-infra"
+    - "*/RHOAI-Konflux-Automation"
   exclude_components:
     - RHOAI-Build-Config
     - rhaii-cluster-validation
