@@ -155,7 +155,7 @@ rhoai.next:
       repo: llm-d-planner
       branch: main
     - org: praxis-proxy
-      repo: proxy
+      repo: praxis
       branch: main
       name_prefix: praxis-
     - org: praxis-proxy
@@ -241,7 +241,7 @@ rhoai-3.6-ea.2:
       repo: llm-d-planner
       branch: main
     - org: praxis-proxy
-      repo: proxy
+      repo: praxis
       branch: main
       name_prefix: praxis-
     - org: praxis-proxy
