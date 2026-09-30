@@ -170,20 +170,20 @@ wheels = [
 
 [[package]]
 name = "claude-agent-sdk"
-version = "0.1.68"
+version = "0.2.162"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
+    { name = "jsonschema" },
     { name = "mcp" },
     { name = "sniffio" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/27/cb/a3e2250bba1d6e7a41e34f832dbb1427ec1391d59897189d429b2875952a/claude_agent_sdk-0.1.68.tar.gz", hash = "sha256:5f8c9e29f08852878ed8ba9f91cff0287d069002b9522497c3229a5bd3e483ac", size = 239251, upload-time = "2026-04-25T02:06:35.599Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/78/a3/d31886d0723593228797c96eb54d07a19e561931a2771ed40b4a105bedc9/claude_agent_sdk-0.2.162.tar.gz", hash = "sha256:e4cf92f04f934d3b87d42be9ecbeb75c1a3d487a8dc8a299f7fed1ad9d0b476f", size = 365167, upload-time = "2026-09-29T20:06:54.593Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/84/347e9ecc4e293b6a0a80557a5527d0e0b28bfdd6c4ce9fac907436a606b9/claude_agent_sdk-0.1.68-py3-none-macosx_11_0_arm64.whl", hash = "sha256:4e5228ffeae2bfa195e2526c446b5a926a1f4015da35e3efd142f817cf2c6dfb", size = 63221614, upload-time = "2026-04-25T02:06:38.805Z" },
-    { url = "https://files.pythonhosted.org/packages/d0/18/e83cdf6c1e7025e735b546b83ff88fcb9762082e61b068a9e52c280caee6/claude_agent_sdk-0.1.68-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:4aeb266002b7ca97167072cf04bc3098db5bc8d2daa08a6f84ed29f2d48e2545", size = 65187622, upload-time = "2026-04-25T02:06:42.245Z" },
-    { url = "https://files.pythonhosted.org/packages/aa/6c/70769392db3f8717afd48d0c2a5f1b8524f030ef42f203bac4f07f2ab443/claude_agent_sdk-0.1.68-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:2053151067347dd2b980f59632478f14b5323b627efb97fea41233e8bf891831", size = 76635725, upload-time = "2026-04-25T02:06:46.448Z" },
-    { url = "https://files.pythonhosted.org/packages/b9/61/4b6f08a5d92a8077e5a29af1ba69f04c9465082781061b9271e981092287/claude_agent_sdk-0.1.68-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:59c7873e39ac7aa572fae25466abc5c34abb3da64eaf60790ed9ddd6dd4759b7", size = 76613056, upload-time = "2026-04-25T02:06:50.427Z" },
-    { url = "https://files.pythonhosted.org/packages/8b/c1/3bd1f00529aa1b43f6f57d18ebe5272c3f4cec4bc25f543d78562639a932/claude_agent_sdk-0.1.68-py3-none-win_amd64.whl", hash = "sha256:6f06b744bf20a82d937a3ac705b26807f14936ec1b0c79349208e11a2e89413b", size = 78349055, upload-time = "2026-04-25T02:06:53.919Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/b6/ec37e32cb0782977e80cd00338f5073f150d6ecfa568e9fa1a1dd5c9eed3/claude_agent_sdk-0.2.162-py3-none-macosx_11_0_arm64.whl", hash = "sha256:a0d5ad6185a8bcaaff05f5648036e2484cab28bd1c2ccc474fc8969555b386f7", size = 92700771, upload-time = "2026-09-29T20:06:59.661Z" },
+    { url = "https://files.pythonhosted.org/packages/92/c4/1165688243cbf90d3532f509ea65bc337c3ba7f8229e26d7297e00a6ec2b/claude_agent_sdk-0.2.162-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:faab97b03f04f9c3deb58ad85a0410404d40b6efb5547c9defc4fa986642fced", size = 97130408, upload-time = "2026-09-29T20:07:06.243Z" },
+    { url = "https://files.pythonhosted.org/packages/05/41/f0addb831c3aefbc02c811ef7415e89e889d1bc2ae976eb935c508c91c0d/claude_agent_sdk-0.2.162-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:332cfb5eb9190fc8de1ad427753417d7c345264e9d2bd2ffa312afcc2f5cf766", size = 102183342, upload-time = "2026-09-29T20:07:14.279Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/33/8a7acd75405d0cfde96c26219dbbac050aa23416ceefd5f62cf7aecfc22d/claude_agent_sdk-0.2.162-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:673598c9916f5f4d03ff49ab3128f856f0c6508135e8e258838fc3b6f7aafa49", size = 102525631, upload-time = "2026-09-29T20:07:23.411Z" },
 ]
 
 [[package]]
@@ -398,7 +398,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "claude-agent-sdk", specifier = ">=0.1.68" },
+    { name = "claude-agent-sdk", specifier = ">=0.2.161" },
     { name = "gitpython", specifier = ">=3.1" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "openai-codex", specifier = ">=0.147.0" },
