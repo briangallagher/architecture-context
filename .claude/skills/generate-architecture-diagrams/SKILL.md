@@ -1,7 +1,7 @@
 ---
 name: generate-architecture-diagrams
 description: Generate architecture diagrams (Mermaid, C4, security network diagrams) from GENERATED_ARCHITECTURE.md. Creates visual representations for different audiences - developers, architects, security teams.
-allowed-tools: Read, Write, Bash(python scripts/generate_diagram_pngs.py *), Bash(mkdir *)
+allowed-tools: Read, Write, Bash(python scripts/generate_diagram_pngs.py *), Bash(python scripts/lint_mermaid_labels.py *), Bash(mkdir *)
 disable-model-invocation: true
 ---
 
@@ -102,6 +102,10 @@ mkdir -p {output-dir}
 ```
 
 ### Step 5: Generate Diagrams
+
+Follow this GitHub rendering rule for flowcharts:
+
+- Quote the complete square-node label when its text contains parentheses. For example, use `BasicAuth["Basic Auth<br/>(htpasswd)"]`; unquoted parentheses inside `ID[...]` can be parsed as Mermaid shape syntax by GitHub.
 
 Generate the requested diagram formats using the component name from Step 1:
 
@@ -470,6 +474,16 @@ graph TD
 ```
 
 ---
+
+### Validate GitHub-sensitive Mermaid labels
+
+After writing the Mermaid files, check the output directory for this rule:
+
+```bash
+python scripts/lint_mermaid_labels.py {output-dir}
+```
+
+Fix every reported label before reporting diagram generation as complete.
 
 ### Step 6: Generate PNG Files from Mermaid Diagrams (only if `--export-png` is passed)
 
