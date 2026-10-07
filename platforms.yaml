@@ -14,6 +14,8 @@
 ##   extra_orgs        - additional orgs (list of {org, branch?, suffix?, protocol?})
 ##   extra_repos       - individual cross-org repos (list of {org, repo, branch?, suffix?, protocol?, name_prefix?})
 ##   exclude_repos     - repos to skip during fetch (supports globs)
+##   repo_branch_policies - org-scoped remote-branch regex checks; matching
+##                          is an eligibility gate and does not select checkout
 ##
 ## Component map override fields (applied after discovery):
 ##   component_overrides  - fix fields on discovered components (keyed by component key)
@@ -126,6 +128,9 @@ odh:
 rhoai.next:
   <<: *rhoai_3x_common
   suffix: next
+  repo_branch_policies:
+    - org: red-hat-data-services
+      require_branch_regex: '^rhoai-\d+\.\d+(?:-[a-z0-9][a-z0-9.-]*)?$'
   exclude_components:
     - RHOAI-Build-Config
     - rhaii-cluster-validation

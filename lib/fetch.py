@@ -2,7 +2,9 @@
 
 import asyncio
 import fnmatch
+import json
 import os
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -609,6 +611,155 @@ async def _clone_repo(
         _apply_exclude_files(repo_path, exclude_files, repo)
 
 
+async def _list_remote_branches(repo_path: Path) -> list[str]:
+    """Return remote branch names for a completed checkout."""
+    proc = await asyncio.create_subprocess_exec(
+        "git", "ls-remote", "--heads", "origin",
+        cwd=str(repo_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=_prepare_env(),
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=60
+        )
+    except asyncio.TimeoutError as exc:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError(
+            f"Timed out listing remote branches for {repo_path}"
+        ) from exc
+    if proc.returncode != 0:
+        detail = stderr.decode(errors="replace").strip()
+        raise RuntimeError(
+            f"Unable to list remote branches for {repo_path}: "
+            f"{detail or f'git exited {proc.returncode}'}"
+        )
+
+    branches = set()
+    for line in stdout.decode(errors="replace").splitlines():
+        fields = line.split("\t", 1)
+        if len(fields) == 2 and fields[1].startswith("refs/heads/"):
+            ref = fields[1]
+            branches.add(ref.removeprefix("refs/heads/"))
+    return sorted(branches)
+
+
+async def _apply_repo_branch_policies(
+    checkouts_path: Path,
+    platform: str,
+    suffix: str | None,
+    org_dir_names: set[str],
+    policies: list[dict],
+) -> None:
+    """Record remote-branch eligibility for configured org checkout trees."""
+    compiled_policies = {}
+    for index, policy in enumerate(policies):
+        if not isinstance(policy, dict):
+            raise ValueError(
+                f"repo_branch_policies[{index}] must be a mapping"
+            )
+        org = policy.get("org")
+        expression = policy.get("require_branch_regex")
+        if not isinstance(org, str) or not org.strip():
+            raise ValueError(
+                f"repo_branch_policies[{index}].org must be a non-empty string"
+            )
+        if not isinstance(expression, str) or not expression.strip():
+            raise ValueError(
+                "repo_branch_policies[{}].require_branch_regex must be a "
+                "non-empty string".format(index)
+            )
+        try:
+            pattern = re.compile(expression)
+        except re.error as exc:
+            raise ValueError(
+                f"Invalid repo branch regex for {org!r}: {exc}"
+            ) from exc
+        org_dir_name = f"{org}.{suffix}" if suffix else org
+        if org in compiled_policies:
+            raise ValueError(
+                f"Multiple repo branch policies are configured for {org!r}"
+            )
+        if org_dir_name not in org_dir_names:
+            raise ValueError(
+                f"repo branch policy org {org!r} is not fetched by platform "
+                f"{platform!r}"
+            )
+        compiled_policies[org] = (org_dir_name, expression, pattern)
+
+    # Remove stale reports if a platform's policy was deleted or moved.
+    active_report_paths = {
+        checkouts_path / org_dir_name / "repo-branch-policy.json"
+        for org_dir_name, _expression, _pattern in compiled_policies.values()
+    }
+    for org_dir_name in org_dir_names:
+        report_path = (
+            checkouts_path / org_dir_name / "repo-branch-policy.json"
+        )
+        if report_path.exists() and report_path not in active_report_paths:
+            report_path.unlink()
+
+    semaphore = asyncio.Semaphore(8)
+
+    async def inspect_checkout(repo_path: Path, pattern: re.Pattern) -> dict:
+        if not (repo_path / ".git").exists():
+            raise RuntimeError(
+                f"Cannot apply remote branch policy to non-git checkout: "
+                f"{repo_path}"
+            )
+        async with semaphore:
+            branches = await _list_remote_branches(repo_path)
+        matches = [name for name in branches if pattern.fullmatch(name)]
+        return {
+            "repo": repo_path.name,
+            "eligible": bool(matches),
+            "matching_branches": matches,
+            "reason": (
+                "matched_required_branch_regex"
+                if matches else "no_remote_branch_matched_regex"
+            ),
+        }
+
+    for org, (org_dir_name, expression, pattern) in compiled_policies.items():
+        org_dir = checkouts_path / org_dir_name
+        if not org_dir.is_dir():
+            raise FileNotFoundError(
+                f"Checkout directory required by repo branch policy is missing: "
+                f"{org_dir}"
+            )
+        repo_paths = sorted(
+            (path for path in org_dir.iterdir() if path.is_dir()),
+            key=lambda path: path.name,
+        )
+        results = await asyncio.gather(
+            *(inspect_checkout(path, pattern) for path in repo_paths)
+        )
+        report = {
+            "platform": platform,
+            "org": org,
+            "require_branch_regex": expression,
+            "evaluated_at": datetime.now(timezone.utc).isoformat(),
+            "repositories": results,
+        }
+        report_path = org_dir / "repo-branch-policy.json"
+        temporary_path = report_path.with_suffix(".json.tmp")
+        temporary_path.write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
+        )
+        temporary_path.replace(report_path)
+
+        rejected = [item["repo"] for item in results if not item["eligible"]]
+        _log(
+            f"Remote branch policy for {org}: "
+            f"{len(results) - len(rejected)} eligible, "
+            f"{len(rejected)} excluded; report: {report_path}"
+        )
+        if rejected:
+            _log("  Excluded for missing matching branch: " + ", ".join(rejected))
+
+
 async def fetch_repositories(
     org: str = None,
     checkouts_dir: str = "checkouts",
@@ -757,6 +908,15 @@ async def fetch_repositories(
                     branch=sc_branch, suffix=suffix, pull=pull,
                     protocol=sc_protocol,
                 )
+
+            branch_policies = config.get("repo_branch_policies", [])
+            await _apply_repo_branch_policies(
+                checkouts_path,
+                platform,
+                suffix,
+                platform_org_dirs,
+                branch_policies,
+            )
 
             # Apply platform-wide post_checkout exclude_files rules
             post_checkout = config.get("post_checkout", [])

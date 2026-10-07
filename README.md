@@ -22,6 +22,15 @@ checkouts/red-hat-data-services.rhoai-3.4-ea.1/
   ...  (~49 repos)
 ```
 
+Platforms may also define `repo_branch_policies` for an organization. Fetch
+checks each cloned repo's remote branch names against the configured regex and
+writes `repo-branch-policy.json` in that organization's checkout directory.
+The regex must match a complete branch name. The check only determines
+eligibility; it does not change the checked-out branch. Component discovery
+reads the report and excludes non-matches before provenance lookup and LLM
+classification. A remote-ref query failure stops the fetch phase so an
+unavailable branch list cannot silently pass the policy.
+
 ### Phase 2: Parse manifests (`parse-manifests`)
 
 Parses the operator's `get_all_manifests.sh` script to extract the `COMPONENT_MANIFESTS` bash associative arrays. This identifies ~17 components that the operator directly manages via kustomize manifests.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate platforms.yaml schema and safety constraints."""
 
+import re
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ KNOWN_KEYS = {
     "extra_orgs",
     "extra_repos",
     "exclude_repos",
+    "repo_branch_policies",
     "exclude_components",
     "include_components",
     "component_overrides",
@@ -246,6 +248,49 @@ def _check_post_checkout(value, errors):
             )
 
 
+def _check_repo_branch_policies(value, errors):
+    if not isinstance(value, list):
+        errors.append(
+            "'repo_branch_policies' must be a list,"
+            f" got {type(value).__name__}"
+        )
+        return
+
+    seen_orgs = set()
+    for i, entry in enumerate(value):
+        label = f"repo_branch_policies[{i}]"
+        if not isinstance(entry, dict):
+            errors.append(
+                f"'{label}' must be a mapping, got {type(entry).__name__}"
+            )
+            continue
+        unknown = set(entry) - {"org", "require_branch_regex"}
+        if unknown:
+            errors.append(
+                f"'{label}' has unrecognized keys: "
+                f"{', '.join(sorted(unknown))}"
+            )
+        for key in ("org", "require_branch_regex"):
+            field = entry.get(key)
+            if not isinstance(field, str) or not field.strip():
+                errors.append(f"'{label}.{key}' must be a non-empty string")
+        org = entry.get("org")
+        if isinstance(org, str) and org.strip():
+            if org in seen_orgs:
+                errors.append(
+                    f"'{label}.org' duplicates repo branch policy for {org!r}"
+                )
+            seen_orgs.add(org)
+        expression = entry.get("require_branch_regex")
+        if isinstance(expression, str) and expression.strip():
+            try:
+                re.compile(expression)
+            except re.error as exc:
+                errors.append(
+                    f"'{label}.require_branch_regex' is invalid: {exc}"
+                )
+
+
 def _check_sync_config(value, errors):
     if not isinstance(value, dict):
         errors.append(
@@ -353,6 +398,48 @@ def validate_platform(name: str, config: dict) -> list[str]:
 
     if "post_checkout" in config:
         _check_post_checkout(config["post_checkout"], errors)
+
+    if "repo_branch_policies" in config:
+        _check_repo_branch_policies(config["repo_branch_policies"], errors)
+        configured_orgs = set()
+        orgs = config.get("orgs", [])
+        if isinstance(orgs, list):
+            configured_orgs.update(org for org in orgs if isinstance(org, str))
+        extra_orgs = config.get("extra_orgs", [])
+        if isinstance(extra_orgs, list):
+            for entry in extra_orgs:
+                if isinstance(entry, str):
+                    configured_orgs.add(entry)
+                elif isinstance(entry, dict) and isinstance(
+                    entry.get("org"), str
+                ):
+                    configured_orgs.add(entry["org"])
+        extra_repos = config.get("extra_repos", [])
+        if isinstance(extra_repos, list):
+            configured_orgs.update(
+                entry["org"]
+                for entry in extra_repos
+                if isinstance(entry, dict)
+                and isinstance(entry.get("org"), str)
+            )
+        sync_config = config.get("sync_config")
+        if isinstance(sync_config, dict) and isinstance(
+            sync_config.get("org"), str
+        ):
+            configured_orgs.add(sync_config["org"])
+        branch_policies = config.get("repo_branch_policies", [])
+        if not isinstance(branch_policies, list):
+            branch_policies = []
+        for i, entry in enumerate(branch_policies):
+            if (
+                isinstance(entry, dict)
+                and isinstance(entry.get("org"), str)
+                and entry["org"] not in configured_orgs
+            ):
+                errors.append(
+                    f"'repo_branch_policies[{i}].org' is not configured "
+                    "under orgs, extra_orgs, extra_repos, or sync_config"
+                )
 
     if "sync_config" in config:
         _check_sync_config(config["sync_config"], errors)
