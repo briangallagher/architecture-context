@@ -1,0 +1,44 @@
+graph LR
+    VllmGaudi["vllm-gaudi<br/>HPU Plugin"]
+
+    %% Core Runtime Dependencies
+    VllmGaudi -->|"inference engine<br/>v0.16.0"| VLLMUpstream["vLLM (upstream)"]
+    VllmGaudi -->|"HPU runtime<br/>v1.23.0"| SynapseAI["Habana SynapseAI"]
+    VllmGaudi -->|"HPU PyTorch"| GaudiPyTorch["Intel Gaudi<br/>PyTorch"]
+
+    %% Python Library Dependencies
+    VllmGaudi -->|"distributed compute<br/>>=2.48.0"| Ray["Ray"]
+    VllmGaudi -->|"model loading<br/>>=4.56.0, <5"| Transformers["HF Transformers"]
+    VllmGaudi -->|">=1.26.0"| NumPy["NumPy"]
+    VllmGaudi -->|">=2.2.3"| Pandas["Pandas"]
+    VllmGaudi -->|">=0.58.0"| Numba["Numba"]
+
+    %% Platform Dependencies (Internal RHOAI)
+    KServe["KServe"] -->|"deploys as<br/>ServingRuntime"| VllmGaudi
+    ServiceMesh["Service Mesh<br/>(Istio / OSSM)"] -.->|"mTLS sidecar"| VllmGaudi
+
+    %% External Services
+    VllmGaudi -->|"model storage"| ModelStorage["Model Storage<br/>(PVC / S3)"]
+
+    %% Hardware
+    VllmGaudi -->|"device access<br/>/dev/accel/*"| GaudiHPU["Intel Gaudi HPU<br/>Hardware"]
+
+    %% Build Dependencies (lighter connection)
+    VllmGaudi -.->|"base image"| UBI9["UBI 9"]
+    VllmGaudi -.->|"Python >=3.9,<3.13"| Python["Python Runtime"]
+
+    style VllmGaudi fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style VLLMUpstream fill:#f5a623,stroke:#333
+    style SynapseAI fill:#f5a623,stroke:#333
+    style GaudiPyTorch fill:#f5a623,stroke:#333
+    style Ray fill:#999,stroke:#333
+    style Transformers fill:#999,stroke:#333
+    style NumPy fill:#999,stroke:#333
+    style Pandas fill:#999,stroke:#333
+    style Numba fill:#999,stroke:#333
+    style KServe fill:#7ed321,stroke:#333
+    style ServiceMesh fill:#7ed321,stroke:#333
+    style ModelStorage fill:#fff2cc,stroke:#d6b656
+    style GaudiHPU fill:#dae8fc,stroke:#6c8ebf
+    style UBI9 fill:#e8e8e8,stroke:#999
+    style Python fill:#e8e8e8,stroke:#999

@@ -1,0 +1,67 @@
+sequenceDiagram
+    participant User as Data Scientist
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant MutWH as Mutating Webhook<br/>443/TCP TLS
+    participant ValWH as Validating Webhook<br/>443/TCP TLS
+    participant Controller as Trainer Controller<br/>controller-runtime
+    participant Runtime as Runtime Plugin<br/>(Flux/MPI)
+    participant Scheduler as Gang Scheduler<br/>(CoScheduling/Volcano)
+    participant JobSet as JobSet Controller
+    participant Pods as Training Pods
+    participant NetPol as NetworkPolicy Manager
+    participant Progression as Progression Monitor
+
+    Note over User,Progression: Training Job Lifecycle
+
+    User->>K8sAPI: kubectl apply TrainJob CR<br/>references TrainingRuntime
+    K8sAPI->>MutWH: Admission request (CREATE)
+    MutWH->>MutWH: Apply defaults from<br/>TrainingRuntime template
+    MutWH-->>K8sAPI: Mutated TrainJob
+    K8sAPI->>ValWH: Admission request (CREATE)
+    ValWH->>ValWH: Validate TrainJob spec<br/>against runtime constraints
+    ValWH-->>K8sAPI: Admission allowed
+    K8sAPI-->>User: TrainJob created
+
+    Note over Controller,Progression: Controller Reconciliation
+
+    K8sAPI->>Controller: Watch event: TrainJob created
+    Controller->>K8sAPI: Get TrainingRuntime/<br/>ClusterTrainingRuntime
+    K8sAPI-->>Controller: Runtime specification
+
+    Controller->>Runtime: Delegate to runtime plugin
+    Runtime->>Runtime: Configure framework-specific<br/>resources (ConfigMaps, Secrets)
+    Runtime->>K8sAPI: Create ConfigMaps/Secrets<br/>for framework coordination
+    Runtime-->>Controller: JobSet spec ready
+
+    Controller->>K8sAPI: Create JobSet CR
+
+    Note over Controller,Progression: Gang Scheduling (if enabled)
+
+    Controller->>Scheduler: Create PodGroup CR
+    Note right of Scheduler: CoScheduling: scheduling.x-k8s.io/PodGroup<br/>Volcano: scheduling.volcano.sh/PodGroup
+    Scheduler->>K8sAPI: Read PriorityClass
+    K8sAPI-->>Scheduler: Priority configuration
+
+    Note over Controller,Progression: RHOAI-Specific Flows
+
+    Controller->>NetPol: Create NetworkPolicy<br/>for TrainJob
+    NetPol->>K8sAPI: Create NetworkPolicy CR<br/>per-TrainJob isolation
+
+    JobSet->>K8sAPI: Create training Pods
+    K8sAPI-->>Pods: Pods scheduled
+
+    Pods->>Pods: Execute distributed training
+
+    Progression->>K8sAPI: Watch Pod status
+    K8sAPI-->>Progression: Pod readiness updates
+    Progression->>K8sAPI: Update TrainJob status<br/>(training progression)
+
+    Pods-->>Controller: Training complete
+    Controller->>K8sAPI: Update TrainJob status
+
+    Note over Controller,Progression: TLS Configuration (Startup)
+
+    Controller->>K8sAPI: Get config.openshift.io<br/>/v1/apiservers
+    K8sAPI-->>Controller: Cluster TLS security profile
+    Controller->>Controller: Apply cipher suites to<br/>webhook, metrics, status servers
+    Note right of Controller: Fallback: Intermediate profile<br/>(TLS 1.2+, AEAD ciphers)

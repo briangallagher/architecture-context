@@ -1,0 +1,109 @@
+graph TD
+    subgraph ServiceAccounts["Service Accounts"]
+        SA_Controller["spark-operator-controller"]
+        SA_Webhook["spark-operator-webhook"]
+        SA_Module["spark-operator-module-<br/>controller-manager"]
+    end
+
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        CRB_Controller["spark-operator-controller<br/>binding"]
+        CRB_Webhook["spark-operator-webhook<br/>binding"]
+        CRB_Module["spark-operator-module-<br/>manager-rolebinding"]
+    end
+
+    subgraph ControllerRole["ClusterRole: spark-operator-controller"]
+        CR_Spark["sparkoperator.k8s.io<br/>sparkapplications<br/>scheduledsparkapplications<br/>sparkconnects<br/>+ status/finalizers"]
+        CR_Core["core<br/>pods, services,<br/>configmaps, events"]
+        CR_Policy["policy<br/>poddisruptionbudgets"]
+        CR_Net["extensions, networking.k8s.io<br/>ingresses"]
+        CR_APIExt["apiextensions.k8s.io<br/>customresourcedefinitions"]
+        CR_Coord["coordination.k8s.io<br/>leases"]
+    end
+
+    subgraph WebhookRole["ClusterRole: spark-operator-webhook"]
+        WR_Core["core<br/>resourcequotas (list)<br/>pods (list, watch)<br/>events (create, patch, update)<br/>secrets (create, get, update)"]
+        WR_Admission["admissionregistration.k8s.io<br/>mutatingwebhookconfigurations<br/>validatingwebhookconfigurations<br/>get, list, watch, update"]
+        WR_Spark["sparkoperator.k8s.io<br/>sparkapplications<br/>scheduledsparkapplications<br/>get, list, watch"]
+        WR_Coord["coordination.k8s.io<br/>leases"]
+    end
+
+    subgraph ModuleRole["ClusterRole: spark-operator-module-manager-role"]
+        MR_Platform["components.platform.opendatahub.io<br/>sparkoperators<br/>sparkoperators/status<br/>sparkoperators/finalizers"]
+        MR_Apps["apps<br/>deployments"]
+        MR_Core["core<br/>configmaps, services,<br/>serviceaccounts,<br/>namespaces, events"]
+        MR_RBAC["rbac.authorization.k8s.io<br/>clusterroles, clusterrolebindings,<br/>roles, rolebindings<br/>+ finalizers, bind, escalate"]
+        MR_Admission["admissionregistration.k8s.io<br/>mutating/validatingwebhookconfigurations"]
+        MR_CRD["apiextensions.k8s.io<br/>customresourcedefinitions"]
+        MR_Cert["cert-manager.io<br/>certificates, issuers"]
+        MR_Monitor["monitoring.coreos.com<br/>podmonitors"]
+        MR_Net["networking.k8s.io<br/>networkpolicies"]
+        MR_Coord["coordination.k8s.io<br/>leases"]
+    end
+
+    subgraph UserRoles["User-Facing ClusterRoles"]
+        UR_Viewer["spark-operator-sparkapplication-<br/>viewer-role<br/>sparkapplications: get, list, watch"]
+        UR_Editor["spark-operator-sparkapplication-<br/>editor-role<br/>sparkapplications: full CRUD"]
+        UR_SchedViewer["spark-operator-scheduledspark-<br/>application-viewer-role<br/>scheduledsparkapplications: get, list, watch"]
+        UR_SchedEditor["spark-operator-scheduledspark-<br/>application-editor-role<br/>scheduledsparkapplications: full CRUD"]
+    end
+
+    %% SA to Binding
+    SA_Controller -->|"bound via"| CRB_Controller
+    SA_Webhook -->|"bound via"| CRB_Webhook
+    SA_Module -->|"bound via"| CRB_Module
+
+    %% Binding to Role
+    CRB_Controller -->|"grants"| CR_Spark
+    CRB_Controller -->|"grants"| CR_Core
+    CRB_Controller -->|"grants"| CR_Policy
+    CRB_Controller -->|"grants"| CR_Net
+    CRB_Controller -->|"grants"| CR_APIExt
+    CRB_Controller -->|"grants"| CR_Coord
+
+    CRB_Webhook -->|"grants"| WR_Core
+    CRB_Webhook -->|"grants"| WR_Admission
+    CRB_Webhook -->|"grants"| WR_Spark
+    CRB_Webhook -->|"grants"| WR_Coord
+
+    CRB_Module -->|"grants"| MR_Platform
+    CRB_Module -->|"grants"| MR_Apps
+    CRB_Module -->|"grants"| MR_Core
+    CRB_Module -->|"grants"| MR_RBAC
+    CRB_Module -->|"grants"| MR_Admission
+    CRB_Module -->|"grants"| MR_CRD
+    CRB_Module -->|"grants"| MR_Cert
+    CRB_Module -->|"grants"| MR_Monitor
+    CRB_Module -->|"grants"| MR_Net
+    CRB_Module -->|"grants"| MR_Coord
+
+    %% Styling
+    style SA_Controller fill:#4a90e2,color:#fff
+    style SA_Webhook fill:#4a90e2,color:#fff
+    style SA_Module fill:#4a90e2,color:#fff
+    style CRB_Controller fill:#9b59b6,color:#fff
+    style CRB_Webhook fill:#9b59b6,color:#fff
+    style CRB_Module fill:#9b59b6,color:#fff
+    style CR_Spark fill:#f5a623,color:#fff
+    style CR_Core fill:#f5a623,color:#fff
+    style CR_Policy fill:#f5a623,color:#fff
+    style CR_Net fill:#f5a623,color:#fff
+    style CR_APIExt fill:#f5a623,color:#fff
+    style CR_Coord fill:#f5a623,color:#fff
+    style WR_Core fill:#e67e22,color:#fff
+    style WR_Admission fill:#e67e22,color:#fff
+    style WR_Spark fill:#e67e22,color:#fff
+    style WR_Coord fill:#e67e22,color:#fff
+    style MR_Platform fill:#27ae60,color:#fff
+    style MR_Apps fill:#27ae60,color:#fff
+    style MR_Core fill:#27ae60,color:#fff
+    style MR_RBAC fill:#27ae60,color:#fff
+    style MR_Admission fill:#27ae60,color:#fff
+    style MR_CRD fill:#27ae60,color:#fff
+    style MR_Cert fill:#27ae60,color:#fff
+    style MR_Monitor fill:#27ae60,color:#fff
+    style MR_Net fill:#27ae60,color:#fff
+    style MR_Coord fill:#27ae60,color:#fff
+    style UR_Viewer fill:#7ed321,color:#fff
+    style UR_Editor fill:#7ed321,color:#fff
+    style UR_SchedViewer fill:#7ed321,color:#fff
+    style UR_SchedEditor fill:#7ed321,color:#fff

@@ -1,0 +1,42 @@
+graph TB
+    subgraph Runtime["RUNTIME CONTAINER (Minimal Attack Surface)"]
+        direction TB
+        Container["model-metadata-collection<br/>UBI9-micro<br/>CMD: sleep infinity<br/>UID: 1001 (non-root)<br/>No exposed ports"]
+        DataVolume["/app/data/<br/>YAML Catalog Files<br/>(read-only data)"]
+        Container --- DataVolume
+    end
+
+    subgraph Consumers["RHOAI PLATFORM (Volume Consumers)"]
+        Dashboard["RHOAI Dashboard<br/>Filesystem read only"]
+        OtherComp["Other RHOAI Components<br/>Filesystem read only"]
+    end
+
+    subgraph CIBuild["CI/CD BUILD-TIME (Not in deployed image)"]
+        Extractor["model-extractor<br/>Go 1.24 CLI<br/>Build-time only"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES (CI-time only)"]
+        HF["HuggingFace API<br/>huggingface.co<br/>TLS<br/>Bearer HF_TOKEN (optional)"]
+        GH["GitHub API<br/>api.github.com<br/>TLS<br/>Bearer GITHUB_TOKEN (optional)"]
+        OCI["OCI Registries<br/>TLS<br/>Default auth chain"]
+    end
+
+    %% CI-time flows (build only)
+    Extractor -->|"HTTPS/443<br/>TLS<br/>Bearer Token (optional)"| HF
+    Extractor -->|"HTTPS/443<br/>TLS<br/>Bearer Token (optional)"| GH
+    Extractor -->|"HTTPS/443<br/>TLS<br/>Registry auth"| OCI
+
+    %% Runtime flows (filesystem only)
+    Dashboard -->|"Volume mount<br/>/app/data<br/>Filesystem (no network)"| DataVolume
+    OtherComp -->|"Volume mount<br/>/app/data<br/>Filesystem (no network)"| DataVolume
+
+    %% Styling
+    classDef runtime fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef consumer fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef citime fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef external fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+
+    class Container,DataVolume runtime
+    class Dashboard,OtherComp consumer
+    class Extractor citime
+    class HF,GH,OCI external

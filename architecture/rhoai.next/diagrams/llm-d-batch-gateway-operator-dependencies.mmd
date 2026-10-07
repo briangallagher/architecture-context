@@ -1,0 +1,55 @@
+graph LR
+    Operator["LLM-D Batch Gateway<br/>Operator"]
+
+    %% External Dependencies (Required)
+    Operator -->|"operator framework<br/>v0.23.3"| ControllerRuntime["controller-runtime"]
+    Operator -->|"chart rendering<br/>v3.20.2"| Helm["Helm v3 SDK"]
+    Operator -->|"HTTPRoute, ReferenceGrant<br/>v1.5.1"| GatewayAPI["Gateway API"]
+    Operator -->|"embedded chart<br/>pinned 0fa9baf"| BatchChart["batch-gateway<br/>Helm Chart"]
+    Operator -->|"embedded chart<br/>pinned dc30b7b"| AsyncChart["async-processor<br/>Helm Chart"]
+
+    %% External Dependencies (Optional)
+    Operator -.->|"TLS certs<br/>v1.20.2"| CertManager["cert-manager"]
+    Operator -.->|"monitoring CRDs<br/>v0.91.0"| PrometheusOp["Prometheus Operator"]
+
+    %% Internal Platform Dependencies
+    PlatformOp["opendatahub-operator /<br/>rhods-operator"] -->|"image env vars<br/>via params.env"| Operator
+
+    %% Managed Component Images
+    Operator -->|"manages"| APIServer["batch-gateway-apiserver<br/>(container image)"]
+    Operator -->|"manages"| Processor["batch-gateway-processor<br/>(container image)"]
+    Operator -->|"manages"| GC["batch-gateway-gc<br/>(container image)"]
+    Operator -.->|"manages (async mode)"| AsyncProc["llm-d-async<br/>(container image)"]
+
+    %% External Services (used by managed workloads)
+    APIServer -->|"job state"| PostgreSQL["PostgreSQL"]
+    APIServer -->|"state / queue"| Redis["Redis / Valkey"]
+    Processor -->|"file storage"| S3["S3-Compatible<br/>Storage"]
+    Processor -->|"inference dispatch"| InfGW["Inference Gateway /<br/>llm-d EPP"]
+    AsyncProc -->|"message queue"| Redis
+    AsyncProc -->|"inference dispatch"| InfGW
+
+    %% Control Plane
+    Operator -->|"CR watches, CRUD"| K8sAPI["Kubernetes API"]
+    Operator -->|"tracing (optional)"| OTLP["OTLP Collector"]
+
+    %% Styling
+    style Operator fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style ControllerRuntime fill:#999,stroke:#333,color:#fff
+    style Helm fill:#999,stroke:#333,color:#fff
+    style GatewayAPI fill:#999,stroke:#333,color:#fff
+    style BatchChart fill:#9b59b6,stroke:#333,color:#fff
+    style AsyncChart fill:#9b59b6,stroke:#333,color:#fff
+    style CertManager fill:#999,stroke:#333,color:#fff
+    style PrometheusOp fill:#999,stroke:#333,color:#fff
+    style PlatformOp fill:#7ed321,stroke:#333,color:#fff
+    style APIServer fill:#7ed321,stroke:#333,color:#fff
+    style Processor fill:#7ed321,stroke:#333,color:#fff
+    style GC fill:#7ed321,stroke:#333,color:#fff
+    style AsyncProc fill:#7ed321,stroke:#333,color:#fff
+    style PostgreSQL fill:#f5a623,stroke:#333,color:#fff
+    style Redis fill:#f5a623,stroke:#333,color:#fff
+    style S3 fill:#f5a623,stroke:#333,color:#fff
+    style InfGW fill:#f5a623,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style OTLP fill:#f5a623,stroke:#333,color:#fff

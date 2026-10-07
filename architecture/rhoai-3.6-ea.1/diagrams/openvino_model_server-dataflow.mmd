@@ -1,0 +1,44 @@
+sequenceDiagram
+    participant Client as External Client
+    participant KServe as KServe Controller
+    participant StorageInit as KServe Storage Initializer
+    participant OVMS as OVMS Pod<br/>/ovms/bin/ovms
+    participant ModelStore as Model Storage<br/>(S3 / PVC)
+    participant Prom as Prometheus
+
+    Note over KServe, OVMS: Deployment Phase
+    KServe->>OVMS: Create Pod via ServingRuntime CR
+    StorageInit->>ModelStore: Fetch model artifacts
+    ModelStore-->>StorageInit: Model files
+    StorageInit->>OVMS: Mount to /mnt/models
+    OVMS->>OVMS: Load models from /mnt/models
+    OVMS-->>KServe: /v2/health/ready → 200 OK
+
+    Note over Client, OVMS: REST Inference (TFS V1)
+    Client->>OVMS: POST /v1/models/{name}:predict<br/>Port 8888/TCP (RHOAI)
+    OVMS->>OVMS: HttpRestApiHandler dispatches<br/>to TFS V1 predict handler
+    OVMS-->>Client: JSON prediction response
+
+    Note over Client, OVMS: REST Inference (KServe V2)
+    Client->>OVMS: POST /v2/models/{name}/infer<br/>Port 8888/TCP (RHOAI)
+    OVMS->>OVMS: HttpRestApiHandler dispatches<br/>to KServe V2 infer handler
+    OVMS-->>Client: JSON inference response
+
+    Note over Client, OVMS: REST Inference (OpenAI V3)
+    Client->>OVMS: POST /v3/chat/completions<br/>Port 8888/TCP (RHOAI)
+    OVMS->>OVMS: HttpRestApiHandler dispatches<br/>to OpenAI V3 handler
+    OVMS-->>Client: JSON/SSE response
+
+    Note over Client, OVMS: gRPC Inference
+    Client->>OVMS: ModelInfer / ModelStreamInfer RPC<br/>Port 8001/TCP (RHOAI)
+    OVMS->>OVMS: GRPCInferenceService processes
+    OVMS-->>Client: gRPC response (unary or stream)
+
+    Note over Client, OVMS: Optional mTLS Path
+    Client->>Client: Present client certificate
+    Client->>OVMS: TLS 1.2 + mTLS via nginx sidecar
+    Note right of OVMS: nginx terminates TLS,<br/>proxies to OVMS<br/>on loopback ports
+
+    Note over Prom, OVMS: Metrics Collection
+    Prom->>OVMS: GET /metrics<br/>Port 8888/TCP
+    OVMS-->>Prom: Prometheus metrics

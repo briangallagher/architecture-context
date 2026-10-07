@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "component": "pipelines-components",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "pipelines-components-init-pattern-001",
+      "claim": "The init container pattern decouples pipeline compilation from KFP API server startup, enabling operator-managed image substitution via RELATED_IMAGE environment variables without modifying upstream pipeline definitions.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "scripts/init_managed_pipelines/init_managed_pipelines.py:40-46"
+        }
+      ],
+      "reasoning": "The should_recompile_managed_pipelines check and RELATED_IMAGE-based recompilation path allow the same container image to serve both connected and disconnected deployments, which is a supply chain isolation pattern important for RHOAI's operator-managed lifecycle.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "pipelines-components-rhai-pypi-002",
+      "claim": "The requirements.txt pins all dependencies to the RHAI Python Package Index (console.redhat.com/api/pypi/public-rhai) with hash verification, establishing a controlled supply chain for Python dependencies separate from public PyPI.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "requirements.txt:1"
+        }
+      ],
+      "reasoning": "Using the RHAI PyPI index with hash-pinned dependencies ensures reproducible builds and enables Red Hat to control which Python packages enter the build. However, the index URL references rhoai/3.5 rather than 3.6, suggesting the package index version may lag behind the platform version.",
+      "applicability": "cross-component",
+      "confidence": "medium"
+    },
+    {
+      "id": "pipelines-components-codeflare-003",
+      "claim": "The parse_and_chunk component conditionally imports CodeFlare SDK and Ray for distributed document processing, creating an implicit runtime dependency on the CodeFlare/Ray stack that is not declared in the core package dependencies.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "components/data_processing/parse_and_chunk/component.py:576-582"
+        }
+      ],
+      "reasoning": "The CodeFlare SDK and Ray imports occur inside a component function body rather than at module level, and neither appears in pyproject.toml core dependencies. This means the dependency is satisfied by the component's base image at runtime but is invisible to standard dependency resolution. If the base image changes, the import will fail at pipeline execution time rather than at build time.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

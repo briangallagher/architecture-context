@@ -1,74 +1,74 @@
 graph TB
-    subgraph CaikitNLP["caikit-nlp Library"]
+    subgraph CaikitNLP["Caikit NLP Library"]
         direction TB
 
-        subgraph TextEmbed["Text Embedding Modules"]
-            EmbeddingModule["EmbeddingModule<br/><i>sentence-transformers</i><br/>Embedding, Similarity, Reranking"]
-            CrossEncoderModule["CrossEncoderModule<br/><i>cross-encoder</i><br/>Reranking, Tokenization"]
-        end
-
         subgraph TextGen["Text Generation Modules"]
-            TextGeneration["TextGeneration<br/><i>HuggingFace CausalLM/Seq2SeqLM</i><br/>Local Text Generation"]
-            TextGenerationTGIS["TextGenerationTGIS<br/><i>TGIS gRPC client</i><br/>Remote Text Generation"]
+            PeftPromptTuning["PeftPromptTuning<br/>(Local PyTorch)"]
+            PeftPromptTuningTGIS["PeftPromptTuningTGIS<br/>(Remote via TGIS)"]
+            TextGenLocal["TextGeneration<br/>(Local Fine-tuned)"]
+            TextGenTGIS["TextGenerationTGIS<br/>(Remote Fine-tuned)"]
         end
 
-        subgraph PeftModules["PEFT Prompt Tuning Modules"]
-            PeftPromptTuning["PeftPromptTuning<br/><i>PEFT library</i><br/>Local Training + Inference"]
-            PeftPromptTuningTGIS["PeftPromptTuningTGIS<br/><i>TGIS gRPC + prompt cache</i><br/>Remote Inference"]
+        subgraph Embedding["Text Embedding Modules"]
+            EmbeddingModule["EmbeddingModule<br/>(7 tasks: Embed, Similarity,<br/>Rerank, Tokenize)"]
+            CrossEncoder["CrossEncoderModule<br/>(Cross-attention Reranking)"]
         end
 
         subgraph Classification["Classification Modules"]
-            SequenceClassification["SequenceClassification<br/><i>AutoModelForSequenceClassification</i>"]
-            FilteredSpanClassification["FilteredSpanClassification<br/><i>Token Classification + Span Filter</i>"]
+            SeqClassification["SequenceClassification"]
+            TokenClassification["FilteredSpanClassification"]
         end
 
-        subgraph Tokenization["Tokenization"]
-            RegexSentenceSplitter["RegexSentenceSplitter<br/><i>Regex-based Sentence Splitting</i>"]
+        subgraph Resources["Resources"]
+            PretrainedModel["PretrainedModel<br/>(HF AutoModel Wrappers)"]
+            CausalLM["HFAutoCausalLM"]
+            Seq2SeqLM["HFAutoSeq2SeqLM"]
+            SeqClassifier["HFAutoSeqClassifier"]
         end
 
-        subgraph ModelMgmt["Model Management"]
-            TGISAutoFinder["TGISAutoFinder<br/><i>Auto-discovers TGIS models</i>"]
+        subgraph Toolkit["Toolkit"]
+            TGISUtils["TGISGenerationClient<br/>(gRPC Error Mapping)"]
+            TorchRun["torch_run<br/>(Distributed Training)"]
+            ModelRunUtils["model_run_utils<br/>(Generation Pipeline)"]
         end
 
-        subgraph Resources["HuggingFace Resources"]
-            HFAutoCausalLM["HFAutoCausalLM"]
-            HFAutoSeq2SeqLM["HFAutoSeq2SeqLM"]
-            HFAutoSeqClassifier["HFAutoSequenceClassifier"]
-        end
-
-        TextGeneration -->|uses| HFAutoCausalLM
-        TextGeneration -->|uses| HFAutoSeq2SeqLM
-        PeftPromptTuning -->|uses| HFAutoCausalLM
-        PeftPromptTuning -->|uses| HFAutoSeq2SeqLM
-        SequenceClassification -->|uses| HFAutoSeqClassifier
+        PretrainedModel --> CausalLM
+        PretrainedModel --> Seq2SeqLM
+        PretrainedModel --> SeqClassifier
     end
 
-    subgraph CaikitRuntime["caikit Runtime Container"]
+    subgraph CaikitRuntime["Caikit Runtime (Host Process)"]
         HTTPServer["HTTP Server<br/>8080/TCP"]
-        gRPCServer["gRPC Server<br/>8085/TCP"]
-        ModuleRegistry["Module Registry"]
+        GRPCServer["gRPC Server<br/>8085/TCP"]
     end
 
-    Client["Client<br/>(KServe / Direct)"] -->|HTTP POST| HTTPServer
-    Client -->|gRPC| gRPCServer
-    HTTPServer -->|dispatches| ModuleRegistry
-    gRPCServer -->|dispatches| ModuleRegistry
-    ModuleRegistry -->|loads via<br/>RUNTIME_LIBRARY=caikit_nlp| CaikitNLP
+    Client[Client / Platform] -->|"POST /api/v1/task/*"| HTTPServer
+    Client -->|"gRPC caikit.runtime.Nlp"| GRPCServer
 
-    TextGenerationTGIS -->|gRPC| TGIS["TGIS Server<br/><i>Remote Inference</i>"]
-    PeftPromptTuningTGIS -->|gRPC| TGIS
-    TGISAutoFinder -->|gRPC discovery| TGIS
-    EmbeddingModule -.->|optional| HFHub["HuggingFace Hub<br/>443/TCP HTTPS"]
+    HTTPServer -->|"dispatches to"| TextGen
+    HTTPServer -->|"dispatches to"| Embedding
+    HTTPServer -->|"dispatches to"| Classification
+    GRPCServer -->|"dispatches to"| TextGen
+    GRPCServer -->|"dispatches to"| Embedding
+    GRPCServer -->|"dispatches to"| Classification
 
-    style CaikitNLP fill:#e8f0fe,stroke:#4a90e2,stroke-width:2px
-    style CaikitRuntime fill:#f0f0f0,stroke:#666,stroke-width:2px
-    style TextEmbed fill:#d5e8d4,stroke:#82b366
-    style TextGen fill:#dae8fc,stroke:#6c8ebf
-    style PeftModules fill:#fff2cc,stroke:#d6b656
-    style Classification fill:#e1d5e7,stroke:#9673a6
-    style Tokenization fill:#f8cecc,stroke:#b85450
-    style ModelMgmt fill:#ffe6cc,stroke:#d79b00
-    style Resources fill:#f5f5f5,stroke:#999
-    style Client fill:#f9f9f9,stroke:#333
-    style TGIS fill:#999,stroke:#333
-    style HFHub fill:#f5a623,stroke:#333
+    PeftPromptTuning -->|"uses"| PretrainedModel
+    TextGenLocal -->|"uses"| PretrainedModel
+    PeftPromptTuningTGIS -->|"gRPC"| TGIS["TGIS Backend"]
+    TextGenTGIS -->|"gRPC"| TGIS
+    EmbeddingModule -->|"uses"| SentenceTransformers["sentence-transformers"]
+    CrossEncoder -->|"uses"| CrossEncoderLib["CrossEncoder (HF)"]
+
+    PeftPromptTuning -->|"training"| PyTorch["PyTorch"]
+    TorchRun -->|"distributed"| PyTorchDist["torch.distributed<br/>29550/TCP"]
+
+    style CaikitNLP fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style CaikitRuntime fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    style Client fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style TGIS fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style SentenceTransformers fill:#e8e8e8,stroke:#999
+    style CrossEncoderLib fill:#e8e8e8,stroke:#999
+    style PyTorch fill:#e8e8e8,stroke:#999
+    style PyTorchDist fill:#e8e8e8,stroke:#999
+    style HTTPServer fill:#4a90e2,color:#fff
+    style GRPCServer fill:#4a90e2,color:#fff

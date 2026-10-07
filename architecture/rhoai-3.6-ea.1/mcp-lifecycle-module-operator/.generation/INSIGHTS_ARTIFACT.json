@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "mcp-lifecycle-module-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "mcp-lifecycle-module-operator-pattern-001",
+      "claim": "The operator implements a two-tier module-operator pattern where a module operator deploys and manages a separate operand operator, creating a clear lifecycle boundary between platform component management and user-facing CRD reconciliation.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:118-148"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/resources/mcp-lifecycle-operator.yaml:2051-2084"
+        }
+      ],
+      "reasoning": "The module operator (mcp-lifecycle-module-operator) deploys the operand (mcp-lifecycle-operator) as a managed Deployment with its own RBAC, ServiceAccount, and CRD watches. This separation means the module operator only needs cluster-scoped permissions for deployment management, while the operand's MCPServer reconciliation permissions are independently scoped. This is the same pattern used by other ODH module operators.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "mcp-lifecycle-module-operator-pattern-002",
+      "claim": "The operator uses label-scoped caching for cluster-scoped resources to prevent unbounded memory growth from watching all ClusterRoles, ClusterRoleBindings, and CRDs cluster-wide.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:86-106"
+        }
+      ],
+      "reasoning": "The managed-resource label selector (platform.opendatahub.io/part-of) filters cluster-scoped resources in the cache to only those owned by this operator. Without this, the controller-runtime cache would load all ClusterRoles, ClusterRoleBindings, and CRDs, which is problematic in large clusters. Namespace-scoped resources are further restricted to the SYSTEM_NAMESPACE.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "mcp-lifecycle-module-operator-trade-off-001",
+      "claim": "The operand image can be overridden via the RELATED_IMAGE_ODH_MCP_LIFECYCLE_OPERATOR_IMAGE environment variable, enabling disconnected deployment with image mirroring, but the default image reference in the embedded manifests uses a mutable tag (odh-stable) rather than a digest.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:133-136"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/resources/mcp-lifecycle-operator.yaml:2084"
+        }
+      ],
+      "reasoning": "The RELATED_IMAGE_ pattern is standard for OLM-managed operators and supports image mirroring in disconnected environments. However, the fallback image uses a mutable tag, which can lead to inconsistent deployments if the tag is updated between reconciliation cycles. In production RHOAI deployments, the OLM subscription typically pins the RELATED_IMAGE_ variable to a digest.",
+      "applicability": "component",
+      "confidence": "medium"
+    }
+  ]
+}

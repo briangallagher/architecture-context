@@ -1,0 +1,47 @@
+graph TB
+    subgraph "model-metadata-collection (Runtime)"
+        direction TB
+        Container["UBI9-micro Container<br/>sleep infinity<br/>UID 1001"]
+        DataDir["/app/data/<br/>YAML Catalog Files"]
+        Container --- DataDir
+    end
+
+    subgraph "model-metadata-collection (CI/Build-time)"
+        direction TB
+        ModelExtractor["model-extractor<br/>Go CLI"]
+        MetadataReport["metadata-report<br/>Go CLI"]
+        ModelExtractor -->|generates| CatalogFiles["data/<br/>YAML Catalogs"]
+        CatalogFiles -->|input| MetadataReport
+        MetadataReport -->|generates| Reports["Completeness Reports"]
+    end
+
+    subgraph "External Sources (CI-time)"
+        HuggingFace["HuggingFace API<br/>huggingface.co"]
+        GitHub["GitHub API<br/>api.github.com"]
+        OCIRegistry["OCI Container Registries"]
+    end
+
+    ModelExtractor -->|"HTTPS/443<br/>Bearer HF_TOKEN"| HuggingFace
+    ModelExtractor -->|"HTTPS/443<br/>Bearer GITHUB_TOKEN"| GitHub
+    ModelExtractor -->|"HTTPS/443<br/>containers/image auth"| OCIRegistry
+
+    CatalogFiles -->|"CI automation<br/>copies into image"| DataDir
+
+    subgraph "RHOAI Platform Components"
+        Dashboard["RHOAI Dashboard"]
+        OtherComponents["Other Components"]
+    end
+
+    Dashboard -->|"volume mount<br/>/app/data"| DataDir
+    OtherComponents -->|"volume mount<br/>/app/data"| DataDir
+
+    style Container fill:#4a90e2,stroke:#333
+    style DataDir fill:#7ed321,stroke:#333
+    style ModelExtractor fill:#f5a623,stroke:#333
+    style MetadataReport fill:#f5a623,stroke:#333
+    style CatalogFiles fill:#7ed321,stroke:#333
+    style HuggingFace fill:#e8e8e8,stroke:#333
+    style GitHub fill:#e8e8e8,stroke:#333
+    style OCIRegistry fill:#e8e8e8,stroke:#333
+    style Dashboard fill:#d5e8d4,stroke:#82b366
+    style OtherComponents fill:#d5e8d4,stroke:#82b366

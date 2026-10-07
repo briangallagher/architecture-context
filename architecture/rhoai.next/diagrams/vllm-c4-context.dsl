@@ -1,77 +1,69 @@
 workspace {
     model {
         datascientist = person "Data Scientist" "Deploys and queries LLM models for inference"
-        application = person "Application / Service" "Sends inference requests programmatically"
+        application = person "Application / Client" "Sends inference requests via HTTP or gRPC"
 
-        vllm = softwareSystem "vLLM CUDA Runtime" "GPU-accelerated LLM inference serving runtime with OpenAI-compatible HTTP API and TGIS gRPC interface" {
-            tgisAdapter = container "vllm_tgis_adapter" "Python entrypoint that wraps vLLM engine, exposing dual-protocol serving (HTTP + gRPC)" "Python Module"
-            vllmEngine = container "vLLM Engine" "High-performance LLM inference with PagedAttention, continuous batching, speculative decoding, tensor/pipeline parallelism" "Python / CUDA"
-            httpApi = container "OpenAI HTTP API" "REST API for completions, chat, embeddings, model listing" "HTTP/8000"
-            grpcApi = container "TGIS gRPC Service" "Text Generation Inference Service compatible gRPC interface" "gRPC/8033"
+        vllm = softwareSystem "vLLM CUDA" "GPU-accelerated LLM inference server with TGIS adapter, wrapping RHAIIS vLLM CUDA product image" {
+            tgisAdapter = container "vllm_tgis_adapter" "Entrypoint module launching dual-protocol server" "Python Module"
+            httpServer = container "OpenAI-Compatible HTTP Server" "Serves /v1/completions, /v1/chat/completions, /v1/models, /v1/embeddings" "vLLM HTTP Server, Port 8000"
+            grpcServer = container "TGIS gRPC Server" "TGIS GenerationService for backward-compatible inference" "gRPC Server, Port 8033"
+            engine = container "vLLM Inference Engine" "Core LLM inference engine with CUDA acceleration" "Python/C++ (from RHAIIS base)"
         }
 
-        kserve = softwareSystem "KServe" "Manages model serving lifecycle via ServingRuntime and InferenceService CRDs" "Internal RHOAI"
-        rhoaiModelServing = softwareSystem "RHOAI Model Serving" "Platform-level model serving configuration and orchestration" "Internal RHOAI"
-        gateway = softwareSystem "RHOAI Gateway" "Platform ingress with TLS termination and authentication (kube-rbac-proxy / Gateway API)" "Internal RHOAI"
-        gpuPlugin = softwareSystem "NVIDIA GPU Device Plugin" "Allocates GPU resources to inference pods" "External"
-        modelStorage = softwareSystem "Model Storage" "S3-compatible storage or HuggingFace Hub for model weight artifacts" "External"
-        rhaiisBase = softwareSystem "RHAIIS Base Image" "Pre-built container image providing vLLM runtime, Python, CUDA libraries, TGIS adapter" "External (Red Hat)"
-        konflux = softwareSystem "Konflux / Tekton" "CI/CD build pipeline for multi-arch container images" "External"
+        kserve = softwareSystem "KServe" "Manages InferenceService lifecycle and deploys ServingRuntimes" "Internal RHOAI"
+        kubeRbacProxy = softwareSystem "kube-rbac-proxy" "Authentication/authorization sidecar using SubjectAccessReview" "Internal RHOAI"
+        gatewayAPI = softwareSystem "Gateway API (Envoy)" "Ingress routing for inference traffic via HTTPRoute" "Internal RHOAI"
+        nvidiaGPU = softwareSystem "NVIDIA GPU" "GPU compute via CUDA runtime (cuDNN, cuBLAS, NCCL)" "Infrastructure"
+        s3 = softwareSystem "S3 Storage" "Model artifact storage (AWS S3 or compatible)" "External"
+        hfHub = softwareSystem "Hugging Face Hub" "Public/private model and tokenizer repository" "External"
+        pvc = softwareSystem "Persistent Volume" "Kubernetes PVC for local model storage" "Infrastructure"
+        rhaiisBase = softwareSystem "RHAIIS vLLM CUDA Image" "Pre-built product image providing vLLM engine, CUDA runtime, and dependencies" "Internal Red Hat"
+        konfluxCentral = softwareSystem "konflux-central" "Tekton pipeline definitions for CI/CD" "Internal Red Hat"
 
-        datascientist -> gateway "Sends inference requests via HTTPS/443"
-        application -> gateway "Sends inference requests via HTTPS/443"
-        application -> grpcApi "Sends gRPC inference requests (cluster-internal) via gRPC/8033"
-
-        gateway -> httpApi "Proxies authenticated requests via HTTP/8000"
-        tgisAdapter -> vllmEngine "Delegates inference"
-        vllmEngine -> httpApi "Serves HTTP responses"
-        vllmEngine -> grpcApi "Serves gRPC responses"
-
-        kserve -> vllm "Manages pod lifecycle via ServingRuntime CR"
-        rhoaiModelServing -> kserve "Configures model deployments"
-        vllm -> modelStorage "Downloads model weights at startup via HTTPS/443"
-        vllm -> gpuPlugin "Requests GPU allocation"
-        rhaiisBase -> vllm "Provides base container image"
-        konflux -> vllm "Builds and publishes container image"
+        application -> gatewayAPI "Sends inference requests" "HTTPS/443, TLS 1.2+"
+        gatewayAPI -> kubeRbacProxy "Routes to serving pod" "HTTPS/8443, TLS"
+        kubeRbacProxy -> httpServer "Proxies HTTP requests (pre-authorized)" "HTTP/8000"
+        kubeRbacProxy -> grpcServer "Proxies gRPC requests (pre-authorized)" "gRPC/8033"
+        tgisAdapter -> httpServer "Launches HTTP server"
+        tgisAdapter -> grpcServer "Launches gRPC server"
+        httpServer -> engine "Inference request" "In-process"
+        grpcServer -> engine "Inference request" "In-process"
+        engine -> nvidiaGPU "CUDA compute" "CUDA Runtime"
+        engine -> s3 "Downloads model weights" "HTTPS/443"
+        engine -> hfHub "Downloads models and tokenizers" "HTTPS/443"
+        engine -> pvc "Loads model from volume" "Filesystem"
+        kserve -> vllm "Deploys as ServingRuntime" "InferenceService CR"
+        datascientist -> kserve "Creates InferenceService via kubectl"
+        rhaiisBase -> vllm "Base image (FROM)" "Build-time"
+        konfluxCentral -> vllm "Pipeline definitions" "Git sync"
     }
 
     views {
         systemContext vllm "SystemContext" {
             include *
             autoLayout
-            description "vLLM CUDA Runtime in the RHOAI ecosystem"
         }
 
         container vllm "Containers" {
             include *
             autoLayout
-            description "Internal structure of the vLLM CUDA serving runtime"
         }
 
         styles {
-            element "Person" {
-                shape Person
-                background #4a90e2
-                color #ffffff
-            }
-            element "Software System" {
-                background #1168bd
+            element "External" {
+                background #999999
                 color #ffffff
             }
             element "Internal RHOAI" {
                 background #7ed321
                 color #ffffff
             }
-            element "External" {
-                background #999999
+            element "Internal Red Hat" {
+                background #ee0000
                 color #ffffff
             }
-            element "External (Red Hat)" {
-                background #cc0000
-                color #ffffff
-            }
-            element "Container" {
-                background #438dd5
+            element "Infrastructure" {
+                background #4a90e2
                 color #ffffff
             }
         }

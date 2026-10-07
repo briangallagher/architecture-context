@@ -1,0 +1,114 @@
+graph TD
+    subgraph ServiceAccounts["Service Accounts"]
+        SA_Manager["kserve-controller-manager"]
+        SA_LLMISVC["llmisvc SA"]
+        SA_LocalModel["kserve-localmodel-<br/>controller-manager"]
+        SA_LocalModelNode["kserve-localmodelnode-<br/>agent"]
+        SA_Module["kserve-module-<br/>controller-manager"]
+    end
+
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        CRB_Manager["kserve-manager-rolebinding<br/>(Cluster-scoped)"]
+        CRB_Proxy["kserve-proxy-rolebinding<br/>(Cluster-scoped)"]
+        CRB_LLMISVC["llmisvc-manager-rolebinding<br/>(ns: kserve)"]
+        CRB_LocalModel["kserve-localmodel-manager-rolebinding<br/>(Cluster-scoped)"]
+        CRB_LocalModelNode["kserve-localmodelnode-agent-rolebinding<br/>(ns: kserve)"]
+        CRB_Module["kserve-module-manager-rolebinding<br/>(Cluster-scoped)"]
+    end
+
+    subgraph ClusterRoles["ClusterRoles"]
+        CR_Manager["kserve-manager-role"]
+        CR_Proxy["kserve-proxy-role"]
+        CR_LLMISVC["kserve-llmisvc-manager-role"]
+        CR_LocalModel["kserve-localmodel-manager-role"]
+        CR_LocalModelNode["kserve-localmodelnode-agent-role"]
+        CR_Module["kserve-module-manager-role"]
+    end
+
+    subgraph LeaderElection["Leader Election Roles"]
+        LE_KServe["kserve-leader-election-role<br/>(Role, ns: kserve)"]
+        LE_LLMISVC["llmisvc-leader-election-role<br/>(Role, ns: kserve)"]
+        LE_Module["kserve-module-leader-election-role<br/>(Role)"]
+    end
+
+    %% SA → Binding → Role
+    SA_Manager -->|bound via| CRB_Manager
+    SA_Manager -->|bound via| CRB_Proxy
+    SA_LLMISVC -->|bound via| CRB_LLMISVC
+    SA_LocalModel -->|bound via| CRB_LocalModel
+    SA_LocalModelNode -->|bound via| CRB_LocalModelNode
+    SA_Module -->|bound via| CRB_Module
+
+    CRB_Manager -->|grants| CR_Manager
+    CRB_Proxy -->|grants| CR_Proxy
+    CRB_LLMISVC -->|grants| CR_LLMISVC
+    CRB_LocalModel -->|grants| CR_LocalModel
+    CRB_LocalModelNode -->|grants| CR_LocalModelNode
+    CRB_Module -->|grants| CR_Module
+
+    %% Leader election bindings
+    SA_Manager -.->|leader election| LE_KServe
+    SA_LLMISVC -.->|leader election| LE_LLMISVC
+    SA_Module -.->|leader election| LE_Module
+
+    subgraph ManagerResources["kserve-manager-role Resources"]
+        direction LR
+        MR_IS["serving.kserve.io<br/>InferenceService<br/>InferenceGraph<br/>ClusterServingRuntime<br/>TrainedModel<br/><i>CRUD + watch</i>"]
+        MR_K8s["core<br/>Deployments, Services<br/>ConfigMaps, Pods<br/>Namespaces, Secrets<br/><i>varies</i>"]
+        MR_Net["networking<br/>HTTPRoutes, Ingresses<br/>VirtualServices<br/>Routes (OpenShift)<br/><i>CRUD + watch</i>"]
+        MR_Scale["autoscaling<br/>HPA, ScaledObjects<br/>Knative Services<br/><i>CRUD + watch</i>"]
+    end
+
+    subgraph LLMISVCResources["kserve-llmisvc-manager-role Resources"]
+        direction LR
+        LR_LLMIS["serving.kserve.io<br/>LLMInferenceService<br/>LLMInferenceServiceConfig<br/><i>CRUD + watch</i>"]
+        LR_GW["gateway.networking.k8s.io<br/>Gateways, HTTPRoutes<br/>GatewayClasses<br/><i>CRUD + watch</i>"]
+        LR_Inf["inference.networking<br/>InferenceModels<br/>InferencePools<br/>InferenceObjectives<br/><i>CRUD + watch</i>"]
+        LR_Scale["autoscaling<br/>HPA, ScaledObjects<br/>LeaderWorkerSets<br/><i>CRUD + watch</i>"]
+    end
+
+    subgraph ModuleResources["kserve-module-manager-role Resources"]
+        direction LR
+        MOD_Platform["platform<br/>Kserve CRs<br/>HardwareProfiles<br/>NIM Accounts<br/><i>CRUD + watch</i>"]
+        MOD_Infra["infrastructure<br/>CRDs, Webhooks<br/>Deployments, DaemonSets<br/>Certificates, SCCs<br/><i>CRUD + watch</i>"]
+        MOD_RBAC["RBAC<br/>ClusterRoles, Roles<br/>Bindings (all types)<br/><i>CRUD + bind + escalate</i>"]
+    end
+
+    subgraph ProxyResources["kserve-proxy-role Resources"]
+        direction LR
+        PR_Auth["authentication.k8s.io<br/>TokenReviews<br/><i>create</i>"]
+        PR_AuthZ["authorization.k8s.io<br/>SubjectAccessReviews<br/><i>create</i>"]
+    end
+
+    CR_Manager -->|manages| ManagerResources
+    CR_LLMISVC -->|manages| LLMISVCResources
+    CR_Module -->|manages| ModuleResources
+    CR_Proxy -->|manages| ProxyResources
+
+    %% Styling
+    style SA_Manager fill:#4a90e2,color:#fff
+    style SA_LLMISVC fill:#4a90e2,color:#fff
+    style SA_LocalModel fill:#4a90e2,color:#fff
+    style SA_LocalModelNode fill:#4a90e2,color:#fff
+    style SA_Module fill:#4a90e2,color:#fff
+
+    style CR_Manager fill:#f5a623,color:#fff
+    style CR_Proxy fill:#f5a623,color:#fff
+    style CR_LLMISVC fill:#f5a623,color:#fff
+    style CR_LocalModel fill:#f5a623,color:#fff
+    style CR_LocalModelNode fill:#f5a623,color:#fff
+    style CR_Module fill:#f5a623,color:#fff
+
+    style MR_IS fill:#7ed321,color:#fff
+    style MR_K8s fill:#7ed321,color:#fff
+    style MR_Net fill:#7ed321,color:#fff
+    style MR_Scale fill:#7ed321,color:#fff
+    style LR_LLMIS fill:#7ed321,color:#fff
+    style LR_GW fill:#7ed321,color:#fff
+    style LR_Inf fill:#7ed321,color:#fff
+    style LR_Scale fill:#7ed321,color:#fff
+    style MOD_Platform fill:#7ed321,color:#fff
+    style MOD_Infra fill:#7ed321,color:#fff
+    style MOD_RBAC fill:#7ed321,color:#fff
+    style PR_Auth fill:#7ed321,color:#fff
+    style PR_AuthZ fill:#7ed321,color:#fff

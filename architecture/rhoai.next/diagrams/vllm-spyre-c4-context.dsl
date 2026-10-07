@@ -1,35 +1,30 @@
 workspace {
     model {
-        dataScientist = person "Data Scientist" "Deploys and queries ML models for inference"
-        platformAdmin = person "Platform Admin" "Configures KServe ServingRuntimes and model serving"
+        user = person "Data Scientist / ML Engineer" "Deploys and queries LLM inference endpoints"
 
-        vllmSpyre = softwareSystem "vllm-spyre" "IBM Spyre-accelerated vLLM inference server with TGIS gRPC adapter for RHOAI model serving" {
-            tgisAdapter = container "vllm-tgis-adapter" "Bridges vLLM OpenAI API to TGIS gRPC protocol; serves HTTP (8000) and gRPC (8033)" "Python"
-            vllmEngine = container "vLLM Engine" "High-throughput LLM inference engine with Spyre plugin" "Python/C++"
-            spyrePlugin = container "vllm-spyre Plugin" "IBM Spyre accelerator integration for vLLM" "Python"
+        vllmSpyre = softwareSystem "vllm-spyre" "IBM Spyre-accelerated vLLM inference server with TGIS adapter for high-performance LLM serving" {
+            tgisAdapter = container "vllm_tgis_adapter" "Entrypoint wrapping vLLM engine to provide dual API surfaces" "Python"
+            vllmEngine = container "vLLM Engine" "High-performance LLM inference engine with IBM Spyre acceleration" "Python/C++"
+            httpApi = container "OpenAI-compatible API" "REST API for text/chat completions" "HTTP/8000"
+            grpcApi = container "TGIS gRPC API" "Text Generation Inference Server gRPC endpoint" "gRPC/8033"
         }
 
-        kubeRbacProxy = softwareSystem "kube-rbac-proxy" "Authentication and authorization sidecar proxy" "Platform-Injected"
-        kserve = softwareSystem "KServe" "Kubernetes-native model serving platform managing InferenceService lifecycle" "Internal RHOAI"
-        modelMesh = softwareSystem "ModelMesh" "Multi-model serving infrastructure for KServe" "Internal RHOAI"
-        spyreHardware = softwareSystem "IBM Spyre Accelerator" "AI inference accelerator hardware (VFIO passthrough)" "Hardware"
-        modelStorage = softwareSystem "Model Storage" "Pre-downloaded HuggingFace model weights (PVC)" "Storage"
-        baseImage = softwareSystem "rhaiis/vllm-spyre-rhel9" "Pre-built base image with all runtime components" "External"
-        konflux = softwareSystem "Konflux Pipeline" "Build system for supply chain provenance attestation" "Build Infrastructure"
+        kubeRbacProxy = softwareSystem "kube-rbac-proxy" "Authentication and authorization sidecar injected by RHOAI platform" "Sidecar"
+        kserve = softwareSystem "KServe" "Serverless ML inference platform managing ServingRuntime deployments" "Internal RHOAI"
+        modelStorage = softwareSystem "Model Storage (PVC)" "Persistent volume providing model weights" "Internal"
+        hfHub = softwareSystem "HuggingFace Hub" "Model artifact repository (optional fallback)" "External"
+        prometheus = softwareSystem "Prometheus" "Metrics collection for inference performance monitoring" "Internal RHOAI"
+        spyreHW = softwareSystem "IBM Spyre Accelerator" "Hardware acceleration for LLM inference workloads" "Hardware"
+        rhaiisBase = softwareSystem "RHAIIS Base Image" "Red Hat AI Inference Server product image providing vLLM, PyTorch, Spyre runtime" "Build Dependency"
 
-        dataScientist -> vllmSpyre "Sends inference requests via HTTPS/8443"
-        platformAdmin -> kserve "Configures ServingRuntime CRs"
-
-        kubeRbacProxy -> tgisAdapter "Forwards authenticated requests (HTTP/8000, gRPC/8033)" "HTTP/gRPC localhost"
-        tgisAdapter -> vllmEngine "In-process Python calls" "Python"
-        vllmEngine -> spyrePlugin "Dispatches to accelerator plugin" "Python"
-        spyrePlugin -> spyreHardware "Model inference computation" "VFIO passthrough"
-
-        kserve -> vllmSpyre "Deploys as ServingRuntime container"
-        modelMesh -> vllmSpyre "Routes inference requests via gRPC/TGIS"
-        modelStorage -> vllmEngine "Model weights mounted as volume" "Filesystem"
-        baseImage -> konflux "Source base image for rebuild" "Container Registry"
-        konflux -> vllmSpyre "Produces attested container image" "Container Image"
+        user -> kubeRbacProxy "Sends inference requests" "HTTPS/8443, Bearer Token"
+        kubeRbacProxy -> vllmSpyre "Proxies authorized requests" "HTTP/8000, gRPC/8033 (localhost)"
+        kserve -> vllmSpyre "Deploys and manages via ServingRuntime CR"
+        vllmSpyre -> modelStorage "Loads model weights at startup" "filesystem mount"
+        vllmSpyre -> hfHub "Downloads model artifacts (if not pre-staged)" "HTTPS/443, HF_TOKEN"
+        vllmSpyre -> spyreHW "Uses hardware acceleration for inference"
+        prometheus -> vllmSpyre "Scrapes inference metrics" "HTTP/8000 /metrics"
+        rhaiisBase -> vllmSpyre "Provides base image with all ML dependencies" "Build time"
     }
 
     views {
@@ -44,42 +39,34 @@ workspace {
         }
 
         styles {
-            element "Software System" {
-                background #438DD5
-                color #ffffff
-            }
-            element "Person" {
-                shape person
-                background #08427B
-                color #ffffff
-            }
-            element "Container" {
-                background #438DD5
-                color #ffffff
-            }
-            element "Platform-Injected" {
-                background #f5a623
+            element "External" {
+                background #999999
                 color #ffffff
             }
             element "Internal RHOAI" {
                 background #7ed321
                 color #ffffff
             }
+            element "Internal" {
+                background #4a90e2
+                color #ffffff
+            }
+            element "Sidecar" {
+                background #e8a838
+                color #ffffff
+            }
             element "Hardware" {
-                background #e74c3c
+                background #9b59b6
                 color #ffffff
             }
-            element "Storage" {
-                background #f5a623
-                color #333333
-            }
-            element "External" {
-                background #999999
+            element "Build Dependency" {
+                background #95a5a6
                 color #ffffff
             }
-            element "Build Infrastructure" {
-                background #999999
+            element "Person" {
+                background #08427b
                 color #ffffff
+                shape Person
             }
         }
     }

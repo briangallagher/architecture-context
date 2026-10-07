@@ -1,0 +1,52 @@
+graph TD
+    subgraph "Note: All RBAC is Example-Scoped"
+        direction TB
+        Note["This component defines NO production ClusterRoles.<br/>All RBAC below is from example workloads only."]
+    end
+
+    subgraph "Example: Stable Diffusion Workload"
+        SA1["ServiceAccount<br/>stable-diffusion-nb"]
+        RB1["RoleBinding<br/>edit"]
+        CR1["ClusterRole<br/>edit"]
+
+        SA1 -->|"bound via"| RB1
+        RB1 -->|"grants (ns: distributed)"| CR1
+    end
+
+    subgraph "Example: NFS Server Infrastructure"
+        SA2["ServiceAccount<br/>nfs-server-sa"]
+
+        RB2["RoleBinding<br/>nfs-server-sa-anyuid"]
+        CR2["ClusterRole<br/>system:openshift:scc:anyuid"]
+
+        RB3["RoleBinding<br/>nfs-server-sa-privileged"]
+        CR3["ClusterRole<br/>system:openshift:scc:privileged"]
+
+        SA2 -->|"bound via"| RB2
+        RB2 -->|"grants (ns: nfs)"| CR2
+
+        SA2 -->|"bound via"| RB3
+        RB3 -->|"grants (ns: nfs)"| CR3
+    end
+
+    subgraph "Secrets (Example-Scoped)"
+        S1["Secret: minio<br/>Type: Opaque<br/>MinIO credentials"]
+        S2["Secret: minio-secret<br/>Type: Opaque<br/>MinIO credentials"]
+    end
+
+    subgraph "Production Security Model"
+        ProdNote["Training pods run under ServiceAccounts<br/>managed by Kubeflow Trainer controller.<br/>No component-level authentication.<br/>FIPS via AIPCC/UBI9 base image OpenSSL."]
+    end
+
+    style Note fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style SA1 fill:#4a90e2,stroke:#333,color:#fff
+    style SA2 fill:#4a90e2,stroke:#333,color:#fff
+    style CR1 fill:#f5a623,stroke:#333
+    style CR2 fill:#f5a623,stroke:#333
+    style CR3 fill:#f5a623,stroke:#333
+    style RB1 fill:#d5e8d4,stroke:#82b366
+    style RB2 fill:#d5e8d4,stroke:#82b366
+    style RB3 fill:#d5e8d4,stroke:#82b366
+    style S1 fill:#e8d5f5,stroke:#9673a6
+    style S2 fill:#e8d5f5,stroke:#9673a6
+    style ProdNote fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px

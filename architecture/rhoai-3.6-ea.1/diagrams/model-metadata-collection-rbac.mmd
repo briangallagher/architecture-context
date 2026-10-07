@@ -1,0 +1,36 @@
+graph TD
+    subgraph "model-metadata-collection RBAC"
+        direction TB
+        Note["No RBAC resources defined in repository"]
+
+        subgraph "Runtime Container"
+            UID["Runs as UID 1001<br/>(non-root)"]
+            NoSA["No ServiceAccount<br/>defined in repo"]
+        end
+
+        subgraph "CI/Build-time Credentials"
+            HFToken["HF_TOKEN<br/>Environment Variable<br/>Optional Bearer Token<br/>HuggingFace API"]
+            GHToken["GITHUB_TOKEN<br/>Environment Variable<br/>Optional Bearer Token<br/>GitHub API"]
+            OCIAuth["OCI Registry Auth<br/>containers/image<br/>Default Auth Chain"]
+        end
+
+        subgraph "Security Posture"
+            NoPorts["No exposed ports"]
+            NoListeners["No network listeners"]
+            NoIngress["No ingress resources"]
+            NoRBAC["No ClusterRoles<br/>No RoleBindings"]
+            NoMesh["No service mesh config"]
+        end
+    end
+
+    style Note fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style UID fill:#d5e8d4,stroke:#82b366
+    style NoSA fill:#d5e8d4,stroke:#82b366
+    style HFToken fill:#ffe6cc,stroke:#d79b00
+    style GHToken fill:#ffe6cc,stroke:#d79b00
+    style OCIAuth fill:#ffe6cc,stroke:#d79b00
+    style NoPorts fill:#d5e8d4,stroke:#82b366
+    style NoListeners fill:#d5e8d4,stroke:#82b366
+    style NoIngress fill:#d5e8d4,stroke:#82b366
+    style NoRBAC fill:#d5e8d4,stroke:#82b366
+    style NoMesh fill:#d5e8d4,stroke:#82b366

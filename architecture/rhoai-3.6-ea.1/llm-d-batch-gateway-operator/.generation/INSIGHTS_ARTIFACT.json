@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "llm-d-batch-gateway-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "llm-d-batch-gateway-operator-pattern-001",
+      "claim": "The operator uses a Helm-rendering reconciler pattern where embedded Helm charts are rendered at reconcile time with runtime-resolved values, rather than creating Kubernetes resources imperatively.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:148-166"
+        },
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/architecture_components"
+        }
+      ],
+      "reasoning": "The operator embeds batch-gateway and async-processor Helm charts and renders them with NewHelmRenderer at reconcile time, injecting container images from environment variables and the cluster TLS profile. This is architecturally significant because it means the deployed topology is chart-defined, not operator-coded, and chart updates require a new operator image build.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-batch-gateway-operator-pattern-002",
+      "claim": "All optional platform integrations (Gateway API, cert-manager, prometheus-operator) are feature-gated via REST mapper probes at controller setup, allowing the operator to run on clusters without those CRDs.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/llmbatchgateway_controller.go:554-568"
+        }
+      ],
+      "reasoning": "The controller checks CRD availability via isCRDInstalled before registering Owns and Watches for HTTPRoute, Certificate, ServiceMonitor, PodMonitor, PrometheusRule, and ReferenceGrant. This graceful degradation pattern is common across RHOAI operators and ensures compatibility with minimal Kubernetes clusters.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-batch-gateway-operator-trade-off-001",
+      "claim": "The operator propagates the cluster TLS profile into both its own metrics server and the Helm chart values for managed workloads, creating a runtime dependency on the OpenShift APIServer CR for TLS configuration.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/tls/profile.go:60-120"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:124-155"
+        }
+      ],
+      "reasoning": "The TLS profile is resolved once at startup and baked into Helm values. A SecurityProfileWatcher triggers operator restart on profile change, but managed workloads may require their own restart cycle to pick up new TLS settings. On non-OpenShift clusters, the Intermediate profile is used as a hardcoded fallback.",
+      "applicability": "component",
+      "confidence": "medium"
+    }
+  ]
+}

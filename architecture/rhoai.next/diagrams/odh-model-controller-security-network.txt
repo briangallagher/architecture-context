@@ -1,191 +1,240 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  EXTERNAL (Untrusted)                                                        │
 │                                                                              │
-│  [External Client / Data Scientist]                                          │
-│         │                                                                    │
-│         │ Port: 443/TCP                                                      │
-│         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS (passthrough/reencrypt via OpenShift Route)         │
-│         │ Auth: Varies per InferenceService (Kuadrant AuthPolicy)            │
-│         ▼                                                                    │
-│  [OpenShift Route] (dynamically created per InferenceService)                │
-│  - TLS Mode: passthrough or reencrypt                                        │
-│  - Created by: odh-model-controller Route Reconciler                         │
-│                                                                              │
-│  [Dashboard / CLI Client]                                                    │
-│         │                                                                    │
-│         │ Port: 443/TCP → target 8443/TCP                                    │
-│         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS 1.2+ (FIPS: ECDHE+AES-GCM, P-256/P-384)          │
-│         │ Auth: Bearer Token (user's Kubernetes token)                       │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  CLUSTER SERVICES (Internal)                                                 │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐     │
-│  │  model-serving-api (Deployment)                                     │     │
-│  │  - Namespace: {applications-namespace}                              │     │
-│  │  - ServiceAccount: model-serving-api                                │     │
-│  │  - Image: odh-model-serving-api                                     │     │
-│  │                                                                     │     │
-│  │  Service: model-serving-api                                         │     │
-│  │    - 443/TCP → 8443 (HTTPS, TLS 1.2+ FIPS ciphers, Bearer Token)  │     │
-│  │    - 8080/TCP → 8080 (HTTPS, TLS 1.2+, metrics, no auth)          │     │
-│  │                                                                     │     │
-│  │  TLS Certificate: model-serving-api-tls                             │     │
-│  │    - Provisioned by: OpenShift service-ca (annotation-based)        │     │
-│  │    - Auto-rotate: Yes (service-ca managed)                          │     │
-│  │    - Cert reload: fsnotify-based (zero-downtime)                    │     │
-│  │                                                                     │     │
-│  │  FIPS TLS Config:                                                   │     │
-│  │    - MinVersion: TLS 1.2                                            │     │
-│  │    - CipherSuites: TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,         │     │
-│  │                    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,          │     │
-│  │                    TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,        │     │
-│  │                    TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384         │     │
-│  │    - Curves: P-256, P-384                                           │     │
-│  └─────────────────────────────────────────────────────────────────────┘     │
+│  [User / kubectl]                                                            │
 │         │                                                                    │
 │         │ Port: 6443/TCP                                                     │
 │         │ Protocol: HTTPS                                                    │
 │         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: User's Bearer Token (SelfSubjectAccessReview)                │
-│         │       + ServiceAccount token (list Gateways, get Namespaces)       │
+│         │ Auth: kubectl/oc credentials (Bearer token / client cert)          │
 │         ▼                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES CONTROL PLANE (Trusted)                                          │
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐     │
-│  │  odh-model-controller (Deployment)                                  │     │
-│  │  - Namespace: {applications-namespace}                              │     │
-│  │  - ServiceAccount: odh-model-controller                             │     │
-│  │  - Image: odh-model-controller                                      │     │
-│  │  - Leader election: configurable                                    │     │
-│  │                                                                     │     │
-│  │  Service: odh-model-controller-metrics-service                      │     │
-│  │    - 8080/TCP → 8080 (HTTP, no encryption, metrics, no auth)       │     │
-│  │                                                                     │     │
-│  │  Service: odh-model-controller-webhook-service                      │     │
-│  │    - 443/TCP → 9443 (HTTPS, TLS, webhook serving cert)             │     │
-│  │                                                                     │     │
-│  │  Health/Ready: 8081/TCP (HTTP, no encryption, no auth)              │     │
-│  │                                                                     │     │
-│  │  Cache Filtering:                                                   │     │
-│  │    - Secrets: only opendatahub.io/managed=true                      │     │
-│  │    - Pods: only component=predictor                                 │     │
-│  └─────────────────────────────────────────────────────────────────────┘     │
+│  [Kubernetes API Server]                                                     │
+│  - Port: 6443/TCP                                                            │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: Bearer token, client certificate                                    │
+│         │                                                                    │
+│         │ Port: 9443/TCP                                                     │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS (OpenShift service-cert)                           │
+│         │ Auth: mTLS (Kubernetes webhook config)                             │
+│         │ Policy: failurePolicy: Fail (fail-closed)                          │
+│         ▼                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  ADMISSION WEBHOOKS (Trusted - Service Mesh)                                 │
+│                                                                              │
+│  [Webhook Server]                                                            │
+│  - Namespace: opendatahub                                                    │
+│  - Service: odh-model-controller-webhook-service                             │
+│  - Port: 443/TCP (external) → 9443/TCP (target)                             │
+│  - Encryption: TLS (OpenShift CA injection)                                  │
+│  - Secret: webhook-server-cert (kubernetes.io/tls)                           │
+│  - 5 mutating webhooks:                                                      │
+│    - InferenceService defaulter (credentials + HardwareProfile injection)    │
+│    - LLMInferenceService defaulter v1alpha1 (credentials + HardwareProfile)  │
+│    - LLMInferenceService defaulter v1alpha2 (credentials + HardwareProfile)  │
+│    - InferenceGraph defaulter (no-op placeholder)                            │
+│    - Pod mutator (Ray TLS init-container injection)                          │
+│  - 3 validating webhooks:                                                    │
+│    - InferenceService validator (namespace + name-length checks)             │
+│    - NIM Account validator (singleton per namespace)                         │
+│    - InferenceGraph validator (cross-namespace URL rejection)                │
+│                                                                              │
 │         │                                                                    │
 │         │ Port: 6443/TCP                                                     │
 │         │ Protocol: HTTPS                                                    │
 │         │ Encryption: TLS 1.2+                                               │
 │         │ Auth: ServiceAccount token                                         │
-│         │ Operations: Watch CRDs, Create Routes, NetworkPolicies,            │
-│         │            AuthPolicies, EnvoyFilters, ServiceMonitors,            │
-│         │            Templates, Secrets, ClusterRoleBindings                 │
 │         ▼                                                                    │
-│                                                                              │
-│  [Kubernetes API Server]                                                     │
-│  - Port: 6443/TCP                                                            │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: ServiceAccount token, User Bearer token                             │
+│  [HardwareProfile CRD / Connection Secrets]                                  │
+│  - Accessed via Kubernetes API                                               │
+│  - Purpose: Resolve scheduling constraints and credentials at admission      │
 │                                                                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│  EXTERNAL SERVICES (Egress)                                                  │
+│  OPERATOR NAMESPACE (opendatahub)                                            │
 │                                                                              │
-│  [api.ngc.nvidia.com]                                                        │
+│  [odh-model-controller]                                                      │
+│  - Namespace: opendatahub                                                    │
+│  - ServiceAccount: odh-model-controller                                      │
+│  - Image: quay.io/opendatahub/odh-model-controller                          │
+│  - Replicas: 1 (leader election)                                             │
+│  - Ports:                                                                    │
+│    - 8080/TCP (metrics, HTTP, no encryption)                                 │
+│    - 8081/TCP (health probes, HTTP, no encryption)                           │
+│    - 9443/TCP (webhooks, HTTPS, TLS service-cert)                            │
+│         │                                                                    │
+│         │ Port: 6443/TCP                                                     │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS 1.2+                                               │
+│         │ Auth: ServiceAccount token                                         │
+│         ▼                                                                    │
+│  [Kubernetes API Server]                                                     │
+│  - Creates: Routes, AuthPolicies, EnvoyFilters, ServiceMonitors,            │
+│    PodMonitors, NetworkPolicies, ClusterRoleBindings, TriggerAuths,         │
+│    Templates, Secrets, ConfigMaps                                            │
+│                                                                              │
+│  ─────────────────────────────────────────────────                           │
+│                                                                              │
+│  [model-serving-api]                                                         │
+│  - Namespace: opendatahub                                                    │
+│  - ServiceAccount: model-serving-api                                         │
+│  - Image: quay.io/opendatahub/odh-model-serving-api                         │
+│  - Service: model-serving-api                                                │
+│  - Ports:                                                                    │
+│    - 443/TCP (external) → 8443/TCP (HTTPS, FIPS cipher suites)              │
+│    - 8080/TCP (metrics, HTTPS, TLS 1.2+)                                    │
+│  - Secret: model-serving-api-tls (kubernetes.io/tls, OpenShift service-cert)│
+│  - TLS Config: TLS 1.2+ min, ECDHE+AES-GCM only, NIST P-256/P-384 curves  │
+│  - Cert reload: fsnotify hot-reload                                          │
+│                                                                              │
+│    Endpoint: GET /api/v1/gateways                                            │
+│    - Auth: Bearer token → SelfSubjectAccessReview (K8s RBAC)                │
+│    - Policy: User must have 'create' on llminferenceservices in namespace    │
+│                                                                              │
+│    Endpoint: GET /api/v1/samples/llm-d                                       │
+│    - Auth: None                                                              │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  USER NAMESPACES (per-tenant)                                                │
+│                                                                              │
+│  [InferenceService Resources]                                                │
+│  - Dynamic Route: {isvc-name}-{namespace}.apps.cluster                      │
+│    - Port: 443/TCP                                                           │
+│    - Encryption: TLS (Edge or Re-encrypt)                                    │
+│    - Auth: OpenShift Route TLS only (no per-tenant auth)                     │
+│                                                                              │
+│  [LLMInferenceService Resources]                                             │
+│  - Dynamic HTTPRoute via Gateway API                                         │
+│    - Auth: Kuadrant AuthPolicy (Anonymous or UserDefined)                    │
+│    - Enforcement: Authorino via EnvoyFilter                                  │
+│                                                                              │
+│  [Dynamic Secrets]                                                           │
+│  - storage-config (Opaque): Aggregated S3 credentials                       │
+│  - {account}-pull (dockerconfigjson): NIM pull secrets                      │
+│  - ray-ca-tls / ray-tls (Opaque): Ray multi-node TLS certs (self-signed)   │
+│  - inference-prometheus-auth (SA token): KEDA auth                          │
+│                                                                              │
+│  [Dynamic Resources]                                                         │
+│  - NetworkPolicy (per InferenceService)                                      │
+│  - ServiceMonitor (per InferenceService)                                     │
+│  - ClusterRoleBinding (auth delegation)                                      │
+│  - TriggerAuthentication (KEDA autoscaling)                                  │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  PLATFORM SERVICES (Trusted)                                                 │
+│                                                                              │
+│  [Kuadrant / Authorino]                                                      │
+│  - Purpose: Auth bootstrapping, per-service AuthPolicy                       │
+│  - Interaction: CRD Watch + Create (AuthPolicy)                              │
+│  - Encryption: TLS 1.2+ (Kubernetes API)                                     │
+│                                                                              │
+│  [Istio Control Plane]                                                       │
+│  - Purpose: EnvoyFilter for Authorino TLS on Gateway                         │
+│  - Interaction: CRD Create (EnvoyFilter)                                     │
+│  - Encryption: TLS 1.2+ (Kubernetes API)                                     │
+│                                                                              │
+│  [KEDA]                                                                      │
+│  - Purpose: Autoscaling via TriggerAuthentication                            │
+│  - Interaction: CRD Create (TriggerAuthentication)                           │
+│  - Encryption: TLS 1.2+ (Kubernetes API)                                     │
+│                                                                              │
+│  [Prometheus Operator]                                                       │
+│  - Purpose: Metrics scraping configuration                                   │
+│  - Interaction: CRD Create (ServiceMonitor, PodMonitor)                      │
+│  - Encryption: TLS 1.2+ (Kubernetes API)                                     │
+│                                                                              │
+│  [OpenShift Router]                                                          │
+│  - Purpose: External access for InferenceServices                            │
+│  - Interaction: CRD Create (Route)                                           │
+│  - Port: 443/TCP (external TLS)                                             │
+│                                                                              │
+│  [OpenShift Monitoring (Prometheus)]                                         │
+│  - Purpose: KEDA metrics source                                              │
+│  - Auth: ServiceAccount token                                                │
+│  - Encryption: HTTPS TLS 1.2+                                               │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                           │
+│                                                                              │
+│  [NVIDIA NGC API - api.ngc.nvidia.com]                                       │
 │  - Port: 443/TCP                                                             │
 │  - Protocol: HTTPS                                                           │
 │  - Encryption: TLS 1.2+                                                      │
-│  - Auth: Bearer Token (NGC API key from NIM Account Secret)                  │
-│  - Purpose: NIM model catalog queries, API key validation                    │
-│  - Conditional: Only when NIM_STATE=managed                                  │
-│  - Note: TLS config uses MinVersion TLS 1.2 without explicit                │
-│           cipher suite restriction (non-FIPS risk)                            │
-│                                                                              │
-│  [nvcr.io]                                                                   │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS (OCI registry)                                            │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: Bearer Token (registry token from NGC token exchange)               │
-│  - Purpose: Container image manifest validation, pull secret creation        │
-│  - Conditional: Only when NIM_STATE=managed                                  │
+│  - Auth: NGC API Key                                                         │
+│  - Purpose: NIM catalog discovery, API key validation, model metadata        │
+│  - Risk: nim.go uses custom tls.Config with MinVersion TLS 1.2              │
+│    (no explicit cipher suite restriction — potential non-FIPS crypto)         │
 │                                                                              │
 │  [Model Registry]                                                            │
 │  - Port: 443/TCP                                                             │
 │  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+ (configurable: MR_SKIP_TLS_VERIFY)                  │
-│  - Auth: Bearer Token                                                        │
-│  - Purpose: InferenceService metadata sync                                   │
-│  - Conditional: Only when MODELREGISTRY_STATE=managed                        │
+│  - Encryption: TLS 1.2+ (configurable skip via MR_SKIP_TLS_VERIFY)          │
+│  - Auth: Bearer token                                                        │
+│  - Purpose: Model registration sync (optional)                               │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 
 RBAC Summary:
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  ClusterRole: odh-model-controller-role                                      │
-│  Bound to SA: odh-model-controller                                           │
-│                                                                              │
-│  Key Permissions:                                                            │
-│  - serving.kserve.io: inferenceservices, llminferenceservices,               │
-│    inferencegraphs, servingruntimes (full CRUD + watch)                      │
-│  - nim.opendatahub.io: accounts (get, list, patch, update, watch)           │
-│  - gateway.networking.k8s.io: gateways, httproutes (watch + patch)          │
-│  - kuadrant.io: authpolicies (full CRUD + watch)                            │
-│  - networking.istio.io: envoyfilters (full CRUD + watch)                    │
-│  - route.openshift.io: routes (full CRUD + watch)                           │
-│  - networking.k8s.io: networkpolicies (full CRUD + watch)                   │
-│  - monitoring.coreos.com: servicemonitors, podmonitors (full CRUD)          │
-│  - rbac.authorization.k8s.io: clusterrolebindings, roles, rolebindings      │
-│  - template.openshift.io: templates (full CRUD + watch)                     │
-│  - keda.sh: triggerauthentications (full CRUD + watch)                      │
-│  - core: configmaps, secrets, serviceaccounts, services (full CRUD)         │
-│  - core: endpoints, namespaces, pods (read + create + patch)                │
-│  - config.openshift.io: authentications (read only)                         │
-│  - datasciencecluster.opendatahub.io: datascienceclusters (read only)      │
-│  - dscinitialization.opendatahub.io: dscinitializations (read only)        │
-│                                                                              │
-│  ClusterRole: model-serving-api                                              │
-│  Bound to SA: model-serving-api                                              │
-│  - gateway.networking.k8s.io: gateways (list)                               │
-│  - core: namespaces (get)                                                    │
-└──────────────────────────────────────────────────────────────────────────────┘
 
-Webhook Configuration:
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  Webhook Server Port: 9443/TCP (HTTPS, TLS cert)                             │
-│                                                                              │
-│  Mutating Webhooks:                                                          │
-│  - Pod webhook: Injects Ray TLS volumes/init-containers                      │
-│  - InferenceService webhook: Name/namespace validation (no-op defaulter)     │
-│  - InferenceGraph webhook: Cross-namespace service URL check                 │
-│                                                                              │
-│  Validating Webhooks:                                                        │
-│  - InferenceService: Name length + protected namespace check                 │
-│  - NIM Account: Singleton per-namespace constraint                           │
-│  - InferenceGraph: Cross-namespace service URL validation                    │
-│                                                                              │
-│  Auth: TLS client certificate (Kubernetes API server validates)              │
-└──────────────────────────────────────────────────────────────────────────────┘
+ClusterRole: odh-model-controller-role
+  ServiceAccount: odh-model-controller (namespace: opendatahub)
+  Binding: odh-model-controller-rolebinding (cluster-wide)
+  Permissions (26 rules):
+    - core: configmaps, secrets, serviceaccounts, services → CRUD + watch
+    - core: endpoints, namespaces, pods → create, get, list, patch, update, watch
+    - core: events → create, patch
+    - serving.kserve.io: inferenceservices, servingruntimes → CRUD + watch
+    - serving.kserve.io: llminferenceservices → CRUD + watch + status
+    - serving.kserve.io: inferencegraphs → get, list, watch + finalizers
+    - nim.opendatahub.io: accounts → get, list, patch, update, watch + status/finalizers
+    - kuadrant.io: authpolicies → CRUD + watch
+    - kuadrant.io: kuadrants, operator.authorino.kuadrant.io: authorinos → read-only
+    - gateway.networking.k8s.io: gateways, httproutes → get, list, patch, update, watch
+    - networking.istio.io: envoyfilters → CRUD + watch
+    - route.openshift.io: routes, routes/custom-host → CRUD + watch
+    - monitoring.coreos.com: podmonitors, servicemonitors → CRUD + watch
+    - networking.k8s.io: networkpolicies → CRUD + watch
+    - keda.sh: triggerauthentications → CRUD + watch
+    - rbac.authorization.k8s.io: clusterrolebindings, rolebindings, roles → CRUD + watch
+    - template.openshift.io: templates → CRUD + watch
+    - config.openshift.io: authentications → read-only
+    - datasciencecluster.opendatahub.io: datascienceclusters → read-only
+    - dscinitialization.opendatahub.io: dscinitializations → read-only
+    - infrastructure.opendatahub.io: hardwareprofiles → read-only
+    - metrics.k8s.io: nodes, pods → read-only
+
+ClusterRole: proxy-role
+  ServiceAccount: odh-model-controller
+  Permissions:
+    - authentication.k8s.io: tokenreviews → create
+    - authorization.k8s.io: subjectaccessreviews → create
+
+ClusterRole: model-serving-api
+  ServiceAccount: model-serving-api (namespace: opendatahub)
+  Permissions:
+    - gateway.networking.k8s.io: gateways → list
+    - core: namespaces → get
+
+ClusterRole: kserve-prometheus-k8s
+  Permissions:
+    - core: services, endpoints, pods → get, list, watch
+
+Dynamic Bindings:
+  - {namespace}-{sa}-auth-delegator → system:auth-delegator (per InferenceService SA)
+  - inference-prometheus-auth → per-namespace KEDA auth
 
 Secrets:
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  Secret                    │ Type              │ Provisioner       │ Rotate │
-│  ─────────────────────────┼───────────────────┼───────────────────┼────────│
-│  model-serving-api-tls     │ kubernetes.io/tls │ OpenShift svc-ca  │ Yes    │
-│  {account-name}-pull       │ dockercfg         │ NIM Account ctrl  │ No*    │
-│  ray-ca-tls                │ kubernetes.io/tls │ odh-model-ctrl    │ Yes**  │
-│  ray-tls                   │ kubernetes.io/tls │ Pod webhook init  │ Yes*** │
-│                                                                              │
-│  * Recreated when NGC API key changes                                        │
-│  ** 4096-bit RSA, 5yr CA validity, checked every 2yr                         │
-│  *** 3yr validity, regenerated on pod creation                               │
-└──────────────────────────────────────────────────────────────────────────────┘
+  - model-serving-api-tls (kubernetes.io/tls) — HTTPS for API server, OpenShift service-cert, auto-rotate
+  - webhook-server-cert (kubernetes.io/tls) — HTTPS for webhooks, OpenShift CA injection, auto-rotate
+  - ray-ca-tls (Opaque) — Self-signed CA for Ray multi-node TLS, auto-rotate on expiry
+  - ray-tls (Opaque) — Per-pod TLS certs for Ray workers, signed by ray-ca-tls, auto-rotate
+  - storage-config (Opaque) — Aggregated S3 data connection credentials, no auto-rotate
+  - {account}-pull (dockerconfigjson) — NIM container pull secrets, no auto-rotate
+  - inference-prometheus-auth (SA token) — KEDA Prometheus auth, no auto-rotate
 
 FIPS Compliance:
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, UBI9 base image       │
-│  Runtime: stdlib crypto/tls via OpenSSL (strictfipsruntime)                  │
-│  model-serving-api: Explicit FIPS cipher suites (ECDHE+AES-GCM only)        │
-│  Risk: NIM outbound TLS (api.ngc.nvidia.com) uses MinVersion TLS 1.2        │
-│         without explicit FIPS cipher suite restriction                        │
-│  HTTP/2: Explicitly disabled to mitigate CVEs                                │
-└──────────────────────────────────────────────────────────────────────────────┘
+  - Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, dynamic linking, UBI9 base
+  - model-serving-api TLS: FIPS-compliant (TLS 1.2+, ECDHE+AES-GCM only, NIST curves)
+  - Risk: NIM API client (nim.go) has no explicit FIPS cipher suite restriction

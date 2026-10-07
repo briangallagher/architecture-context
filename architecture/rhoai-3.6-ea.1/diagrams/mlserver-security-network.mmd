@@ -1,0 +1,65 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client"]
+    end
+
+    subgraph IngressZone["INGRESS (Platform-Managed)"]
+        KServeIngress["KServe Ingress Chain<br/>TLS Termination<br/>Platform-managed routing"]
+    end
+
+    subgraph AuthProxy["AUTH PROXY (Trust Boundary)"]
+        KubeRBACProxy["kube-rbac-proxy Sidecar<br/>OpenShift OAuth Validation<br/>ServiceAccount Token Check<br/>Kubernetes RBAC Authorization"]
+    end
+
+    subgraph Application["APPLICATION (MLServer Container)"]
+        direction TB
+
+        subgraph RESTZone["REST Surface"]
+            RESTServer["REST Server<br/>FastAPI/Uvicorn<br/>8080/TCP HTTP/1.1<br/>No TLS · No Auth"]
+        end
+
+        subgraph GRPCZone["gRPC Surface"]
+            GRPCServer["gRPC Server<br/>AsyncIO<br/>8081/TCP gRPC<br/>add_insecure_port · No Auth"]
+        end
+
+        subgraph MetricsZone["Metrics Surface"]
+            MetricsServer["Metrics Server<br/>starlette-exporter<br/>8082/TCP HTTP/1.1<br/>No Auth"]
+        end
+
+        subgraph RuntimeZone["ML Runtime Layer"]
+            TrustedRuntimes["Trusted Runtimes<br/>Allowlist<br/>/etc/mlserver/trusted-runtimes.json"]
+            ModelRepo["Model Repository<br/>/mnt/models"]
+        end
+    end
+
+    subgraph Observability["OBSERVABILITY (Egress)"]
+        OTelCollector["OpenTelemetry Collector<br/>gRPC OTLP"]
+        Prometheus["Prometheus<br/>Scrapes 8082/TCP"]
+    end
+
+    %% Flows
+    Client -->|"HTTPS<br/>TLS (platform)<br/>Bearer Token"| KServeIngress
+    KServeIngress -->|"HTTP/gRPC<br/>mTLS (if mesh enabled)"| KubeRBACProxy
+    KubeRBACProxy -->|"HTTP/8080<br/>Plaintext<br/>Auth pre-validated"| RESTServer
+    KubeRBACProxy -->|"gRPC/8081<br/>Plaintext (insecure_port)<br/>Auth pre-validated"| GRPCServer
+    RESTServer -->|"V2 Protocol"| TrustedRuntimes
+    GRPCServer -->|"V2 Protocol"| TrustedRuntimes
+    TrustedRuntimes -->|"Load models"| ModelRepo
+    RESTServer -->|"OTLP traces"| OTelCollector
+    GRPCServer -->|"OTLP traces"| OTelCollector
+    Prometheus -->|"Scrape /metrics<br/>HTTP/8082"| MetricsServer
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef authproxy fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef application fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef observability fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef noauth fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+
+    class Client external
+    class KServeIngress ingress
+    class KubeRBACProxy authproxy
+    class RESTServer,GRPCServer,MetricsServer noauth
+    class TrustedRuntimes,ModelRepo application
+    class OTelCollector,Prometheus observability

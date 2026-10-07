@@ -1,62 +1,78 @@
 graph TD
-    subgraph ServiceAccounts["Service Accounts"]
-        SA["kube-rbac-proxy<br/>(example SA)"]
-        PromSA["system:serviceaccount:<br/>openshift-monitoring:<br/>prometheus-k8s"]
+    subgraph "Service Account (per-component pod)"
+        SA["Component ServiceAccount<br/>(e.g., dashboard-sa, modelmesh-sa)"]
     end
 
-    subgraph ClusterRoleBindings["ClusterRole Bindings"]
-        CRB["kube-rbac-proxy<br/>(cluster-scoped)"]
+    subgraph "ClusterRoleBinding"
+        CRB["ClusterRoleBinding<br/>(created by deploying operator)"]
     end
 
-    subgraph ClusterRoles["ClusterRole Permissions"]
-        CR["kube-rbac-proxy<br/>(ClusterRole)"]
+    subgraph "ClusterRole: kube-rbac-proxy"
+        CR["kube-rbac-proxy ClusterRole<br/>(minimum required permissions)"]
     end
 
-    subgraph APIResources["API Resources"]
+    subgraph "Kubernetes API Resources"
         TokenReviews["authentication.k8s.io<br/>tokenreviews"]
-        SAR["authorization.k8s.io<br/>subjectaccessreviews"]
+        SubjectAccessReviews["authorization.k8s.io<br/>subjectaccessreviews"]
     end
 
-    subgraph HardcodedAccess["Hardcoded Access (Built-in)"]
-        MetricsAllow["Hardcoded Authorizer<br/>Always allows GET /metrics<br/>for prometheus-k8s SA"]
-    end
-
-    subgraph AuthMethods["Request Authorization (Runtime)"]
-        direction TB
-
-        subgraph Format1["Format1 Config"]
-            F1Desc["Static resourceAttributes<br/>+ optional rewrites<br/>(query params / headers)"]
-        end
-
-        subgraph Format2["Format2 Config"]
-            F2Desc["Per-path endpoint rules<br/>Per-method resource mappings<br/>Template expansion"]
-        end
-    end
-
-    %% RBAC flow
     SA -->|"bound via"| CRB
     CRB -->|"grants"| CR
     CR -->|"create"| TokenReviews
-    CR -->|"create"| SAR
+    CR -->|"create"| SubjectAccessReviews
 
-    %% Hardcoded access
-    PromSA -->|"hardcoded allow<br/>GET /metrics<br/>(no SAR check)"| MetricsAllow
+    subgraph "Hardcoded Authorization (no RBAC needed)"
+        HardcodedSA["system:serviceaccount:<br/>openshift-monitoring:<br/>prometheus-k8s"]
+        MetricsPath["GET /metrics"]
+    end
 
-    %% SAR authorization methods
-    CR -.->|"used by proxy to<br/>perform SAR checks<br/>on behalf of callers"| Format1
-    CR -.->|"used by proxy to<br/>perform SAR checks<br/>on behalf of callers"| Format2
+    HardcodedSA -->|"always allowed<br/>(hardcoded in code)"| MetricsPath
 
-    %% Notes
-    Note1["Note: The proxy's own SA needs<br/>tokenreviews + subjectaccessreviews<br/>create permission.<br/><br/>Actual RBAC is defined by<br/>rhods-operator, not this repo."]
+    subgraph "Authorization Config (--config-file)"
+        direction TB
+        F1["Format1: resourceAttributes<br/>(top-level, simple)"]
+        F2["Format2: endpoints<br/>(path-scoped, per-method)"]
+
+        F1Config["namespace: {from header/query}<br/>apiGroup: {configured}<br/>resource: {configured}<br/>verb: {HTTP method mapping}"]
+        F2Config["path: /api/v1/resource<br/>  GET → resource: pods, verb: get<br/>  POST → resource: pods, verb: create<br/>path: /api/v1/other<br/>  DELETE → resource: other, verb: delete"]
+
+        F1 --> F1Config
+        F2 --> F2Config
+    end
+
+    subgraph "SAR Decision (per-request)"
+        SARRequest["SubjectAccessReview Request<br/>user: {authenticated identity}<br/>groups: {user groups}<br/>namespace: {from config/rewrite}<br/>resource: {from config}<br/>verb: {from config}"]
+        SARResponse["SubjectAccessReview Response"]
+        Allow["allowed: true → proxy to upstream"]
+        Deny["allowed: false → HTTP 403 Forbidden"]
+    end
+
+    F1Config -->|"generates"| SARRequest
+    F2Config -->|"generates"| SARRequest
+    SARRequest -->|"K8s API evaluates"| SARResponse
+    SARResponse -->|"allowed"| Allow
+    SARResponse -->|"denied"| Deny
+
+    %% SAR Caching
+    subgraph "SAR Response Cache"
+        AllowCache["Allow Cache: 5 minutes TTL"]
+        DenyCache["Deny Cache: 30 seconds TTL"]
+    end
+
+    SARResponse -.->|"cached"| AllowCache
+    SARResponse -.->|"cached"| DenyCache
 
     %% Styling
-    style SA fill:#4a90e2,color:#fff
-    style PromSA fill:#e6522c,color:#fff
-    style CRB fill:#9b59b6,color:#fff
-    style CR fill:#f5a623,color:#fff
-    style TokenReviews fill:#27ae60,color:#fff
-    style SAR fill:#27ae60,color:#fff
-    style MetricsAllow fill:#e74c3c,color:#fff
-    style F1Desc fill:#3498db,color:#fff
-    style F2Desc fill:#3498db,color:#fff
-    style Note1 fill:#f9f9f9,stroke:#ccc,font-size:11px
+    style SA fill:#4a90e2,stroke:#333,color:#fff
+    style CR fill:#f5a623,stroke:#333,color:#fff
+    style CRB fill:#d4edda,stroke:#333
+    style TokenReviews fill:#7ed321,stroke:#333
+    style SubjectAccessReviews fill:#7ed321,stroke:#333
+    style HardcodedSA fill:#e57373,stroke:#333,color:#fff
+    style MetricsPath fill:#ffcdd2,stroke:#333
+    style F1 fill:#bbdefb,stroke:#333
+    style F2 fill:#bbdefb,stroke:#333
+    style Allow fill:#c8e6c9,stroke:#333
+    style Deny fill:#ffcdd2,stroke:#333
+    style AllowCache fill:#e8e8e8,stroke:#333
+    style DenyCache fill:#e8e8e8,stroke:#333

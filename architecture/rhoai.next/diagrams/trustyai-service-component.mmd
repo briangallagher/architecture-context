@@ -1,0 +1,93 @@
+graph TB
+    subgraph TrustyAI["TrustyAI Service (FastAPI + Hypercorn)"]
+        direction TB
+
+        subgraph Endpoints["src/endpoints/ — API Layer"]
+            ConsumerEP["Consumer Endpoint<br/>POST / (KServe CloudEvents)<br/>POST /consumer/kserve/v2 (ModelMesh)"]
+            DataUploadEP["Data Upload Endpoint<br/>POST /data/upload"]
+            InfoEP["Info Endpoint<br/>GET /info, /info/names"]
+            DriftEP["Drift Metrics Endpoints<br/>/metrics/drift/kstest<br/>/metrics/drift/comparemeans"]
+            FairnessEP["Fairness Metrics Endpoints<br/>/metrics/group/fairness/spd<br/>/metrics/group/fairness/dir"]
+            ExplainerEP["Explainer Endpoints<br/>/explainers/local/lime, shap, cf<br/>(501 Not Implemented)"]
+            EvalEP["LM Eval Endpoint<br/>/eval/lm-evaluation-harness/job"]
+            HealthEP["Health & Metrics<br/>GET /q/metrics<br/>GET /q/health/ready, /live"]
+        end
+
+        subgraph Core["src/core/ — Pure Algorithms"]
+            DriftAlgo["Drift Detection<br/>KS-Test, CompareMeans/Meanshift<br/>Jensen-Shannon, FourierMMD, ApproxKS"]
+            FairnessAlgo["Fairness Metrics<br/>Statistical Parity Difference<br/>Disparate Impact Ratio"]
+        end
+
+        subgraph Service["src/service/ — Infrastructure"]
+            StorageIface["Storage Interface"]
+            PVCBackend["PVC Backend<br/>(HDF5 via h5py)"]
+            MariaBackend["MariaDB Backend<br/>(JSON+gzip cells)"]
+            DataSource["DataSource<br/>Per-model datasets"]
+            PromScheduler["Prometheus Scheduler<br/>(asyncio, 30s interval)"]
+            PromPublisher["Prometheus Publisher<br/>(OpenMetrics)"]
+            Serialization["Serialization<br/>(JSON+gzip, no pickle)"]
+            ModelMeshParser["ModelMesh Parser<br/>(protobuf decoding)"]
+        end
+
+        GzipMiddleware["GzipRequestMiddleware"]
+        EnvSecurity["_env_security.py<br/>CWE-426/427 mitigation"]
+    end
+
+    %% Internal flows
+    ConsumerEP --> GzipMiddleware
+    DataUploadEP --> GzipMiddleware
+    GzipMiddleware --> Serialization
+    ConsumerEP --> ModelMeshParser
+    ConsumerEP --> DataSource
+    DataUploadEP --> DataSource
+    DriftEP --> DriftAlgo
+    FairnessEP --> FairnessAlgo
+    EvalEP --> EnvSecurity
+    InfoEP --> DataSource
+    DataSource --> StorageIface
+    StorageIface --> PVCBackend
+    StorageIface --> MariaBackend
+    PromScheduler --> DataSource
+    PromScheduler --> DriftAlgo
+    PromScheduler --> FairnessAlgo
+    PromScheduler --> PromPublisher
+    HealthEP --> PromPublisher
+
+    %% External actors
+    KServe["KServe InferenceService"] -->|CloudEvents POST /| ConsumerEP
+    ModelMesh["ModelMesh ServingRuntime"] -->|Protobuf POST /consumer/kserve/v2| ConsumerEP
+    Dashboard["OpenShift Dashboard"] -->|HTTPS :8443| InfoEP
+    Prometheus["Prometheus Server"] -->|Scrapes GET /q/metrics| HealthEP
+    Operator["TrustyAI Operator"] -.->|Deploys & configures| TrustyAI
+
+    PVC["PersistentVolumeClaim"] --- PVCBackend
+    MariaDB["MariaDB<br/>3306/TCP"] --- MariaBackend
+
+    %% Styling
+    style TrustyAI fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style Endpoints fill:#dceefb,stroke:#4a90e2
+    style Core fill:#d5f5e3,stroke:#27ae60
+    style Service fill:#fef9e7,stroke:#f39c12
+    style ConsumerEP fill:#4a90e2,color:#fff
+    style DataUploadEP fill:#4a90e2,color:#fff
+    style InfoEP fill:#4a90e2,color:#fff
+    style DriftEP fill:#4a90e2,color:#fff
+    style FairnessEP fill:#4a90e2,color:#fff
+    style ExplainerEP fill:#95a5a6,color:#fff
+    style EvalEP fill:#4a90e2,color:#fff
+    style HealthEP fill:#4a90e2,color:#fff
+    style DriftAlgo fill:#27ae60,color:#fff
+    style FairnessAlgo fill:#27ae60,color:#fff
+    style StorageIface fill:#f39c12,color:#fff
+    style PVCBackend fill:#f39c12,color:#fff
+    style MariaBackend fill:#f39c12,color:#fff
+    style DataSource fill:#f39c12,color:#fff
+    style PromScheduler fill:#f39c12,color:#fff
+    style PromPublisher fill:#f39c12,color:#fff
+    style KServe fill:#e8e8e8,stroke:#333
+    style ModelMesh fill:#e8e8e8,stroke:#333
+    style Dashboard fill:#7ed321,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style Operator fill:#7ed321,stroke:#333
+    style PVC fill:#f5a623,stroke:#333
+    style MariaDB fill:#f5a623,stroke:#333

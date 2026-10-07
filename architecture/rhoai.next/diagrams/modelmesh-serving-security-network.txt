@@ -5,180 +5,167 @@
 │         │                                                                    │
 │         │ Port: 8443/TCP                                                     │
 │         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS                                                    │
-│         │ Auth: OpenShift OAuth (Bearer token + SAR)                         │
+│         │ Encryption: TLS (OpenShift serving cert)                           │
+│         │ Auth: OpenShift SAR (oauth-proxy)                                  │
+│         │       Checks: services:get in namespace                            │
 │         ▼                                                                    │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│  INFERENCE DATA PLANE (Runtime Pods - per ServingRuntime)                     │
+│  RUNTIME POD (Trust Boundary: Pod Network)                                   │
 │                                                                              │
-│  [oauth-proxy Sidecar]                                                       │
-│  - Port: 8443/TCP (external) → 8008/TCP (internal)                          │
-│  - TLS Termination: TLS                                                      │
-│  - AuthN: OpenShift OAuth (SAR-based: get verb on services in namespace)     │
-│         │                                                                    │
-│         │ Port: 8008/TCP                                                     │
-│         │ Protocol: HTTP                                                     │
-│         │ Encryption: None (pod-internal localhost)                           │
-│         │ Auth: None                                                         │
-│         ▼                                                                    │
-│  [REST Proxy Container]                                                      │
-│  - Purpose: KServe v2 REST API → gRPC translation                           │
-│  - Port: 8008/TCP (listener)                                                │
-│         │                                                                    │
-│         │ Port: 8033/TCP                                                     │
-│         │ Protocol: gRPC                                                     │
-│         │ Encryption: TLS (optional, via model-serving-proxy-tls)            │
-│         │ Auth: None (pod-internal)                                          │
-│         ▼                                                                    │
-│  [ModelMesh Container]                                                       │
-│  - Port: 8033/TCP (gRPC - external inference + internal model mgmt)         │
-│  - Port: 8089/TCP (health/readiness probes)                                 │
-│  - Port: 2112/TCP (Prometheus metrics)                                      │
-│  - TLS: Optional (via model-serving-proxy-tls secret)                       │
-│  - mTLS: Configurable via TLSClientAuth                                     │
-│         │                                                                    │
-│         │ Protocol: gRPC (UDS or TCP)                                        │
-│         │ Encryption: None (pod-internal)                                    │
-│         │ Auth: None                                                         │
-│         ▼                                                                    │
-│  [Model Runtime Container (Triton / MLServer / OVMS / TorchServe)]          │
-│  - Purpose: Actual model inference execution                                 │
-│  - Communication: Unix Domain Socket or TCP (pod-internal)                  │
+│  ┌─────────────────────────────────────────────────────────────────────┐     │
+│  │  [oauth-proxy Sidecar]                                              │     │
+│  │  - Port: 8443/TCP (external-facing)                                 │     │
+│  │  - TLS: OpenShift serving cert (model-serving-proxy-tls)            │     │
+│  │  - Auth: OpenShift SAR (--openshift-sar)                            │     │
+│  │  - Cert Rotation: Yes (OpenShift service-ca)                        │     │
+│  │         │                                                           │     │
+│  │         │ Port: 8008/TCP (localhost)                                 │     │
+│  │         │ Protocol: HTTP                                            │     │
+│  │         │ Encryption: None (pod-local)                              │     │
+│  │         │ Auth: None                                                │     │
+│  │         ▼                                                           │     │
+│  │  [REST Proxy (kserve/rest-proxy)]                                   │     │
+│  │  - Port: 8008/TCP                                                   │     │
+│  │  - Translates KServe V2 REST → gRPC                                 │     │
+│  │  - ⚠ No auth enforcement on this port                               │     │
+│  │         │                                                           │     │
+│  │         │ Port: 8033/TCP (localhost)                                 │     │
+│  │         │ Protocol: gRPC                                            │     │
+│  │         │ Encryption: Optional TLS                                  │     │
+│  │         │ Auth: None (pod-local)                                    │     │
+│  │         ▼                                                           │     │
+│  │  [ModelMesh Container]                                              │     │
+│  │  - Port: 8033/TCP (gRPC inference + management)                     │     │
+│  │  - Port: 8089/TCP (readiness probe)                                 │     │
+│  │  - Port: 8090/TCP (pre-stop hook)                                   │     │
+│  │  - Port: 2112/TCP (Prometheus metrics)                              │     │
+│  │  - TLS: Configurable via model-serving-config (tls.secretName)      │     │
+│  │  - mTLS: Configurable via tls.clientAuth                            │     │
+│  │         │                          │                                │     │
+│  │         │ UDS/gRPC (pod-local)     │ gRPC/8086 (pod-local)          │     │
+│  │         │ No encryption            │ No encryption                  │     │
+│  │         ▼                          ▼                                │     │
+│  │  [Model Runtime]           [Puller Sidecar]                         │     │
+│  │  (Triton/MLServer/          (modelmesh-runtime-adapter)             │     │
+│  │   OVMS/TorchServe)          - Port: 8086/TCP                        │     │
+│  └─────────────────────────────────────────────────────────────────────┘     │
 │                                                                              │
-│  [Storage Puller Sidecar]                                                    │
-│  - Port: 8086/TCP (gRPC - model download coordination)                     │
-│  - Encryption: None (pod-internal)                                          │
-│         │                                                                    │
-│         │ Port: 443/TCP                                                      │
-│         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: Storage credentials (from storage-config Secret)             │
-│         ▼                                                                    │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│  CONTROL PLANE                                                               │
+│  CONTROLLER NAMESPACE (Trust Boundary: Kubernetes RBAC)                      │
 │                                                                              │
-│  [modelmesh-controller]                                                      │
-│  - Namespace: controller namespace (e.g., redhat-ods-applications)          │
-│  - ServiceAccount: modelmesh-controller                                      │
-│  - Port: 8080/TCP (Prometheus metrics, HTTP)                                │
-│  - Port: 8081/TCP (health/readiness probes, HTTP)                           │
+│  [modelmesh-serving-controller]                                              │
+│  - ServiceAccount: modelmesh-serving-sa                                      │
+│  - Port: 8080/TCP (Prometheus metrics)                                       │
+│  - Port: 8081/TCP (health/readiness)                                         │
+│  - Auth: ServiceAccount token (Bearer)                                       │
+│         │                    │                                               │
+│         │                    │ Port: 8033/TCP                                 │
+│         │                    │ Protocol: gRPC                                 │
+│         │                    │ Encryption: Optional TLS/mTLS                  │
+│         │                    │ Auth: Optional mTLS client cert                │
+│         │                    │ Purpose: SetVModel, DeleteVModel               │
+│         │                    ▼                                               │
+│         │              [ModelMesh Service] (headless ClusterIP)               │
 │         │                                                                    │
-│         │ Port: 8033/TCP                                                     │
-│         │ Protocol: gRPC                                                     │
-│         │ Encryption: TLS (optional)                                         │
-│         │ Auth: None / mTLS (configurable)                                   │
-│         │ Resolver: kube:// (Kubernetes headless Service DNS)                │
-│         ▼                                                                    │
-│  [ModelMesh Container] (in runtime pods - model registration)               │
-│                                                                              │
 │  [Webhook Server]                                                            │
-│  - Port: 9443/TCP                                                           │
-│  - Protocol: HTTPS                                                          │
-│  - Encryption: TLS (cert-manager)                                           │
-│  - Auth: Kubernetes API server mTLS                                         │
-│  - Purpose: ValidatingWebhook for ServingRuntime/ClusterServingRuntime      │
-│         │                                                                    │
-│         │ Port: 443/TCP                                                      │
-│         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS                                                    │
-│         │ Auth: ServiceAccount token                                         │
-│         ▼                                                                    │
-│  [Kubernetes API Server]                                                     │
-│  - Watches: Predictor, ServingRuntime, ClusterServingRuntime,               │
-│             InferenceService, Deployments, Services, Secrets, ConfigMaps    │
+│  - Port: 9443/TCP                                                            │
+│  - Protocol: HTTPS                                                           │
+│  - TLS: cert-manager Certificate                                             │
+│  - Auth: Kubernetes API server (trusted CA)                                  │
+│  - Validates: ServingRuntime, ClusterServingRuntime                           │
 │                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  COORDINATION LAYER                                                          │
-│                                                                              │
-│  [etcd Cluster]                                                              │
-│  - Port: 2379/TCP                                                           │
-│  - Protocol: gRPC                                                           │
-│  - Encryption: TLS (mTLS supported)                                         │
-│  - Auth: Username/password + client certificates                            │
-│  - Purpose: Model state coordination, distributed placement,               │
-│             virtual model registry, event streaming                         │
-│  - Namespace isolation: /mm_ns/{namespace} root prefix                      │
-│                                                                              │
-│  Connections:                                                                │
-│  ← modelmesh-controller (EtcdRangeWatcher - vmodels/ + registry/ prefixes) │
-│  ← ModelMesh containers (state sync, model placement)                       │
+│  [Controller Metrics Service]                                                │
+│  - Port: 8443/TCP                                                            │
+│  - Protocol: HTTPS                                                           │
+│  - TLS: kube-rbac-proxy                                                      │
+│  - Auth: mTLS                                                                │
 │                                                                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │  EXTERNAL SERVICES                                                           │
 │                                                                              │
-│  [S3-compatible Storage - e.g., s3.amazonaws.com]                           │
-│  - Port: 443/TCP                                                            │
-│  - Protocol: HTTPS                                                          │
-│  - Encryption: TLS 1.2+                                                     │
-│  - Auth: AWS IAM credentials (from storage-config Secret)                   │
-│  - Purpose: Model artifact download                                         │
+│  [etcd - Distributed KV Store]                                               │
+│  - Port: 2379/TCP                                                            │
+│  - Protocol: gRPC                                                            │
+│  - Encryption: TLS (configurable)                                            │
+│  - Auth: Client certificate (from model-serving-etcd Secret)                 │
+│  - Purpose: ModelMesh inter-pod coordination, model placement                │
+│  - Tenant isolation: namespace-prefixed root keys                            │
 │                                                                              │
-│  [GCS - storage.googleapis.com]                                             │
-│  - Port: 443/TCP                                                            │
-│  - Protocol: HTTPS                                                          │
-│  - Encryption: TLS 1.2+                                                     │
-│  - Auth: Service account key (from storage-config Secret)                   │
-│  - Purpose: Model artifact download                                         │
+│  [Kubernetes API Server]                                                     │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: ServiceAccount token (Bearer)                                       │
+│  - Purpose: Watch CRDs, manage Deployments, Services, Secrets                │
 │                                                                              │
-│  [Azure Blob Storage - *.blob.core.windows.net]                             │
-│  - Port: 443/TCP                                                            │
-│  - Protocol: HTTPS                                                          │
-│  - Encryption: TLS 1.2+                                                     │
-│  - Auth: Storage account key (from storage-config Secret)                   │
-│  - Purpose: Model artifact download                                         │
-│                                                                              │
-│  [Prometheus]                                                                │
-│  - Port: 2112/TCP (scrapes ModelMesh metrics)                               │
-│  - Protocol: HTTPS (configurable)                                           │
-│  - Encryption: TLS                                                          │
-│  - Auth: None (InsecureSkipVerify for ServiceMonitor TLS)                   │
-│  - Purpose: Inference latency, cache hit rate, model count metrics          │
+│  [Object Storage (S3/GCS/PVC)]                                               │
+│  - Port: 443/TCP (S3/GCS) or NFS                                            │
+│  - Protocol: HTTPS or NFS                                                    │
+│  - Encryption: TLS 1.2+ (for HTTPS)                                         │
+│  - Auth: Storage credentials (from storage-config Secret)                    │
+│  - Purpose: Model artifact download by puller sidecar                        │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 
-SERVICES:
-┌────────────────────────────────────────┬──────────┬───────────┬──────────┬────────────┬──────────────────────┐
-│ Service Name                           │ Type     │ Port      │ Protocol │ Encryption │ Exposure             │
-├────────────────────────────────────────┼──────────┼───────────┼──────────┼────────────┼──────────────────────┤
-│ modelmesh-serving                      │ Headless │ 8033/TCP  │ gRPC     │ TLS (opt)  │ Internal             │
-│ modelmesh-serving                      │ Headless │ 80/TCP    │ HTTP     │ None       │ Internal (REST)      │
-│ modelmesh-serving                      │ Headless │ 443/TCP   │ HTTPS    │ TLS        │ Internal (OAuth)     │
-│ modelmesh-serving                      │ Headless │ 2112/TCP  │ HTTP(S)  │ Config     │ Internal (Prom)      │
-│ modelmesh-webhook-server-service       │ ClusterIP│ 9443/TCP  │ HTTPS    │ TLS (cm)   │ Internal (webhook)   │
-│ modelmesh-controller-metrics-service   │ ClusterIP│ 8443/TCP  │ HTTPS    │ TLS        │ Internal (metrics)   │
-└────────────────────────────────────────┴──────────┴───────────┴──────────┴────────────┴──────────────────────┘
-
 RBAC Summary:
 - ClusterRole: modelmesh-controller-role
-  - API Groups: "" (core), apps, serving.kserve.io, autoscaling, monitoring.coreos.com
-  - Resources: configmaps, secrets, services, deployments, predictors, servingruntimes,
-               clusterservingruntimes, inferenceservices, horizontalpodautoscalers, servicemonitors
-  - Verbs: get, list, watch, create, update, patch, delete
-  - Also: namespaces (get, list, patch, update, watch), endpoints/PVCs (get, list, watch)
+  - API Groups: ""
+    Resources: configmaps, secrets, services, services/finalizers, endpoints, persistentvolumeclaims, namespaces, namespaces/finalizers
+    Verbs: get, list, watch, create, update, patch, delete (varies per resource)
+  - API Groups: apps
+    Resources: deployments, deployments/finalizers
+    Verbs: get, list, watch, create, update, patch, delete
+  - API Groups: serving.kserve.io
+    Resources: inferenceservices, predictors, servingruntimes, clusterservingruntimes (+ /finalizers, /status)
+    Verbs: get, list, watch, create, update, patch, delete
+  - API Groups: monitoring.coreos.com
+    Resources: servicemonitors
+    Verbs: get, list, watch, create, update, patch, delete
+  - API Groups: autoscaling
+    Resources: horizontalpodautoscalers, horizontalpodautoscalers/status
+    Verbs: get, list, watch, create, delete, update
 
-- Role: modelmesh-controller-leader-election-role (namespace-scoped)
-  - Resources: leases, configmaps, events
-  - Verbs: create, get, list, update, watch, patch, delete
+- ServiceAccount: modelmesh-serving-sa
+  Bound via: modelmesh-controller-rolebinding → modelmesh-controller-role
+  Bound via: leader-election-rolebinding → leader-election-role
 
-- Role: modelmesh-controller-restricted-scc-role (namespace-scoped)
-  - Resources: securitycontextconstraints (restricted)
-  - Verbs: use
-  - ServiceAccounts: modelmesh, modelmesh-serving-sa
-
-NetworkPolicy:
-- modelmesh-controller: Restricts controller pod network access
-- modelmesh-runtimes: Restricts runtime pod network access (ingress on 8033, 8008, 8443, 2112)
-- modelmesh-webhook: Restricts webhook server access (ingress on 9443 from API server)
+Network Policies:
+- Controller NetworkPolicy: allows ingress on 8443 (metrics)
+- Runtime NetworkPolicy: allows ingress on 8033, 8008, 8080, 2112
+  ⚠ Allows inference from any source on ports 8033 and 8008
+- Webhook NetworkPolicy: allows ingress on 9443
 
 Secrets:
-- model-serving-etcd (Opaque) - etcd connection config (endpoints, creds, TLS certs) - Platform operator - No auto-rotate
-- model-serving-proxy-tls (kubernetes.io/tls) - Inference endpoint TLS cert - OpenShift serving cert signer - Yes auto-rotate
-- storage-config (Opaque) - Storage backend credentials (S3/GCS/Azure/PVC) - User/platform operator - No auto-rotate
-- modelmesh-webhook-server-cert (kubernetes.io/tls) - Webhook TLS cert - cert-manager - Yes auto-rotate
+- model-serving-etcd (Opaque)
+  Purpose: etcd connection config (endpoints, TLS certs, credentials)
+  Provisioned By: Platform operator
+  Auto-Rotate: No
+
+- storage-config (Opaque - JSON per storage backend)
+  Purpose: Model storage credentials (S3 keys, GCS creds, PVC config)
+  Provisioned By: User / Platform
+  Auto-Rotate: No
+
+- model-serving-proxy-tls (kubernetes.io/tls)
+  Purpose: TLS cert for oauth-proxy sidecar
+  Provisioned By: OpenShift service-ca (annotation-triggered)
+  Auto-Rotate: Yes
+
+- Configurable TLS secret (kubernetes.io/tls)
+  Purpose: TLS cert/key for ModelMesh gRPC endpoints
+  Provisioned By: Manual or cert-manager
+  Auto-Rotate: Configurable
+
+Security Risks:
+- ⚠ REST proxy (8008) has no authentication enforcement
+- ⚠ Runtime NetworkPolicy allows inference from any source on ports 8033 and 8008
+- ⚠ InsecureSkipVerify=true in ServiceMonitor TLS config (metrics scraping only)
+- ⚠ allowAnyPVC flag may expose cross-namespace PVCs
+- ⚠ crypto/sha1 used for predictor spec hashing (non-security, not cryptographic)
 
 FIPS Compliance:
-- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, dynamic linking
-- Runtime: OpenSSL via UBI9 ubi-minimal base image
-- TLS: stdlib crypto/tls (FIPS via OpenSSL at runtime)
-- Risk: InsecureSkipVerify=true for ServiceMonitor TLS config (Prometheus scraping only)
-- No MD5/RC4/DES usage detected
+- Build flags: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, -tags strictfipsruntime
+- Linking: Dynamic (CGO_ENABLED=1)
+- OpenSSL: Yes (via UBI 9 base image)
+- TLS: stdlib crypto/tls with system defaults
+- Cert handling: System trust store with optional CA bundle

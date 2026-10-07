@@ -1,0 +1,83 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  INTERNAL CLIENTS (Platform Services)                                    │
+│                                                                          │
+│  [Pipeline Components / DSP Workers]                                     │
+│         │                                                                │
+│         │ Port: 8080/TCP                                                 │
+│         │ Protocol: gRPC (HTTP/2)                                        │
+│         │ Encryption: None by default                                    │
+│         │   (TLS optional via SSLConfig.server_key/server_cert)          │
+│         │   (mTLS optional via SSLConfig.client_verify)                  │
+│         │ Auth: None by default (platform-delegated)                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  SERVICE (ML Metadata gRPC Server)                                       │
+│                                                                          │
+│  [metadata_store_server]                                                 │
+│  - Binary: C++ gRPC server (Bazel-built)                                │
+│  - Port: 8080/TCP (configurable)                                         │
+│  - Protocol: gRPC (HTTP/2)                                               │
+│  - Service: MetadataStoreService (~35 RPCs)                              │
+│  - TLS: Optional (SSLConfig in MetadataStoreServerConfig)                │
+│    - server_key: PEM-encoded server private key                          │
+│    - server_cert: PEM-encoded server certificate                         │
+│    - custom_ca: PEM-encoded CA for client cert validation                │
+│    - client_verify: boolean, enables mTLS when true                      │
+│  - Base Image: UBI9/ubi-minimal (Konflux variant)                        │
+│  - Crypto: System OpenSSL (FIPS via RHEL 9 system mode)                  │
+│  - Deployed by: Data Science Pipelines Operator                          │
+│         │                                                                │
+│         │ Port: 3306/TCP                                                 │
+│         │ Protocol: MySQL wire protocol                                  │
+│         │ Encryption: SSL optional                                       │
+│         │   (via MySQLDatabaseConfig.SSLOptions)                         │
+│         │ Auth: MySQL credentials                                        │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  DATABASE BACKEND                                                        │
+│                                                                          │
+│  [MySQL / MariaDB]                                                       │
+│  - Port: 3306/TCP                                                        │
+│  - Purpose: Persistent metadata storage                                  │
+│  - Stores: Artifacts, Executions, Contexts, Types,                       │
+│            Events, Attributions, Associations, ParentContexts            │
+│  - SSL: Optional (MySQLDatabaseConfig.SSLOptions)                        │
+│    - key: client private key path                                        │
+│    - cert: client certificate path                                       │
+│    - ca: CA certificate path                                             │
+│    - capath: directory of CA certificates                                │
+│    - cipher: allowed cipher list                                         │
+│  - Connector: mariadb-connector-c (uses system OpenSSL)                  │
+│                                                                          │
+│  Alternative backends (supported but not typical in RHOAI):              │
+│  - PostgreSQL (with PostgreSQLDatabaseConfig.SSLOptions)                 │
+│  - SQLite (local file, no network)                                       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No Kubernetes RBAC roles defined in this repository
+- RBAC is managed externally by the Data Science Pipelines Operator
+- The MLMD server runs as a companion service within the DSP deployment
+
+Authentication & Authorization:
+- Endpoint: MetadataStoreService gRPC (all RPCs)
+- Auth Mechanism: None by default
+  - Optional mTLS via SSLConfig (application-level)
+  - Platform-delegated: service mesh / network policies provide isolation
+- No Kubernetes-native auth enforcement in this component
+
+Secrets:
+- No secrets defined in this repository
+- Database credentials and TLS certificates are provisioned externally
+  by the Data Science Pipelines Operator
+
+FIPS Compliance:
+- C++ binary links against system OpenSSL (dynamically linked)
+- FIPS-validated when RHEL 9 host operates in FIPS mode
+- No explicit application-level FIPS mode configuration
+- Crypto libraries: gRPC C++ (OpenSSL), mariadb-connector-c (OpenSSL)
+
+Network Exposure:
+- No Kubernetes Service, Ingress, or Route defined in this repo
+- Deployment and network exposure managed by DSP Operator
+- Typical deployment: cluster-internal only (no external ingress)

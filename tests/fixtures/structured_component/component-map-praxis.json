@@ -1,0 +1,9 @@
+{
+  "components": {
+    "praxis-policy": {
+      "repo_org": "praxis-proxy",
+      "repo_name": "policy",
+      "repo_url": "https://github.com/praxis-proxy/policy"
+    }
+  }
+}

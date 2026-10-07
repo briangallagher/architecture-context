@@ -1,0 +1,77 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client"]
+    end
+
+    subgraph Application["APPLICATION (OGX Distribution)"]
+        direction TB
+        OGX["OGX Server<br/>8321/TCP HTTP<br/>OAuth2 JWKS (opt-in)<br/>Owner-based isolation"]
+    end
+
+    subgraph RequiredBackend["REQUIRED BACKEND"]
+        PostgreSQL["PostgreSQL<br/>5432/TCP<br/>Platform-delegated encryption<br/>Username/password"]
+    end
+
+    subgraph InferenceProviders["INFERENCE PROVIDERS (Optional)"]
+        direction TB
+        vLLM["vLLM<br/>HTTP/HTTPS<br/>TLS verify configurable"]
+        Bedrock["AWS Bedrock<br/>443/TCP HTTPS<br/>TLS / IAM"]
+        WatsonX["IBM WatsonX<br/>443/TCP HTTPS<br/>TLS / IAM"]
+        AzureAI["Azure AI<br/>443/TCP HTTPS<br/>TLS / Azure AD"]
+        VertexAI["Google Vertex AI<br/>443/TCP HTTPS<br/>TLS / GCP IAM"]
+        OpenAI["OpenAI<br/>443/TCP HTTPS<br/>TLS / API key"]
+        Gemini["Google Gemini<br/>443/TCP HTTPS<br/>TLS / API key"]
+        AnthropicSvc["Anthropic<br/>443/TCP HTTPS<br/>TLS / API key"]
+    end
+
+    subgraph VectorDBs["VECTOR DATABASES (Optional)"]
+        direction TB
+        Milvus["Milvus<br/>Configurable port<br/>mTLS configurable"]
+        PGVector["PGVector<br/>5432/TCP<br/>PostgreSQL"]
+        Qdrant["Qdrant<br/>6333/TCP HTTP<br/>6334/TCP gRPC<br/>HTTPS configurable"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES (Optional)"]
+        direction TB
+        BraveSearch["Brave Search<br/>443/TCP HTTPS<br/>TLS / API key"]
+        TavilySearch["Tavily Search<br/>443/TCP HTTPS<br/>TLS / API key"]
+        S3["S3 Storage<br/>443/TCP HTTPS<br/>TLS / IAM"]
+        OTEL["OTEL Collector<br/>OTLP HTTP/gRPC"]
+    end
+
+    %% Flows
+    Client -->|"HTTP/8321<br/>Platform-delegated encryption<br/>OAuth2 bearer token (opt-in)"| OGX
+
+    OGX -->|"PostgreSQL/5432<br/>Platform-delegated<br/>Username/password"| PostgreSQL
+
+    OGX -->|"HTTP(S)/configurable<br/>TLS verify configurable<br/>Bearer token"| vLLM
+    OGX -->|"HTTPS/443<br/>TLS<br/>AWS IAM"| Bedrock
+    OGX -->|"HTTPS/443<br/>TLS<br/>IAM / API key"| WatsonX
+    OGX -->|"HTTPS/443<br/>TLS<br/>Azure AD"| AzureAI
+    OGX -->|"HTTPS/443<br/>TLS<br/>GCP IAM"| VertexAI
+    OGX -->|"HTTPS/443<br/>TLS<br/>API key"| OpenAI
+    OGX -->|"HTTPS/443<br/>TLS<br/>API key"| Gemini
+    OGX -->|"HTTPS/443<br/>TLS<br/>API key"| AnthropicSvc
+
+    OGX -->|"HTTP(S)/configurable<br/>mTLS configurable<br/>Token"| Milvus
+    OGX -->|"PostgreSQL/5432<br/>Configurable<br/>Username/password"| PGVector
+    OGX -->|"HTTP(S)/6333, gRPC/6334<br/>HTTPS configurable<br/>API key"| Qdrant
+
+    OGX -->|"HTTPS/443<br/>TLS<br/>API key"| BraveSearch
+    OGX -->|"HTTPS/443<br/>TLS<br/>API key"| TavilySearch
+    OGX -->|"HTTPS/443<br/>TLS<br/>IAM"| S3
+    OGX -.->|"OTLP/configurable<br/>Configurable"| OTEL
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef application fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef required fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef optional fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef externalservice fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+
+    class Client external
+    class OGX application
+    class PostgreSQL required
+    class vLLM,Bedrock,WatsonX,AzureAI,VertexAI,OpenAI,Gemini,AnthropicSvc optional
+    class Milvus,PGVector,Qdrant optional
+    class BraveSearch,TavilySearch,S3,OTEL externalservice

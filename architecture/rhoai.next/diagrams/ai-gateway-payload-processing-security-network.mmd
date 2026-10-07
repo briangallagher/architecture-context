@@ -3,89 +3,65 @@ graph TB
         Client["External Client"]
     end
 
-    subgraph Ingress["INGRESS (Gateway)"]
-        Gateway["Istio Gateway (Envoy)<br/>443/TCP external<br/>TLS 1.2+ SIMPLE<br/>HTTPRoute: /{ns}/{model}"]
+    subgraph Ingress["INGRESS (DMZ)"]
+        Gateway["AI Gateway (Envoy)<br/>443/TCP<br/>TLS 1.2+<br/>Bearer Token (platform auth)<br/>HTTPRoute: /{ns}/{model}/*"]
     end
 
-    subgraph ServiceMesh["SERVICE MESH (Istio mTLS)"]
+    subgraph ServiceMesh["SERVICE MESH (mTLS STRICT)"]
         direction TB
 
-        subgraph NS_Gateway["Namespace: gateway-namespace"]
-            BBR["AI Gateway Payload Processing<br/>SA: payload-processing-{release}<br/>Image: odh-ai-gateway-payload-processing-rhel9<br/>FIPS: strictfipsruntime + UBI9 OpenSSL"]
+        subgraph NS_Gateway["Namespace: {gateway-namespace}"]
+            PayloadProc["Payload Processing Service<br/>SA: payload-processing-{release}<br/>Image: odh-ai-gateway-payload-processing-rhel9<br/>FIPS: strictfipsruntime"]
 
-            subgraph Plugins["Plugin Pipeline"]
-                direction LR
-                P1["model-provider-resolver<br/>(in-memory cache)"]
-                P2["api-translation<br/>(in-process)"]
-                P3["apikey-injection<br/>(in-memory cache)"]
-                P4["nemo-guards<br/>(optional HTTP)"]
+            subgraph Ports["Exposed Ports"]
+                ExtProc["9004/TCP gRPC<br/>ext_proc filter"]
+                Health["9005/TCP HTTP<br/>/healthz /readyz"]
             end
         end
 
-        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>SA token auth"]
-        NeMo["NeMo Guardrails<br/>configurable port<br/>HTTP/HTTPS<br/>No auth"]
+        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>SA Bearer Token<br/>RBAC: {release}-externalmodels-reader"]
     end
 
-    subgraph CRDs["Custom Resources"]
-        ExternalModel["ExternalModel CR<br/>inference.opendatahub.io/v1alpha1"]
-        ExternalProvider["ExternalProvider CR<br/>inference.opendatahub.io/v1alpha1"]
-        MaaSModel["ExternalModel CR<br/>maas.opendatahub.io"]
-        Secrets["Kubernetes Secrets<br/>label: bbr-managed=true"]
+    subgraph MeshEgress["MESH EGRESS (Istio TLS Origination)"]
+        direction TB
+
+        OpenAI["OpenAI API<br/>api.openai.com<br/>443/TCP HTTPS<br/>TLS 1.2+ SIMPLE<br/>API Key header"]
+        Anthropic["Anthropic API<br/>api.anthropic.com<br/>443/TCP HTTPS<br/>TLS 1.2+ SIMPLE<br/>API Key header"]
+        Bedrock["AWS Bedrock<br/>bedrock.*.amazonaws.com<br/>443/TCP HTTPS<br/>TLS 1.2+ SIMPLE<br/>SigV4 signature"]
+        VertexAI["Google Vertex AI<br/>*-aiplatform.googleapis.com<br/>443/TCP HTTPS<br/>TLS 1.2+ SIMPLE<br/>OAuth2 Bearer"]
+        AzureOAI["Azure OpenAI<br/>*.openai.azure.com<br/>443/TCP HTTPS<br/>TLS 1.2+ SIMPLE<br/>API Key header"]
     end
 
-    subgraph CreatedResources["Created Networking Resources"]
-        HTTPRoute["HTTPRoute<br/>(Gateway API)"]
-        ExtSvc["ExternalName Service<br/>443/TCP"]
-        SE["Istio ServiceEntry<br/>MESH_EXTERNAL, DNS"]
-        DR["Istio DestinationRule<br/>TLS SIMPLE"]
-    end
-
-    subgraph ExternalProviders["EXTERNAL LLM PROVIDERS (Egress)"]
-        OpenAI["api.openai.com<br/>443/TCP HTTPS TLS 1.2+<br/>Bearer token"]
-        Anthropic["api.anthropic.com<br/>443/TCP HTTPS TLS 1.2+<br/>x-api-key header"]
-        Azure["*.openai.azure.com<br/>443/TCP HTTPS TLS 1.2+<br/>api-key header"]
-        Bedrock["bedrock.amazonaws.com<br/>443/TCP HTTPS TLS 1.2+<br/>Bearer token"]
-        Vertex["*-aiplatform.googleapis.com<br/>443/TCP HTTPS TLS 1.2+<br/>Bearer token"]
+    subgraph OptionalServices["OPTIONAL EXTERNAL SERVICES"]
+        Metering["Metering Service<br/>configurable port<br/>HTTP/HTTPS<br/>No Auth"]
+        NemoGuard["NeMo Guardrails<br/>configurable port<br/>HTTP/HTTPS<br/>/v1/guardrail/checks<br/>No Auth"]
     end
 
     %% Flows
-    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Client auth (passthrough)"| Gateway
-    Gateway -->|"gRPC ext_proc/9004<br/>plaintext (mesh mTLS)<br/>No auth"| BBR
-    BBR -->|"HTTPS/443<br/>TLS 1.2+<br/>SA token"| K8sAPI
-    BBR -->|"HTTP POST<br/>configurable<br/>No auth"| NeMo
+    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| Gateway
+    Gateway -->|"gRPC/9004<br/>Istio mTLS STRICT<br/>Service Identity"| ExtProc
+    PayloadProc -->|"HTTPS/443<br/>TLS 1.2+<br/>SA Bearer Token"| K8sAPI
 
-    %% Controller watches
-    K8sAPI -.->|"watch"| ExternalModel
-    K8sAPI -.->|"watch"| ExternalProvider
-    K8sAPI -.->|"watch"| MaaSModel
-    K8sAPI -.->|"watch"| Secrets
+    %% Egress via Istio DestinationRule SIMPLE
+    Gateway -->|"HTTPS/443<br/>TLS 1.2+ (DR SIMPLE)<br/>API Key (injected)"| OpenAI
+    Gateway -->|"HTTPS/443<br/>TLS 1.2+ (DR SIMPLE)<br/>API Key (injected)"| Anthropic
+    Gateway -->|"HTTPS/443<br/>TLS 1.2+ (DR SIMPLE)<br/>SigV4 (injected)"| Bedrock
+    Gateway -->|"HTTPS/443<br/>TLS 1.2+ (DR SIMPLE)<br/>OAuth2 (injected)"| VertexAI
+    Gateway -->|"HTTPS/443<br/>TLS 1.2+ (DR SIMPLE)<br/>API Key (injected)"| AzureOAI
 
-    %% Controller creates
-    BBR -->|"creates"| HTTPRoute
-    BBR -->|"creates"| ExtSvc
-    BBR -->|"creates"| SE
-    BBR -->|"creates"| DR
-
-    %% Egress via mesh
-    Gateway -->|"HTTPS/443<br/>TLS 1.2+ (DR SIMPLE)<br/>Provider API key"| OpenAI
-    Gateway -->|"HTTPS/443<br/>TLS 1.2+ (DR SIMPLE)<br/>x-api-key"| Anthropic
-    Gateway -->|"HTTPS/443<br/>TLS 1.2+ (DR SIMPLE)<br/>api-key"| Azure
-    Gateway -->|"HTTPS/443<br/>TLS 1.2+ (DR SIMPLE)<br/>Bearer token"| Bedrock
-    Gateway -->|"HTTPS/443<br/>TLS 1.2+ (DR SIMPLE)<br/>Bearer token"| Vertex
+    %% Optional
+    PayloadProc -.->|"HTTP/HTTPS<br/>configurable<br/>No Auth"| Metering
+    PayloadProc -.->|"HTTP/HTTPS<br/>configurable<br/>No Auth"| NemoGuard
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
     classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
     classDef servicemesh fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef crd fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef created fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef provider fill:#f8cecc,stroke:#b85450,stroke-width:2px
-    classDef plugin fill:#e1d5e7,stroke:#9673a6,stroke-width:1px
+    classDef egress fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef optional fill:#e1d5e7,stroke:#9673a6,stroke-width:2px,stroke-dasharray: 5 5
 
     class Client external
     class Gateway ingress
-    class BBR,K8sAPI,NeMo servicemesh
-    class ExternalModel,ExternalProvider,MaaSModel,Secrets crd
-    class HTTPRoute,ExtSvc,SE,DR created
-    class OpenAI,Anthropic,Azure,Bedrock,Vertex provider
-    class P1,P2,P3,P4 plugin
+    class PayloadProc,ExtProc,Health,K8sAPI servicemesh
+    class OpenAI,Anthropic,Bedrock,VertexAI,AzureOAI egress
+    class Metering,NemoGuard optional

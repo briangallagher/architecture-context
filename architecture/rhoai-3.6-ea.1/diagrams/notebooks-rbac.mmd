@@ -1,0 +1,69 @@
+graph TD
+    subgraph "Authentication Architecture"
+        direction TB
+
+        subgraph "Platform Authentication (oauth-proxy)"
+            OAuthProxy["oauth-proxy Sidecar<br/>(injected by odh-notebook-controller)"]
+            OAuthProvider["OpenShift OAuth Provider"]
+            OAuthProxy -->|"validates token against"| OAuthProvider
+        end
+
+        subgraph "JupyterLab Auth (DISABLED)"
+            JLToken["ServerApp.token = ''<br/>DISABLED"]
+            JLPassword["ServerApp.password = ''<br/>DISABLED"]
+        end
+
+        subgraph "Workbench Pod Identity"
+            PodSA["Pod ServiceAccount<br/>(per-notebook)"]
+        end
+    end
+
+    subgraph "Security Note"
+        Warning["⚠ Workbench images contain<br/>NO authentication enforcement.<br/>Security depends on correct<br/>oauth-proxy sidecar injection<br/>by odh-notebook-controller."]
+    end
+
+    subgraph "Bundled SDK Clients (User Code)"
+        K8sClient["kubernetes Python client v36.0.3<br/>Uses Pod ServiceAccount token"]
+        Boto3Client["boto3 v1.43.63<br/>Uses injected AWS credentials"]
+        KFPClient["kfp SDK v2.17.0<br/>Pipeline authoring"]
+        CFClient["codeflare-sdk v0.38.2<br/>Distributed training"]
+    end
+
+    subgraph "Secrets (Environment Variables)"
+        PullSecret["PULL_SECRET<br/>Container registry pull"]
+        GitHubToken["GITHUB_TOKEN<br/>GitHub API access"]
+        GeminiKey["GEMINI_API_KEY<br/>Gemini AI API"]
+        RenovateToken["RENOVATE_TOKEN<br/>Renovate bot"]
+        JiraTokens["JIRA_API_TOKEN / JIRA_TOKEN<br/>JIRA_OAUTH_CLIENT_SECRET<br/>Jira access"]
+    end
+
+    subgraph "Cryptographic Libraries"
+        Cryptography["cryptography v49.0.0<br/>System OpenSSL backend"]
+        PyCryptodome["pycryptodome v3.23.0<br/>⚠ NOT FIPS-validated"]
+        CompatOpenSSL["compat-openssl11<br/>FIPS scanning compatibility"]
+    end
+
+    %% Flows
+    OAuthProxy -->|"forwards authenticated<br/>requests to"| JLToken
+    PodSA -->|"provides identity to"| K8sClient
+    PodSA -->|"provides identity to"| Boto3Client
+
+    %% Styling
+    style OAuthProxy fill:#7ed321,color:#fff
+    style OAuthProvider fill:#4a90e2,color:#fff
+    style JLToken fill:#e8e8e8,stroke:#999
+    style JLPassword fill:#e8e8e8,stroke:#999
+    style PodSA fill:#4a90e2,color:#fff
+    style Warning fill:#f8cecc,stroke:#b85450,color:#333
+    style K8sClient fill:#dae8fc,stroke:#6c8ebf
+    style Boto3Client fill:#dae8fc,stroke:#6c8ebf
+    style KFPClient fill:#dae8fc,stroke:#6c8ebf
+    style CFClient fill:#dae8fc,stroke:#6c8ebf
+    style PullSecret fill:#fff2cc,stroke:#d6b656
+    style GitHubToken fill:#fff2cc,stroke:#d6b656
+    style GeminiKey fill:#fff2cc,stroke:#d6b656
+    style RenovateToken fill:#fff2cc,stroke:#d6b656
+    style JiraTokens fill:#fff2cc,stroke:#d6b656
+    style Cryptography fill:#d5e8d4,stroke:#82b366
+    style PyCryptodome fill:#f8cecc,stroke:#b85450
+    style CompatOpenSSL fill:#d5e8d4,stroke:#82b366

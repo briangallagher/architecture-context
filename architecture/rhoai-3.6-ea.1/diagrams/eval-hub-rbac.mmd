@@ -1,0 +1,73 @@
+graph TD
+    subgraph "Application-Level Identity Enforcement"
+        IdentityGate["Identity Gate Middleware<br/>(server.go:430-441)"]
+        Config["RequiresIdentityHeaders()<br/>Configuration Flag"]
+    end
+
+    subgraph "Protected API Endpoints"
+        Jobs["/api/v1/evaluations/jobs<br/>ALL methods"]
+        Collections["/api/v1/evaluations/collections<br/>ALL methods"]
+        Providers["/api/v1/evaluations/providers<br/>ALL methods"]
+    end
+
+    subgraph "Unprotected Endpoints"
+        Health["/api/v1/health<br/>GET"]
+        Docs["/docs<br/>GET"]
+        OpenAPI["/openapi.yaml<br/>GET"]
+        Metrics["/metrics<br/>GET"]
+    end
+
+    subgraph "Required Headers (when enforced)"
+        XUser["X-User Header"]
+        XTenant["X-Tenant Header"]
+    end
+
+    subgraph "Kubernetes API Access"
+        SA["ServiceAccount<br/>(platform-delegated)"]
+        KubeConfig["Kubeconfig Credential Chain"]
+    end
+
+    subgraph "Kubernetes Resources Managed"
+        BatchJobs["batch/v1 Jobs<br/>create"]
+        ConfigMaps["v1 ConfigMaps<br/>create"]
+        Secrets["v1 Secrets<br/>create"]
+        HWProfiles["infrastructure.opendatahub.io/v1<br/>HardwareProfiles<br/>get, delete"]
+    end
+
+    Config -->|"enables/disables"| IdentityGate
+    IdentityGate -->|"enforces"| Jobs
+    IdentityGate -->|"enforces"| Collections
+    IdentityGate -->|"enforces"| Providers
+    XUser -->|"required by"| IdentityGate
+    XTenant -->|"required by"| IdentityGate
+
+    Health -.->|"bypasses gate"| IdentityGate
+    Docs -.->|"bypasses gate"| IdentityGate
+    OpenAPI -.->|"bypasses gate"| IdentityGate
+    Metrics -.->|"bypasses gate"| IdentityGate
+
+    SA -->|"authenticates via"| KubeConfig
+    KubeConfig -->|"access"| BatchJobs
+    KubeConfig -->|"access"| ConfigMaps
+    KubeConfig -->|"access"| Secrets
+    KubeConfig -->|"access"| HWProfiles
+
+    style IdentityGate fill:#e8744f,stroke:#333,color:#fff
+    style Config fill:#f5a623,stroke:#333
+    style Jobs fill:#4a90e2,stroke:#333,color:#fff
+    style Collections fill:#4a90e2,stroke:#333,color:#fff
+    style Providers fill:#4a90e2,stroke:#333,color:#fff
+    style Health fill:#7ed321,stroke:#333
+    style Docs fill:#7ed321,stroke:#333
+    style OpenAPI fill:#7ed321,stroke:#333
+    style Metrics fill:#7ed321,stroke:#333
+    style XUser fill:#f5a623,stroke:#333
+    style XTenant fill:#f5a623,stroke:#333
+    style SA fill:#4a90e2,stroke:#333,color:#fff
+    style KubeConfig fill:#4a90e2,stroke:#333,color:#fff
+    style BatchJobs fill:#e8e8e8,stroke:#333
+    style ConfigMaps fill:#e8e8e8,stroke:#333
+    style Secrets fill:#e8e8e8,stroke:#333
+    style HWProfiles fill:#e8e8e8,stroke:#333
+
+    linkStyle 7,8,9,10 stroke:#999,stroke-dasharray: 5 5

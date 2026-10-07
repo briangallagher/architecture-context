@@ -1,49 +1,56 @@
 workspace {
     model {
-        dataScientist = person "Data Scientist" "Creates and manages ML experiments, models, and artifacts via MLflow"
-        platformAdmin = person "Platform Admin" "Deploys and configures MLflow instances via MLflow CR"
+        dataScientist = person "Data Scientist" "Creates and tracks ML experiments, registers models"
+        platformAdmin = person "Platform Admin" "Configures MLflow operator and manages platform"
 
-        mlflowOperator = softwareSystem "MLflow Operator" "Kubernetes operator that manages the lifecycle of MLflow tracking server deployments on RHOAI/ODH" {
-            controller = container "mlflow-operator" "Watches MLflow CRs, renders embedded Helm chart, reconciles resources via server-side apply" "Go (controller-runtime)" "operator"
-            helmRenderer = container "Helm Renderer" "Embedded Helm chart engine that converts CR spec into Kubernetes manifests" "helm.sh/helm/v3" "library"
-            mlflowServer = container "MLflow Tracking Server" "ML experiment tracking, model registry, artifact serving with Kubernetes RBAC auth" "Python (uvicorn)" "service"
-            caBundleWatcher = container "CA Bundle Watcher" "Sidecar that watches CA bundle ConfigMap changes and regenerates combined trust bundle" "Shell script" "sidecar"
-            combineCaBundles = container "Combine CA Bundles" "Init container that concatenates system, platform, and custom CA certificates" "Shell script" "init"
+        mlflowOperator = softwareSystem "MLflow Operator" "Kubernetes operator managing MLflow tracking server lifecycle via Helm chart rendering and Server-Side Apply" {
+            mlflowReconciler = container "MLflowReconciler" "Primary controller: reconciles MLflow CRs into MLflow server deployments" "Go (controller-runtime)"
+            mlflowOperatorReconciler = container "MLflowOperatorReconciler" "Module handoff controller: manages MLflowOperator CR for platform integration" "Go (controller-runtime)"
+            namespaceRBACReconciler = container "NamespaceRBACReconciler" "Workspace RBAC controller: manages per-namespace RoleBindings from Auth CR groups" "Go (controller-runtime)"
+            helmRenderer = container "HelmRenderer" "Renders embedded Helm chart (charts/mlflow) with CR-derived values" "Go (helm.sh/helm/v3)"
+            securityProfileWatcher = container "SecurityProfileWatcher" "Watches OpenShift APIServer TLS profile changes" "Go"
         }
 
-        k8sAPI = softwareSystem "Kubernetes API Server" "Cluster control plane for resource management and RBAC" "External"
-        gateway = softwareSystem "Data Science Gateway" "Gateway API ingress (Envoy) for centralized external traffic routing" "Internal RHOAI"
-        serviceCA = softwareSystem "OpenShift Service CA" "Automatic TLS certificate provisioning for cluster services" "Internal OpenShift"
-        prometheus = softwareSystem "Prometheus Operator" "Metrics collection and monitoring via ServiceMonitor resources" "Internal OpenShift"
-        console = softwareSystem "OpenShift Console" "Web console with application menu integration via ConsoleLink CR" "Internal OpenShift"
-        caBundleCM = softwareSystem "odh-trusted-ca-bundle" "Platform CA certificate bundle ConfigMap for trust chain management" "Internal RHOAI"
+        mlflowServer = softwareSystem "MLflow Tracking Server" "MLflow server deployed as operand, provides experiment tracking and model registry" "Operand"
 
-        s3 = softwareSystem "S3-compatible Storage" "Artifact storage (AWS S3, MinIO, SeaweedFS)" "External"
-        postgresql = softwareSystem "PostgreSQL" "Backend/registry metadata store" "External"
-        mysql = softwareSystem "MySQL" "Backend/registry metadata store (alternative)" "External"
+        # Platform Dependencies
+        platformOperator = softwareSystem "opendatahub-operator / rhods-operator" "Platform operator that creates MLflowOperator module CR" "Internal RHOAI"
+        dataScienceGateway = softwareSystem "data-science-gateway" "Gateway API (Envoy) for external ingress routing" "Internal RHOAI"
+        openshiftConsole = softwareSystem "OpenShift Console" "Web console with ConsoleLink integration" "Internal OpenShift"
+        authCR = softwareSystem "Auth CR" "Platform authentication configuration (allowedGroups, adminGroups)" "Internal RHOAI"
+        prometheus = softwareSystem "Prometheus" "Metrics collection via ServiceMonitor" "Internal OpenShift"
 
-        # Relationships
-        platformAdmin -> mlflowOperator "Creates/updates MLflow CR" "kubectl/oc"
-        dataScientist -> mlflowOperator "Logs experiments, registers models" "HTTPS/443 via Gateway"
+        # External Dependencies
+        kubernetesAPI = softwareSystem "Kubernetes API Server" "Cluster API for resource management" "External"
+        postgresql = softwareSystem "PostgreSQL" "Backend/registry store for MLflow metadata" "External"
+        s3Storage = softwareSystem "S3-Compatible Storage" "Artifact storage (MinIO, SeaweedFS, AWS S3, GCS)" "External"
 
-        controller -> helmRenderer "Renders chart with CR spec values" "In-process"
-        controller -> k8sAPI "Watches CRs, server-side apply, discovery API" "HTTPS/6443"
-        controller -> gateway "Creates HTTPRoute with parentRef" "Kubernetes API"
-        controller -> serviceCA "Service annotation triggers cert provisioning" "Kubernetes API"
-        controller -> console "Creates ConsoleLink for app menu" "Kubernetes API"
-        controller -> prometheus "Creates ServiceMonitor for metrics scraping" "Kubernetes API"
+        # Relationships - Users
+        dataScientist -> mlflowServer "Tracks experiments, registers models" "HTTPS/8443"
+        dataScientist -> dataScienceGateway "Accesses MLflow via gateway" "HTTPS/443"
+        platformAdmin -> mlflowOperator "Creates/updates MLflow CR" "kubectl/HTTPS"
 
-        mlflowServer -> k8sAPI "SelfSubjectAccessReview for auth, namespace listing" "HTTPS/6443"
-        mlflowServer -> s3 "Stores/retrieves ML artifacts" "HTTPS/443, HTTP/9000"
-        mlflowServer -> postgresql "Reads/writes experiment and model metadata" "PostgreSQL/5432 TLS"
-        mlflowServer -> mysql "Reads/writes experiment and model metadata (alt)" "MySQL/3306 TLS"
+        # Relationships - Operator
+        mlflowReconciler -> helmRenderer "Renders Helm chart" "In-process"
+        mlflowReconciler -> kubernetesAPI "Server-Side Apply manifests, create HTTPRoute, ConsoleLink" "HTTPS/6443"
+        mlflowOperatorReconciler -> kubernetesAPI "Watches MLflowOperator CR, updates status" "HTTPS/6443"
+        namespaceRBACReconciler -> kubernetesAPI "Creates per-namespace RoleBindings" "HTTPS/6443"
+        securityProfileWatcher -> kubernetesAPI "Watches APIServer TLS profile" "HTTPS/6443"
 
-        gateway -> mlflowServer "Routes external traffic" "HTTPS/8443"
-        prometheus -> mlflowServer "Scrapes /metrics endpoint" "HTTPS/8443"
-        caBundleCM -> mlflowServer "Provides CA certificates" "Volume mount"
+        # Relationships - Platform
+        platformOperator -> mlflowOperator "Creates MLflowOperator module CR with gateway config"
+        mlflowOperator -> dataScienceGateway "Creates HTTPRoute referencing gateway" "Gateway API"
+        mlflowOperator -> openshiftConsole "Creates ConsoleLink for app menu" "ConsoleLink CRD"
+        mlflowOperator -> authCR "Reads allowedGroups/adminGroups for workspace RBAC" "Watch"
+        mlflowOperator -> prometheus "Creates ServiceMonitor for metrics scraping" "ServiceMonitor CRD"
 
-        combineCaBundles -> mlflowServer "Creates initial CA bundle" "Shared volume"
-        caBundleWatcher -> mlflowServer "Regenerates CA bundle on changes" "Shared volume"
+        # Relationships - External
+        dataScienceGateway -> mlflowServer "Routes traffic via HTTPRoute" "HTTPS/8443"
+        mlflowServer -> postgresql "Stores experiment metadata" "PostgreSQL/5432 TLS"
+        mlflowServer -> s3Storage "Stores/retrieves model artifacts" "HTTPS/443,9000"
+
+        # Relationships - Operator to Operand
+        mlflowOperator -> mlflowServer "Deploys and manages lifecycle" "Server-Side Apply"
     }
 
     views {
@@ -58,6 +65,10 @@ workspace {
         }
 
         styles {
+            element "Software System" {
+                background #438DD5
+                color #ffffff
+            }
             element "External" {
                 background #999999
                 color #ffffff
@@ -67,37 +78,21 @@ workspace {
                 color #ffffff
             }
             element "Internal OpenShift" {
+                background #f5a623
+                color #ffffff
+            }
+            element "Operand" {
                 background #4a90e2
                 color #ffffff
-            }
-            element "operator" {
-                background #4a90e2
-                color #ffffff
-                shape RoundedBox
-            }
-            element "service" {
-                background #7ed321
-                color #ffffff
-                shape RoundedBox
-            }
-            element "sidecar" {
-                background #6baed6
-                color #ffffff
-                shape Circle
-            }
-            element "init" {
-                background #6baed6
-                color #ffffff
-                shape Circle
-            }
-            element "library" {
-                background #d5e8d4
-                shape Component
             }
             element "Person" {
-                background #08427b
+                shape person
+                background #08427B
                 color #ffffff
-                shape Person
+            }
+            element "Container" {
+                background #438DD5
+                color #ffffff
             }
         }
     }

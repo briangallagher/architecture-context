@@ -1,0 +1,73 @@
+graph TB
+    subgraph Operator["LLM-D Batch Gateway Operator"]
+        direction TB
+        Controller["LLMBatchGateway Controller<br/>(controller-runtime)"]
+        HelmRenderer["Helm Renderer<br/>(helm v3 SDK)"]
+        SecretSync["Secret Sync Controller<br/>(cross-namespace)"]
+        MetricsCtrl["Metrics Controller<br/>(self-monitoring)"]
+
+        Controller -->|"renders charts via"| HelmRenderer
+        Controller -->|"delegates secret copy"| SecretSync
+    end
+
+    subgraph HelmCharts["Embedded Helm Charts"]
+        BatchChart["batch-gateway chart<br/>/charts/batch-gateway/"]
+        AsyncChart["async-processor chart<br/>/charts/async-processor/"]
+    end
+
+    subgraph ManagedWorkloads["Managed Workloads (per CR)"]
+        direction TB
+        APIServer["API Server<br/>(batch-gateway-apiserver)"]
+        Processor["Processor<br/>(batch-gateway-processor)"]
+        GC["Garbage Collector<br/>(batch-gateway-gc)"]
+        AsyncProc["Async Processor<br/>(llm-d-async)<br/>Optional: dispatchMode=async"]
+    end
+
+    subgraph ManagedResources["Managed Kubernetes Resources"]
+        direction TB
+        Deployments["Deployments"]
+        Services["Services"]
+        ConfigMaps["ConfigMaps"]
+        ServiceAccounts["ServiceAccounts"]
+        HTTPRoutes["HTTPRoutes<br/>(Gateway API)"]
+        Certificates["Certificates<br/>(cert-manager)"]
+        Monitoring["ServiceMonitor / PodMonitor<br/>PrometheusRule"]
+    end
+
+    User["Platform User"] -->|"creates"| LLMBatchGatewayCR["LLMBatchGateway CR<br/>batch.llm-d.ai/v1alpha1"]
+    LLMBatchGatewayCR -->|"watched by"| Controller
+
+    HelmRenderer -->|"renders"| BatchChart
+    HelmRenderer -->|"renders (async mode)"| AsyncChart
+
+    Controller -->|"Server-Side Apply"| Deployments
+    Controller -->|"Server-Side Apply"| Services
+    Controller -->|"Server-Side Apply"| ConfigMaps
+    Controller -->|"Server-Side Apply"| ServiceAccounts
+    Controller -->|"Server-Side Apply"| HTTPRoutes
+    Controller -->|"Server-Side Apply"| Certificates
+    MetricsCtrl -->|"ensures"| Monitoring
+
+    Deployments -->|"runs"| APIServer
+    Deployments -->|"runs"| Processor
+    Deployments -->|"runs"| GC
+    Deployments -->|"runs (async)"| AsyncProc
+
+    SecretSync -->|"checks"| ReferenceGrant["ReferenceGrant<br/>(Gateway API)"]
+    SecretSync -->|"copies secret to CR namespace"| ManagedSecret["{gw-name}-credentials"]
+
+    PlatformOp["opendatahub-operator /<br/>rhods-operator"] -->|"sets image env vars<br/>via params.env"| Controller
+
+    style Controller fill:#4a90e2,color:#fff
+    style HelmRenderer fill:#4a90e2,color:#fff
+    style SecretSync fill:#4a90e2,color:#fff
+    style MetricsCtrl fill:#4a90e2,color:#fff
+    style LLMBatchGatewayCR fill:#f5a623,color:#fff
+    style APIServer fill:#7ed321,color:#fff
+    style Processor fill:#7ed321,color:#fff
+    style GC fill:#7ed321,color:#fff
+    style AsyncProc fill:#7ed321,color:#fff
+    style BatchChart fill:#9b59b6,color:#fff
+    style AsyncChart fill:#9b59b6,color:#fff
+    style PlatformOp fill:#e8e8e8,color:#333
+    style ReferenceGrant fill:#f5a623,color:#fff

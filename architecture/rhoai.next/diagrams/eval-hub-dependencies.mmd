@@ -1,49 +1,41 @@
 graph LR
-    EvalHub["Eval Hub<br/>Evaluation Orchestration Service"]
+    EvalHub[EvalHub<br/>Evaluation Orchestration]
 
-    %% External Dependencies (Required)
-    EvalHub -->|"REST API<br/>443/TCP HTTPS<br/>SA token"| K8sAPI["Kubernetes API<br/>Server"]
-    EvalHub -->|"SQL<br/>5432/TCP<br/>Password"| PostgreSQL["PostgreSQL<br/>(or SQLite)"]
+    %% External Dependencies
+    EvalHub -->|"persistent storage<br/>5432/TCP"| PostgreSQL["PostgreSQL 12+<br/>(optional, SQLite default)"]
+    EvalHub -->|"experiment tracking<br/>HTTP/HTTPS"| MLflow["MLflow Server 2.x<br/>(optional)"]
+    EvalHub -->|"test data download<br/>443/TCP"| S3["S3-compatible Storage<br/>(K8s runtime only)"]
+    EvalHub -->|"eval card publish<br/>443/TCP"| OCI["OCI Registry v2<br/>(optional)"]
+    EvalHub -->|"tracing & metrics<br/>4317/TCP"| OTEL["OpenTelemetry Collector 0.80+<br/>(optional)"]
+    EvalHub -->|"metrics scraping<br/>8081/TCP"| Prometheus["Prometheus 2.x<br/>(optional)"]
 
-    %% External Dependencies (Optional)
-    EvalHub -->|"REST API<br/>HTTPS<br/>Bearer token"| MLflow["MLflow Tracking<br/>Server"]
-    EvalHub -->|"HTTPS 443<br/>AWS creds"| S3["S3-compatible<br/>Storage"]
-    EvalHub -->|"OCI API<br/>443/TCP HTTPS<br/>Docker config"| OCI["OCI Registry<br/>(Quay)"]
-    EvalHub -->|"OTLP<br/>4317/4318"| OTEL["OTEL Collector"]
+    %% Internal Platform Dependencies
+    TrustyOp["TrustyAI Service Operator"] -->|"manages lifecycle<br/>EvalHub CR"| EvalHub
+    KRP["kube-rbac-proxy"] -->|"auth proxy<br/>X-Tenant, X-User"| EvalHub
+    Adapters["Evaluation Adapters<br/>lm-eval / Garak / RAGAS /<br/>GuideLLM / LightEval / MTEB"] -->|"sidecar pattern<br/>K8s Job pods"| EvalHub
 
-    %% Internal ODH/RHOAI Dependencies
-    EvalHub -.->|"Job queue labels"| Kueue["Kueue"]
-    EvalHub -.->|"CA ConfigMap mount"| ServiceCA["OpenShift<br/>Service CA"]
-    RHOAIOperator["RHOAI Operator<br/>(rhods-operator)"] -->|"deploys & manages"| EvalHub
+    %% Integration Points (other components consuming EvalHub)
+    MCP["evalhub-mcp<br/>MCP Server"] -->|"REST API client<br/>Bearer Token"| EvalHub
 
-    %% Evaluation Runtimes (created as Jobs)
-    EvalHub -->|"creates K8s Jobs"| LMEval["lm-eval<br/>(LM Evaluation Harness)"]
-    EvalHub -->|"creates K8s Jobs"| Lighteval["Lighteval"]
-    EvalHub -->|"creates K8s Jobs"| Garak["Garak<br/>(Security Eval)"]
-    EvalHub -->|"creates K8s Jobs"| GuideLLM["GuideLLM<br/>(Performance Eval)"]
-
-    %% Integration Points (consumers)
-    Dashboard["ODH Dashboard"] -.->|"REST API<br/>8080/TCP"| EvalHub
-    MCPClient["MCP Client<br/>(AI Agents)"] -.->|"MCP Protocol<br/>3001/TCP"| EvalHub
-
-    %% Monitoring
-    Prometheus["Prometheus"] -.->|"scrape /metrics<br/>8080/TCP"| EvalHub
+    %% Kubernetes
+    EvalHub -->|"Job CRUD, logs<br/>443/TCP SA Token"| K8sAPI["Kubernetes API"]
+    EvalHub -->|"model inference<br/>HTTP/HTTPS"| ModelEP["Model Endpoints<br/>(vLLM, TGI, etc.)"]
 
     %% Styling
     style EvalHub fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
-    style K8sAPI fill:#999,stroke:#333,color:#fff
+
+    %% External deps
     style PostgreSQL fill:#999,stroke:#333,color:#fff
-    style MLflow fill:#7ed321,stroke:#333
+    style MLflow fill:#999,stroke:#333,color:#fff
     style S3 fill:#999,stroke:#333,color:#fff
     style OCI fill:#999,stroke:#333,color:#fff
     style OTEL fill:#999,stroke:#333,color:#fff
-    style Kueue fill:#7ed321,stroke:#333
-    style ServiceCA fill:#7ed321,stroke:#333
-    style RHOAIOperator fill:#7ed321,stroke:#333
-    style LMEval fill:#e8e8e8,stroke:#333
-    style Lighteval fill:#e8e8e8,stroke:#333
-    style Garak fill:#e8e8e8,stroke:#333
-    style GuideLLM fill:#e8e8e8,stroke:#333
-    style Dashboard fill:#7ed321,stroke:#333
-    style MCPClient fill:#f5a623,stroke:#333
     style Prometheus fill:#999,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style ModelEP fill:#f5a623,stroke:#333,color:#fff
+
+    %% Internal platform deps
+    style TrustyOp fill:#7ed321,stroke:#333,color:#fff
+    style KRP fill:#7ed321,stroke:#333,color:#fff
+    style Adapters fill:#7ed321,stroke:#333,color:#fff
+    style MCP fill:#7ed321,stroke:#333,color:#fff

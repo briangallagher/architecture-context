@@ -1,0 +1,113 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [External Client]                                                       │
+│         │                                                                │
+│         │ Port: unknown                                                  │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: Platform-dependent                                 │
+│         │ Auth: Platform-dependent                                       │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ROUTING LAYER                                                          │
+│                                                                          │
+│  [Envoy / Agent Gateway Sidecar Proxy]                                  │
+│  - Role: Ingress proxy for inference requests                           │
+│  - Routes via Gateway API InferencePool/InferenceModel CRDs             │
+│         │                                                                │
+│         │ Protocol: HTTP/gRPC                                            │
+│         │ Encryption: unknown                                            │
+│         │ Auth: unknown                                                  │
+│         ▼                                                                │
+│  [EPP (Endpoint Picker Plugin)]                                         │
+│  - Role: Selects backend decode pod based on InferencePool              │
+│  - Returns target pod endpoint to Envoy                                 │
+│         │                                                                │
+│         │ (Envoy forwards to selected pod)                               │
+│         │ Port: 8000/TCP                                                 │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: None                                               │
+│         │ Auth: None                                                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  MODEL SERVER LAYER                                                     │
+│                                                                          │
+│  [decode Pod - vLLM OpenAI API Server]                                  │
+│  - Image: REPLACE_MODEL_SERVER_IMAGE                                    │
+│  - Entrypoint: python -m vllm.entrypoints.openai.api_server            │
+│  - Ports exposed:                                                        │
+│    - 8000/TCP  HTTP   (OpenAI-compatible API - No Auth, No Encryption)  │
+│    - 5555/TCP  gRPC   (MX metadata - No Auth, No Encryption, RDMA)     │
+│    - 6555/TCP  gRPC   (MX tensor transfer - No Auth, No Encryption)    │
+│  - Health probes:                                                        │
+│    - GET /health      (liveness/readiness)                               │
+│    - GET /v1/models   (readiness)                                        │
+│                                                                          │
+│  ⚠  WARNING: Port 8000 has NO built-in authentication.                  │
+│     Relies on platform network policy or service mesh for access         │
+│     control.                                                             │
+│                                                                          │
+│  ⚠  WARNING: Ports 5555 and 6555 have NO encryption or auth.            │
+│     RDMA bypass - traffic is outside the service mesh.                   │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  P2P KV CACHE SUBSYSTEM (Optional - ModelExpress)                       │
+│                                                                          │
+│  [ModelExpress Server]                                                   │
+│  - Port: 8001/TCP                                                        │
+│  - Protocol: gRPC                                                        │
+│  - Encryption: Istio mTLS (STRICT)                                      │
+│  - Auth: AuthorizationPolicy (decode ServiceAccount principals only)    │
+│  - Purpose: Metadata broker for P2P KV cache coordination               │
+│         │                                                                │
+│         │ P2P Data Transfer (RDMA bypass - outside service mesh)         │
+│         │                                                                │
+│  [decode Worker A] ◄──────────────────► [decode Worker B]               │
+│  - Port: 5555/TCP  gRPC  (metadata advertisement, No encryption)       │
+│  - Port: 6555/TCP  gRPC  (tensor transfer, No encryption)              │
+│  - Auth: None                                                            │
+│  - Note: RDMA bypass is a deliberate design trade-off;                   │
+│    Istio mTLS protects gRPC control plane (8001) but NOT                │
+│    data-plane RDMA traffic (5555, 6555).                                │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                       │
+│                                                                          │
+│  [HuggingFace Hub - huggingface.co]                                     │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS                                                       │
+│  - Auth: HF_TOKEN secret                                                 │
+│  - Purpose: Model artifact download at startup                           │
+│                                                                          │
+│  [OpenTelemetry Collector]                                               │
+│  - Port: 4317/TCP                                                        │
+│  - Protocol: gRPC (OTLP)                                                │
+│  - Encryption: unknown                                                   │
+│  - Auth: unknown                                                         │
+│  - Purpose: Distributed tracing export                                   │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No ClusterRoles or RoleBindings defined in the llm-d repository.
+- RBAC is expected to be provided by the platform or operator that deploys llm-d.
+
+Service Mesh Configuration:
+- PeerAuthentication: STRICT (for ModelExpress gRPC on port 8001)
+- AuthorizationPolicy: Restricts ModelExpress access to decode ServiceAccount principals only
+- NOTE: RDMA data-plane traffic (ports 5555, 6555) bypasses the service mesh entirely.
+  This is a deliberate design trade-off documented in:
+  guides/modelexpress-p2p/security/istio-mtls-authz.yaml
+
+Authentication & Authorization Summary:
+- Model server HTTP API (port 8000): NO built-in authentication
+  → Relies on platform network policy or service mesh authorization
+- ModelExpress gRPC API (port 8001): Istio mTLS STRICT + AuthorizationPolicy
+  → Only decode ServiceAccount principals allowed
+- P2P RDMA ports (5555, 6555): No authentication or encryption
+  → RDMA bypass, outside service mesh
+
+Secrets:
+- HF_TOKEN (model download credentials) - provisioning mechanism not specified
+- No TLS secrets or cert-manager configuration defined in the repository

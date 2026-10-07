@@ -80,8 +80,8 @@ ls {architecture-dir}/*.md
 ```
 
 Filter the list:
-- **Include**: All `.md` files EXCEPT `PLATFORM.md`
-- **Exclude**: `PLATFORM.md` (platform-level, not component-level)
+- **Include**: Component `.md` files
+- **Exclude**: `INDEX.md` and `PLATFORM.md` (version metadata, not components)
 - **Exclude**: Files in subdirectories (like `diagrams/`)
 
 **Expected result**: List of component architecture files like:
@@ -96,7 +96,7 @@ If no component files found, output error and stop:
 ```
 ⚠️  No component architecture files found in {architecture-dir}
 
-Expected: {architecture-dir}/*.md (excluding PLATFORM.md)
+Expected: {architecture-dir}/*.md (excluding INDEX.md and PLATFORM.md)
 
 Generate component architectures first:
 1. /analyze-platform-components --platform=odh

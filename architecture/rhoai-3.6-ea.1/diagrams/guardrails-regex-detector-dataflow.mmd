@@ -1,0 +1,33 @@
+sequenceDiagram
+    participant Orchestrator as Guardrails Orchestrator
+    participant Server as regex-detector<br/>8080/TCP HTTP
+    participant Registry as Detector Registry<br/>(HashMap)
+    participant Builtin as Built-in Detectors<br/>(email, ssn, credit-card)
+    participant Custom as Custom Regex<br/>Compiler
+
+    Note over Orchestrator,Custom: Flow 1: Text Content Detection
+
+    Orchestrator->>Server: POST /api/v1/text/contents<br/>Content-Type: application/json<br/>No Auth (platform-delegated)
+    Server->>Server: Deserialize JSON payload<br/>(text content + regex identifiers)
+
+    alt Built-in detector requested
+        Server->>Registry: Lookup detector by key<br/>("email", "ssn", "credit-card")
+        Registry->>Builtin: Execute detector function
+        Builtin-->>Registry: Match results<br/>(position, type, score)
+        Registry-->>Server: Detection results
+    end
+
+    alt Custom regex requested
+        Server->>Custom: Compile regex pattern
+        Custom->>Custom: Match against content
+        Custom-->>Server: Match results<br/>(position, type, score)
+    end
+
+    Server-->>Orchestrator: HTTP 200<br/>JSON array of detection results
+
+    Note over Orchestrator,Custom: Flow 2: Health Monitoring
+
+    participant Probes as K8s Probes
+
+    Probes->>Server: GET /health<br/>8080/TCP HTTP
+    Server-->>Probes: HTTP 200 "healthy"

@@ -1,0 +1,60 @@
+graph TB
+    subgraph PodStartup["POD STARTUP (Init Container Phase)"]
+        direction TB
+        InitContainer["Init Container<br/>(init_managed_pipelines)<br/>Image: UBI9/python-312<br/>No network listeners"]
+        PrecompiledYAMLs["Pre-compiled Pipeline YAMLs<br/>(/app)"]
+        SharedVolume["Shared Volume<br/>(/config/managed-pipelines)"]
+        RelatedImageCheck{"RELATED_IMAGE_*<br/>env vars set?"}
+
+        PrecompiledYAMLs -->|"filesystem read"| InitContainer
+        InitContainer --> RelatedImageCheck
+        RelatedImageCheck -->|"Yes: recompile<br/>with substituted refs"| SharedVolume
+        RelatedImageCheck -->|"No: copy as-is"| SharedVolume
+    end
+
+    subgraph PipelineExec["PIPELINE EXECUTION (Step Containers)"]
+        direction TB
+        StepContainer["Pipeline Step Container<br/>(@dsl.component)<br/>NS: {pipeline-namespace}<br/>SA: {pipeline-sa}"]
+    end
+
+    subgraph ClusterInternal["CLUSTER INTERNAL"]
+        direction TB
+        KFPAPI["KFP API Server<br/>(reads shared volume)"]
+        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>TLS (in-cluster)"]
+        KServeRT["KServe Inference<br/>Runtime-configured port<br/>mTLS / TLS"]
+        RayCluster["Ray Cluster<br/>(CodeFlare SDK)<br/>HTTP/gRPC<br/>Cluster-internal"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES (Outbound Only)"]
+        direction TB
+        S3["S3-Compatible Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: AWS credentials"]
+        HFHub["HuggingFace Hub<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: HF_TOKEN"]
+    end
+
+    subgraph Storage["STORAGE"]
+        WorkspacePVC["Workspace PVC<br/>Intermediate artifacts<br/>ReadWriteOnce"]
+    end
+
+    %% Init container flow
+    SharedVolume -->|"mount"| KFPAPI
+
+    %% Pipeline step outbound connections
+    StepContainer -->|"HTTPS/443<br/>TLS (in-cluster)<br/>ServiceAccount token"| K8sAPI
+    StepContainer -->|"HTTPS/443<br/>TLS 1.2+<br/>AWS_SECRET_ACCESS_KEY"| S3
+    StepContainer -->|"HTTPS/443<br/>TLS 1.2+<br/>HF_TOKEN"| HFHub
+    StepContainer -->|"HTTPS/HTTP<br/>mTLS / TLS<br/>ServiceAccount"| KServeRT
+    StepContainer -->|"HTTP/gRPC<br/>ServiceAccount"| RayCluster
+    StepContainer -->|"read/write<br/>artifacts"| WorkspacePVC
+
+    %% Styling
+    classDef initPhase fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef stepPhase fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef clusterInternal fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef externalSvc fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef storage fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+
+    class InitContainer,PrecompiledYAMLs,SharedVolume,RelatedImageCheck initPhase
+    class StepContainer stepPhase
+    class KFPAPI,K8sAPI,KServeRT,RayCluster clusterInternal
+    class S3,HFHub externalSvc
+    class WorkspacePVC storage

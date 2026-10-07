@@ -1,0 +1,98 @@
+graph TB
+    subgraph "Trainer Operator (kubeflow-trainer-controller-manager)"
+        Controller["Trainer Controller Manager<br/>Go controller-runtime"]
+        MutatingWH["Mutating Webhook<br/>443/TCP TLS"]
+        ValidatingWH["Validating Webhooks<br/>443/TCP TLS"]
+        MetricsServer["Metrics Server<br/>8443/TCP"]
+        StatusServer["Status Server<br/>10443/TCP"]
+        CertController["cert-controller<br/>Webhook Cert Rotation"]
+
+        subgraph "Runtime Framework Plugins"
+            FluxPlugin["Flux Plugin"]
+            MPIPlugin["MPI Plugin"]
+        end
+
+        subgraph "Scheduling Plugins"
+            CoSchedulingPlugin["CoScheduling Plugin"]
+            VolcanoPlugin["Volcano Plugin"]
+        end
+
+        subgraph "RHOAI Extensions"
+            Progression["Progression Monitor<br/>Pod Readiness Tracking"]
+            NetworkPolicyMgr["NetworkPolicy Manager<br/>Per-TrainJob Isolation"]
+        end
+
+        Controller --> MutatingWH
+        Controller --> ValidatingWH
+        Controller --> MetricsServer
+        Controller --> StatusServer
+        Controller --> CertController
+        Controller --> FluxPlugin
+        Controller --> MPIPlugin
+        Controller --> CoSchedulingPlugin
+        Controller --> VolcanoPlugin
+        Controller --> Progression
+        Controller --> NetworkPolicyMgr
+    end
+
+    subgraph "Initializer Containers"
+        DatasetInit["Dataset Initializer<br/>Python"]
+        ModelInit["Model Initializer<br/>Python"]
+    end
+
+    subgraph "CRDs (trainer.kubeflow.org/v1alpha1)"
+        TrainJobCR["TrainJob CR<br/>Namespaced"]
+        TrainingRuntimeCR["TrainingRuntime CR<br/>Namespaced"]
+        ClusterTrainingRuntimeCR["ClusterTrainingRuntime CR<br/>Cluster-scoped"]
+        ConfigCR["Configuration CR<br/>Namespaced"]
+    end
+
+    User["Data Scientist / User"] -->|creates| TrainJobCR
+    TrainJobCR -->|watched by| Controller
+    TrainingRuntimeCR -->|referenced by| TrainJobCR
+    ClusterTrainingRuntimeCR -->|referenced by| TrainJobCR
+
+    MutatingWH -->|defaults| TrainJobCR
+    ValidatingWH -->|validates| TrainJobCR
+    ValidatingWH -->|validates| TrainingRuntimeCR
+    ValidatingWH -->|validates| ClusterTrainingRuntimeCR
+
+    Controller -->|creates| JobSetCR["JobSet CR<br/>jobset.x-k8s.io"]
+    CoSchedulingPlugin -->|creates| CoSchedulingPG["PodGroup CR<br/>scheduling.x-k8s.io"]
+    VolcanoPlugin -->|creates| VolcanoPG["PodGroup CR<br/>scheduling.volcano.sh"]
+    NetworkPolicyMgr -->|creates| NetworkPolicy["NetworkPolicy<br/>networking.k8s.io"]
+
+    DatasetInit -->|uses| HFHub["HuggingFace Hub"]
+    ModelInit -->|uses| HFHub
+    DatasetInit -->|uses| OpenDAL["OpenDAL Storage"]
+    ModelInit -->|uses| OpenDAL
+
+    Controller -->|reads TLS profile| OpenShiftAPI["OpenShift APIServer<br/>config.openshift.io"]
+    Controller -->|REST/WSS| K8sAPI["Kubernetes API<br/>6443/TCP"]
+
+    style Controller fill:#4a90e2,stroke:#333,stroke-width:3px
+    style MutatingWH fill:#4a90e2,stroke:#333
+    style ValidatingWH fill:#4a90e2,stroke:#333
+    style MetricsServer fill:#4a90e2,stroke:#333
+    style StatusServer fill:#4a90e2,stroke:#333
+    style CertController fill:#4a90e2,stroke:#333
+    style FluxPlugin fill:#5ba0d2,stroke:#333
+    style MPIPlugin fill:#5ba0d2,stroke:#333
+    style CoSchedulingPlugin fill:#5ba0d2,stroke:#333
+    style VolcanoPlugin fill:#5ba0d2,stroke:#333
+    style Progression fill:#9b59b6,stroke:#333
+    style NetworkPolicyMgr fill:#9b59b6,stroke:#333
+    style DatasetInit fill:#27ae60,stroke:#333
+    style ModelInit fill:#27ae60,stroke:#333
+    style TrainJobCR fill:#f5a623,stroke:#333
+    style TrainingRuntimeCR fill:#f5a623,stroke:#333
+    style ClusterTrainingRuntimeCR fill:#f5a623,stroke:#333
+    style ConfigCR fill:#f5a623,stroke:#333
+    style JobSetCR fill:#f5a623,stroke:#333
+    style CoSchedulingPG fill:#f5a623,stroke:#333
+    style VolcanoPG fill:#f5a623,stroke:#333
+    style NetworkPolicy fill:#f5a623,stroke:#333
+    style OpenShiftAPI fill:#e8e8e8,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style HFHub fill:#e8e8e8,stroke:#333
+    style OpenDAL fill:#e8e8e8,stroke:#333

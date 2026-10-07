@@ -1,0 +1,200 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                        │
+│                                                                              │
+│  [External Client]                                                           │
+│         │                                                                    │
+│         │ Port: 443/TCP                                                      │
+│         │ Protocol: HTTPS (V2 Inference Protocol)                            │
+│         │ Encryption: TLS 1.2+                                               │
+│         │ Auth: Platform-dependent (no app-level auth)                       │
+│         ▼                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Platform-managed)                                                  │
+│                                                                              │
+│  [Istio Gateway / Kubernetes Ingress / Gateway API HTTPRoute]                │
+│  - Port: 443/TCP (external)                                                  │
+│  - TLS Termination: Platform-dependent                                       │
+│  - AuthN: Platform-dependent (Istio RequestAuthentication if configured)     │
+│         │                                                                    │
+│         │ Port: 8080/TCP                                                     │
+│         │ Protocol: HTTP (V2 Inference Protocol)                             │
+│         │ Encryption: mTLS if service mesh enabled                           │
+│         │ Auth: Service mesh identity (if enabled)                           │
+│         ▼                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  APPLICATION LAYER (Namespace: user-namespace)                               │
+│                                                                              │
+│  [Inference Router - cmd/router]                                             │
+│  - Purpose: Traffic splitting, canary routing, A/B testing                   │
+│  - Endpoints: /single, /ensemble, /splitter, /switch                         │
+│  - Auth: None (application-level)                                            │
+│         │                                                                    │
+│         │ Port: 8080/TCP                                                     │
+│         │ Protocol: HTTP / gRPC                                              │
+│         │ Encryption: None (pod-local or mesh-encrypted)                     │
+│         │ Auth: None                                                         │
+│         ▼                                                                    │
+│  [AutoGluon Model Server]                                                    │
+│  - Image: Built from Dockerfile.konflux.autogluon                            │
+│  - Base: registry.redhat.io/rhai/base-image-cpu-rhel9 (AIPCC)               │
+│  - Entrypoint: python -m autogluonserver                                     │
+│  - Framework: FastAPI/uvicorn + KServe SDK                                   │
+│  - Auth: ⚠ NONE (no auth middleware detected)                                │
+│  - V2 Inference Protocol: REST + gRPC                                        │
+│  - gRPC Services: ModelInfer, ModelMetadata, ModelReady,                     │
+│    ServerLive, ServerMetadata, ServerReady,                                   │
+│    RepositoryModelLoad, RepositoryModelUnload                                │
+│         │                                                                    │
+│         │ Port: 443/TCP                                                      │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS 1.2+                                               │
+│         │ Auth: Cloud provider credentials (AWS IAM / Azure AD / GCP SA)     │
+│         ▼                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  OPERATOR CONTROL PLANE (Namespace: kserve)                                  │
+│                                                                              │
+│  [KServe Controller Manager - Deployment]                                    │
+│  - Container 1: manager (kserve/kserve-controller:latest)                    │
+│  - Container 2: kube-rbac-proxy (quay.io/brancz/kube-rbac-proxy:v0.18.0)    │
+│  - ServiceAccount: kserve-controller-manager                                 │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐     │
+│  │ [kube-rbac-proxy]                                                    │     │
+│  │ - Listen: 8443/TCP (HTTPS)                                           │     │
+│  │ - Forward: 8080/TCP (HTTP, localhost)                                 │     │
+│  │ - TLS: Terminates TLS                                                │     │
+│  │ - Auth: Kubernetes token authentication                              │     │
+│  │   (TokenReview + SubjectAccessReview)                                │     │
+│  └──────────────────────────┬──────────────────────────────────────────┘     │
+│                              │                                               │
+│                              │ Port: 8080/TCP (localhost)                     │
+│                              │ Protocol: HTTP                                │
+│                              │ Encryption: None (loopback)                   │
+│                              ▼                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐     │
+│  │ [Manager Process]                                                    │     │
+│  │ - Metrics: :8080/metrics                                             │     │
+│  │ - Health: :8081/healthz (unauthenticated)                            │     │
+│  │ - Ready: :8081/readyz (unauthenticated)                              │     │
+│  │ - Controllers: InferenceService, InferenceGraph, TrainedModel,       │     │
+│  │   LocalModelCache, LocalModelNode, LocalModelNamespaceCache          │     │
+│  └──────────────────────────────────────────────────────────────────────┘     │
+│                                                                              │
+│  [Webhook Server]                                                            │
+│  - Service: kserve-webhook-server-service                                    │
+│  - Port: 443/TCP                                                             │
+│  - Encryption: TLS (cert from kserve-webhook-server-cert)                    │
+│  - Auth: Kubernetes admission (API server client cert)                       │
+│  - Failure Policy: Fail (hard dependency)                                    │
+│  - Endpoints:                                                                │
+│    - /mutate-serving-kserve-io-v1beta1-inferenceservice                      │
+│    - /mutate-serving-kserve-io-v1alpha1-llminferenceservice                  │
+│    - /mutate-serving-kserve-io-v1alpha2-llminferenceservice                  │
+│    - /mutate-pods                                                            │
+│    - /validate-serving-kserve-io-v1beta1-inferenceservice                    │
+│    - /validate-serving-kserve-io-v1alpha1-* (multiple)                       │
+│    - /validate-serving-kserve-io-v1alpha2-* (multiple)                       │
+│    - /validate-localmodelcaches                                              │
+│    - /validate-localmodelnamespacecaches                                      │
+│    - /convert (CRD conversion webhook)                                       │
+│                                                                              │
+│  [LLMInferenceService Controller - cmd/llmisvc]                              │
+│  - ServiceAccount: $(llmisvc-serviceAccountName)                             │
+│  - Manages: Gateway API HTTPRoutes, InferencePools,                          │
+│    LeaderWorkerSets, KEDA ScaledObjects                                      │
+│                                                                              │
+│  [LocalModel Controller - cmd/localmodel]                                    │
+│  - ServiceAccount: kserve-localmodel-controller-manager                      │
+│  - Manages: PVs, PVCs, LocalModelNode resources                             │
+│                                                                              │
+│  [LocalModelNode Agent - cmd/localmodelnode]                                 │
+│  - ServiceAccount: kserve-localmodelnode-agent                               │
+│  - Manages: Jobs for model pre-caching                                       │
+│         │                                                                    │
+│         │ Port: 6443/TCP                                                     │
+│         │ Protocol: HTTPS / WSS                                              │
+│         │ Encryption: TLS 1.2+                                               │
+│         │ Auth: ServiceAccount token (in-cluster)                            │
+│         ▼                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  PLATFORM SERVICES                                                           │
+│                                                                              │
+│  [Kubernetes API Server]                                                     │
+│  - Port: 6443/TCP                                                            │
+│  - Protocol: HTTPS / WebSocket                                               │
+│  - Auth: ServiceAccount token, RBAC enforced                                │
+│                                                                              │
+│  [Prometheus]                                                                │
+│  - Scrapes: kserve-controller-manager-metrics-service                        │
+│  - Port: 8443/TCP                                                            │
+│  - Auth: Kubernetes token via kube-rbac-proxy                                │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                           │
+│                                                                              │
+│  [S3 Storage - s3.amazonaws.com]                                             │
+│  - Purpose: Model artifact storage                                           │
+│  - Auth: AWS IAM credentials                                                │
+│  - Encryption: TLS 1.2+                                                      │
+│                                                                              │
+│  [Google Cloud Storage - storage.googleapis.com]                             │
+│  - Purpose: Model artifact storage                                           │
+│  - Auth: GCP Service Account                                                │
+│  - Encryption: TLS 1.2+                                                      │
+│                                                                              │
+│  [Azure Blob Storage - blob.core.windows.net]                                │
+│  - Purpose: Model artifact storage                                           │
+│  - Auth: Azure AD / Access Key                                               │
+│  - Encryption: TLS 1.2+                                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- ClusterRole: kserve-manager-role
+  - SA: kserve-controller-manager
+  - API Groups: serving.kserve.io, apps, autoscaling, networking.istio.io,
+    serving.knative.dev, gateway.networking.k8s.io, keda.sh, opentelemetry.io
+  - Key Resources: inferenceservices, inferencegraphs, trainedmodels,
+    clusterservingruntimes, deployments, services, ingresses, virtualservices,
+    httproutes, horizontalpodautoscalers, scaledobjects
+  - Verbs: get, list, watch, create, update, patch, delete
+
+- ClusterRole: kserve-proxy-role
+  - SA: kserve-controller-manager
+  - Resources: tokenreviews, subjectaccessreviews
+  - Verbs: create
+
+- ClusterRole: kserve-llmisvc-manager-role
+  - SA: $(llmisvc-serviceAccountName)
+  - API Groups: serving.kserve.io, gateway.networking.k8s.io,
+    inference.networking.k8s.io, inference.networking.x-k8s.io,
+    leaderworkerset.x-k8s.io, keda.sh, llmd.ai, rbac.authorization.k8s.io
+  - Key Resources: llminferenceservices, httproutes, gateways,
+    inferencepools, inferencemodels, leaderworkersets, scaledobjects,
+    variantautoscalings, clusterrolebindings
+
+- ClusterRole: kserve-localmodel-manager-role
+  - SA: kserve-localmodel-controller-manager
+  - Resources: nodes, persistentvolumes, persistentvolumeclaims,
+    localmodelcaches, localmodelnamespacecaches, localmodelnodes
+
+- ClusterRole: kserve-localmodelnode-agent-role
+  - SA: kserve-localmodelnode-agent
+  - Resources: nodes, secrets, serviceaccounts, jobs,
+    localmodelnodes, clusterstoragecontainers, localmodelnodegroups
+
+Secrets:
+- kserve-webhook-server-cert (referenced) - TLS cert for webhook server
+- kserve-webhook-server-secret (Opaque) - Webhook server secret
+- HDFS_SECRET_DIR (env var) - HDFS access credentials
+- AZ_CLIENT_SECRET (env var) - Azure client secret
+- GIT_PASSWORD (env var) - Git authentication
+
+Security Notes:
+- ⚠ AutoGluon model server has NO application-level authentication
+  (no auth middleware detected in FastAPI/Starlette application)
+- pyjwt dependency present in KServe SDK but NOT wired into autogluon
+  server request path
+- All authentication enforcement delegated to platform ingress / service mesh
+- Webhook failure policy is Fail (hard dependency for CRD mutations)
+- FIPS: AutoGluon container inherits FIPS posture from AIPCC base image
+  (system OpenSSL via cryptography package)

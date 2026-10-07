@@ -1,0 +1,129 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  No external ingress endpoints exposed.                                  │
+│  This operator runs cluster-internal only.                               │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL (Trusted - Kubernetes Network)                        │
+│                                                                          │
+│  [opendatahub-feast-operator Deployment]                                 │
+│  - Namespace: applications namespace (operator-scoped)                   │
+│  - ServiceAccount: opendatahub-feast-operator                            │
+│  - Image: controller:latest                                              │
+│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                   │
+│  - Base Image: ubi9/ubi-minimal (OpenSSL for FIPS crypto)                │
+│                                                                          │
+│    Exposed Ports:                                                        │
+│    ┌─────────────────────────────────────────────────────────────────┐   │
+│    │  Port: 8081/TCP                                                 │   │
+│    │  Purpose: Health & Readiness Probes                             │   │
+│    │  Endpoints: /healthz, /readyz                                   │   │
+│    │  Protocol: HTTP                                                 │   │
+│    │  Encryption: None (plaintext)                                   │   │
+│    │  Auth: None (unauthenticated)                                   │   │
+│    │  Exposure: Pod-internal (kubelet probes only)                   │   │
+│    └─────────────────────────────────────────────────────────────────┘   │
+│    ┌─────────────────────────────────────────────────────────────────┐   │
+│    │  Port: 8443/TCP                                                 │   │
+│    │  Purpose: Prometheus Metrics                                    │   │
+│    │  Endpoint: /metrics                                             │   │
+│    │  Protocol: HTTPS                                                │   │
+│    │  Encryption: TLS (controller-runtime managed)                   │   │
+│    │  Auth: TokenReview / SubjectAccessReview                        │   │
+│    │  Enforcement: controller-runtime metrics server                 │   │
+│    │  RBAC Policy: metrics-auth-role                                 │   │
+│    │  Exposure: ClusterIP via opendatahub-feast-metrics-service      │   │
+│    └─────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│  [opendatahub-feast-metrics-service]                                     │
+│  - Type: ClusterIP                                                       │
+│  - Port: 8443/TCP → 8443                                                │
+│  - Protocol: TCP                                                         │
+│  - Purpose: Expose metrics endpoint for Prometheus scraping              │
+│         │                                                                │
+│         │ Port: 8443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS                                                │
+│         │ Auth: ServiceMonitor → Prometheus RBAC                         │
+│         ▼                                                                │
+│  [Prometheus / ServiceMonitor]                                           │
+│  - Scrapes /metrics via ServiceMonitor resource                          │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EGRESS (Operator → External Services)                                  │
+│                                                                          │
+│  [opendatahub-feast-operator]                                            │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS / WebSocket                                    │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token (bound token volume)                │
+│         ▼                                                                │
+│  [Kubernetes API Server]                                                 │
+│  - Purpose: CRUD operations on all managed resources                     │
+│  - Watched resources:                                                    │
+│    • FeastOperator CR (components.platform.opendatahub.io/v1alpha1)      │
+│    • FeatureStore CR (feast.dev)                                         │
+│    • ConfigMaps (odh-feastoperator-config)                               │
+│    • Kubeflow Notebooks (kubeflow.org)                                   │
+│    • OpenShift Routes (route.openshift.io)                               │
+│    • CustomResourceDefinitions (apiextensions.k8s.io)                    │
+│  - Managed resources:                                                    │
+│    • Deployments, Services, ServiceAccounts                              │
+│    • Roles, ClusterRoles, RoleBindings, ClusterRoleBindings              │
+│    • Jobs, CronJobs, ConfigMaps                                          │
+│    • ServiceMonitors, PDBs, HPAs                                         │
+│    • PVCs, Secrets (read), Pods                                          │
+│    • Spark Applications (sparkoperator.k8s.io)                           │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+
+Primary ServiceAccount: opendatahub-feast-operator
+  ClusterRole: opendatahub-feast-manager-role
+    - Core API: configmaps, services, serviceaccounts (full CRUD)
+    - Core API: pods, pods/exec, pods/log (create, delete, get, list, watch)
+    - Core API: namespaces, secrets (get, list, patch, update, watch)
+    - Core API: persistentvolumeclaims (create, delete, get, list, update, watch)
+    - Core API: events (create, patch)
+    - apps: deployments (full CRUD)
+    - batch: jobs, cronjobs (full CRUD)
+    - autoscaling: horizontalpodautoscalers (full CRUD)
+    - policy: poddisruptionbudgets (full CRUD)
+    - rbac: roles, clusterroles, rolebindings, clusterrolebindings (full CRUD)
+    - monitoring.coreos.com: servicemonitors (full CRUD)
+    - components.platform.opendatahub.io: feastoperators (full CRUD + finalizers + status)
+    - feast.dev: featurestores (full CRUD + finalizers + status)
+    - kubeflow.org: notebooks (get, list, watch)
+    - route.openshift.io: routes (create, delete, get, list, update, watch)
+    - sparkoperator.k8s.io: sparkapplications (create, delete, get)
+    - apiextensions.k8s.io: customresourcedefinitions (full CRUD)
+    - coordination.k8s.io: leases (full CRUD)
+    - authentication.k8s.io: tokenreviews (create)
+    - authorization.k8s.io: subjectaccessreviews (create)
+
+  ClusterRole: opendatahub-feast-metrics-auth-role
+    - authentication.k8s.io: tokenreviews (create)
+    - authorization.k8s.io: subjectaccessreviews (create)
+
+  Role: opendatahub-feast-leader-election-role (namespace: opendatahub-feast-system)
+    - Core API: configmaps (full CRUD)
+    - Core API: events (create, patch)
+    - coordination.k8s.io: leases (full CRUD)
+
+Aggregate ClusterRoles:
+  - opendatahub-feast-components-feastoperator-admin-role: feastoperators (full CRUD + status/get)
+  - opendatahub-feast-components-feastoperator-editor-role: feastoperators (full CRUD + status/get)
+  - opendatahub-feast-components-feastoperator-viewer-role: feastoperators (get, list, watch + status/get)
+
+Authentication & Authorization:
+  - Metrics (:8443): TokenReview/SubjectAccessReview via controller-runtime
+  - Health probes (:8081): Unauthenticated (kubelet probes)
+
+FIPS Compliance:
+  - Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1 (dynamic linking)
+  - Base image: UBI9 (ubi9/ubi-minimal) with OpenSSL
+  - Crypto delegation: Go runtime → OpenSSL via strictfipsruntime
+  - Non-FIPS crypto risks: None detected

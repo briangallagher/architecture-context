@@ -1,0 +1,85 @@
+graph TD
+    subgraph "Authentication Flow (Platform-Delegated)"
+        Client["External Client<br/>(Bearer Token)"]
+        KubeRBACProxy["kube-rbac-proxy Sidecar<br/>(Authentication Enforcement)"]
+        OpenShiftOAuth["OpenShift OAuth<br/>Token Validation"]
+        K8sRBAC["Kubernetes RBAC<br/>Authorization Check"]
+    end
+
+    subgraph "Protected Endpoints - REST (V2 Protocol)"
+        RESTAPI["V2 REST API<br/>Port 8080/TCP<br/>Methods: GET, POST"]
+    end
+
+    subgraph "Protected Endpoints - gRPC (16 RPCs)"
+        direction TB
+        subgraph "GRPCInferenceService"
+            ModelInfer["ModelInfer"]
+            ModelMetadata["ModelMetadata"]
+            ModelReady["ModelReady"]
+            ModelStreamInfer["ModelStreamInfer"]
+            ServerLive["ServerLive"]
+            ServerMetadata["ServerMetadata"]
+            ServerReady["ServerReady"]
+            RepoIndex1["RepositoryIndex"]
+            RepoLoad1["RepositoryModelLoad"]
+            RepoUnload1["RepositoryModelUnload"]
+            RuntimeSec["RuntimeSecurity"]
+        end
+
+        subgraph "ModelRepositoryService"
+            RepoIndex2["RepositoryIndex"]
+            RepoLoad2["RepositoryModelLoad"]
+            RepoUnload2["RepositoryModelUnload"]
+        end
+    end
+
+    subgraph "Unprotected Endpoints"
+        Metrics["Prometheus Metrics<br/>Port 8082/TCP<br/>GET /metrics<br/>No Auth Required"]
+    end
+
+    subgraph "Runtime Security"
+        TrustedRuntimes["Trusted Runtimes Allowlist<br/>/etc/mlserver/trusted-runtimes.json<br/>Restricts loadable runtime implementations"]
+    end
+
+    %% Authentication flow
+    Client -->|"1. Bearer Token"| KubeRBACProxy
+    KubeRBACProxy -->|"2. Validate token"| OpenShiftOAuth
+    KubeRBACProxy -->|"3. Check permissions"| K8sRBAC
+    KubeRBACProxy -->|"4. Forward if authorized"| RESTAPI
+    KubeRBACProxy -->|"4. Forward if authorized"| ModelInfer
+    KubeRBACProxy -->|"4. Forward if authorized"| ModelMetadata
+    KubeRBACProxy -->|"4. Forward if authorized"| ModelReady
+    KubeRBACProxy -->|"4. Forward if authorized"| ModelStreamInfer
+    KubeRBACProxy -->|"4. Forward if authorized"| ServerLive
+    KubeRBACProxy -->|"4. Forward if authorized"| ServerMetadata
+    KubeRBACProxy -->|"4. Forward if authorized"| ServerReady
+    KubeRBACProxy -->|"4. Forward if authorized"| RepoIndex1
+    KubeRBACProxy -->|"4. Forward if authorized"| RepoLoad1
+    KubeRBACProxy -->|"4. Forward if authorized"| RepoUnload1
+    KubeRBACProxy -->|"4. Forward if authorized"| RuntimeSec
+    KubeRBACProxy -->|"4. Forward if authorized"| RepoIndex2
+    KubeRBACProxy -->|"4. Forward if authorized"| RepoLoad2
+    KubeRBACProxy -->|"4. Forward if authorized"| RepoUnload2
+
+    %% Styling
+    style Client fill:#e8e8e8,stroke:#333
+    style KubeRBACProxy fill:#d9534f,stroke:#333,color:#fff
+    style OpenShiftOAuth fill:#f5a623,stroke:#333
+    style K8sRBAC fill:#f5a623,stroke:#333
+    style RESTAPI fill:#4a90e2,stroke:#333,color:#fff
+    style Metrics fill:#7ed321,stroke:#333
+    style TrustedRuntimes fill:#9b59b6,stroke:#333,color:#fff
+    style ModelInfer fill:#4a90e2,stroke:#333,color:#fff
+    style ModelMetadata fill:#4a90e2,stroke:#333,color:#fff
+    style ModelReady fill:#4a90e2,stroke:#333,color:#fff
+    style ModelStreamInfer fill:#4a90e2,stroke:#333,color:#fff
+    style ServerLive fill:#4a90e2,stroke:#333,color:#fff
+    style ServerMetadata fill:#4a90e2,stroke:#333,color:#fff
+    style ServerReady fill:#4a90e2,stroke:#333,color:#fff
+    style RepoIndex1 fill:#4a90e2,stroke:#333,color:#fff
+    style RepoLoad1 fill:#4a90e2,stroke:#333,color:#fff
+    style RepoUnload1 fill:#4a90e2,stroke:#333,color:#fff
+    style RuntimeSec fill:#4a90e2,stroke:#333,color:#fff
+    style RepoIndex2 fill:#4a90e2,stroke:#333,color:#fff
+    style RepoLoad2 fill:#4a90e2,stroke:#333,color:#fff
+    style RepoUnload2 fill:#4a90e2,stroke:#333,color:#fff

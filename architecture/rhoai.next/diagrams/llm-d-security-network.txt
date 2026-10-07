@@ -1,216 +1,138 @@
-================================================================================
-  SECURITY NETWORK DIAGRAM: llm-d Inference Stack
-  Version: v0.7.0 | Distribution: RHOAI.next
-  Generated: 2026-05-15
-================================================================================
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [External Client]                                                       │
+│         │                                                                │
+│         │ Port: 8081/TCP (Envoy standalone) or 443/TCP (Gateway)        │
+│         │ Protocol: HTTP or HTTPS                                        │
+│         │ Encryption: None (Envoy standalone) / Provider-dependent (GW) │
+│         │ Auth: None (configurable)                                      │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Edge)                                                          │
+│                                                                          │
+│  [Envoy Proxy]                                                           │
+│  - Port: 8081/TCP (external) → 8000/TCP (internal)                     │
+│  - Admin Port: 19000/TCP (internal only)                                │
+│  - Protocol: HTTP                                                        │
+│  - Encryption: None                                                      │
+│  - AuthN: None (pass-through)                                            │
+│  - Image: distroless-v1.33.2                                            │
+│         │                                                                │
+│         │ Port: 9002/TCP                                                 │
+│         │ Protocol: gRPC (ext_proc)                                      │
+│         │ Encryption: None                                                │
+│         │ Auth: None                                                      │
+│         ▼                                                                │
+│  [EPP - Endpoint Picker]                                                 │
+│  - Port: 9002/TCP (ext_proc gRPC)                                       │
+│  - Port: 9003/TCP (health gRPC)                                         │
+│  - Port: 9090/TCP (Prometheus metrics HTTP)                              │
+│  - Watches: InferencePool CRD                                            │
+│  - Auth: Kubernetes API (mTLS in-cluster)                                │
+│         │                                                                │
+│         │ Port: 8000/TCP (ORIGINAL_DST routing)                          │
+│         │ Protocol: HTTP                                                  │
+│         │ Encryption: None                                                │
+│         │ Auth: None                                                      │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  WORKLOAD (Internal - No Service Mesh, No TLS)                          │
+│                                                                          │
+│  [vLLM Model Server - Prefill Pods]                                      │
+│  - Namespace: {user-namespace}                                           │
+│  - ServiceAccount: model-server SA (automountServiceAccountToken: false)│
+│  - Port: 8000/TCP (OpenAI-compatible API, HTTP)                         │
+│  - Endpoints: /v1/chat/completions, /v1/completions, /v1/models,        │
+│               /health, /metrics                                          │
+│  - UID: 2000 (non-root, group 0 for OCP)                               │
+│  - Image: ghcr.io/llm-d/llm-d-cuda (or rocm/xpu/cpu variants)         │
+│         │                                                                │
+│         │ Port: 5600/TCP                                                 │
+│         │ Protocol: TCP/RDMA (NIXL)                                      │
+│         │ Encryption: None                                                │
+│         │ Auth: None                                                      │
+│         │ Purpose: KV cache transfer (prefill → decode)                  │
+│         ▼                                                                │
+│  [vLLM Model Server - Decode Pods]                                       │
+│  - Namespace: {user-namespace}                                           │
+│  - ServiceAccount: model-server SA (automountServiceAccountToken: false)│
+│  - Port: 8000/TCP (OpenAI-compatible API, HTTP)                         │
+│  - Sidecar: llm-d-routing-sidecar (KV cache routing)                   │
+│  - UID: 2000 (non-root, group 0 for OCP)                               │
+│                                                                          │
+│  [Mooncake Master Store] (optional - tiered prefix cache)                │
+│  - Port: 50051/TCP (gRPC - master RPC)                                  │
+│  - Port: 8080/TCP (HTTP - metadata)                                     │
+│  - Port: 9003/TCP (HTTP - metrics)                                      │
+│  - Encryption: None                                                      │
+│                                                                          │
+│  [Mooncake Client DaemonSet] (optional - tiered prefix cache)            │
+│  - Port: 50052/TCP (TCP/RDMA)                                           │
+│  - Per-node KV cache offloading agent                                    │
+│  - Encryption: None                                                      │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                       │
+│                                                                          │
+│  [HuggingFace Hub - huggingface.co]                                      │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: Bearer Token (HF_TOKEN from Secret)                            │
+│  - Purpose: Model weight download at startup                             │
+│                                                                          │
+│  [Container Registries - ghcr.io, nvcr.io] (build-time only)            │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: GITHUB_TOKEN / None                                             │
+│  - Purpose: Base image pull, image push                                  │
+│                                                                          │
+│  [SGLang Bootstrap] (when using SGLang model server)                     │
+│  - Port: 8998/TCP                                                        │
+│  - Protocol: TCP                                                         │
+│  - Encryption: None                                                      │
+│  - Purpose: Pod-to-pod bootstrap                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  EXTERNAL (Untrusted)                                                        │
-│                                                                              │
-│  [External Client]                                                           │
-│         │                                                                    │
-│         │ Port: 80/TCP (base) or 443/TCP (configurable)                      │
-│         │ Protocol: HTTP (base) / HTTPS (configurable via Gateway)           │
-│         │ Encryption: None (base); TLS configurable at Gateway level         │
-│         │ Auth: None (base); configurable (Gateway API / Istio policies)     │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  INGRESS (Gateway / Proxy Layer)                                             │
-│                                                                              │
-│  [Gateway API Implementation]                                                │
-│  Implementations: AgentGateway (preferred), Istio, kgateway (deprecated)     │
-│  - Port: 80/TCP external → internal routing                                 │
-│  - GatewayClass: agentgateway / istio / kgateway                             │
-│  - TLS: Configurable per implementation                                      │
-│  - OpenShift: ClusterIP (internal), restricted securityContext               │
-│  - Non-OpenShift: LoadBalancer (external)                                     │
-│  - Auth: Delegated to Gateway implementation policies                        │
-│         │                                                                    │
-│         │ Port: 9002/TCP                                                     │
-│         │ Protocol: gRPC (ext-proc)                                          │
-│         │ Encryption: None (cluster-internal)                                │
-│         │ Auth: None                                                         │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  SCHEDULING LAYER (Cluster-Internal)                                         │
-│                                                                              │
-│  [EPP - llm-d-inference-scheduler]                                           │
-│  - Namespace: user-specified                                                 │
-│  - ServiceAccount: chart-defined (Helm)                                      │
-│  - Port: 9002/TCP (gRPC ext-proc - receives routing queries)                │
-│  - Port: 9090/TCP (HTTP - Prometheus metrics)                               │
-│  - Watches: InferencePool, InferenceObjective CRDs                          │
-│  - Reads: Pod metrics from model servers via 8000/TCP                       │
-│                                                                              │
-│  [Optional Sidecars in EPP Pod]                                              │
-│  - UDS Tokenizer: Unix Domain Socket (precise cache-aware routing)          │
-│  - Latency Predictor: localhost HTTP (XGBoost prediction server)            │
-│  - KV Cache Indexer: ZMQ PUB/SUB (cache event subscription)                │
-│         │                                                                    │
-│         │ Returns: Selected model server endpoint                            │
-│         │ Protocol: gRPC ext-proc response                                   │
-│         ▼                                                                    │
-│  [Gateway routes request to selected model server]                           │
-│         │                                                                    │
-│         │ Port: 8000/TCP                                                     │
-│         │ Protocol: HTTP                                                     │
-│         │ Encryption: None (cluster-internal)                                │
-│         │ Auth: None (delegated to gateway)                                  │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  MODEL SERVER LAYER (Cluster-Internal)                                       │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │ Topology A: Decode-Only (Optimized Baseline)                           │ │
-│  │                                                                         │ │
-│  │ [Decode Model Server]                                                   │ │
-│  │ - Namespace: user-specified                                             │ │
-│  │ - ServiceAccount: automountServiceAccountToken=false                    │ │
-│  │ - Image: ghcr.io/llm-d/llm-d-{cuda,rocm,hpu,cpu}:v0.7.0             │ │
-│  │ - Port: 8000/TCP (HTTP - OpenAI API: /v1/completions,                 │ │
-│  │         /v1/chat/completions, /v1/models, /health, /metrics)          │ │
-│  │ - Encryption: None                                                      │ │
-│  │ - Auth: None                                                            │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │ Topology B: Prefill/Decode Disaggregation                              │ │
-│  │                                                                         │ │
-│  │ [Prefill Server]                                                        │ │
-│  │ - Port: 8000/TCP (HTTP - receives prefill requests)                    │ │
-│  │ - Port: 5600/TCP (NIXL - KV cache transfer OUT)                       │ │
-│  │ - Encryption: None                                                      │ │
-│  │         │                                                               │ │
-│  │         │ Port: 5600/TCP                                                │ │
-│  │         │ Protocol: NIXL (RDMA/TCP transport)                           │ │
-│  │         │ Encryption: None                                              │ │
-│  │         │ Auth: None                                                     │ │
-│  │         │ Purpose: KV cache block transfer                              │ │
-│  │         ▼                                                               │ │
-│  │ [Decode Server + Routing Sidecar]                                       │ │
-│  │ - Sidecar Port: 8000/TCP (HTTP - fronts decode backend)                │ │
-│  │ - Backend Port: 8200/TCP (HTTP - actual decode engine)                 │ │
-│  │ - Port: 5600/TCP (NIXL - KV cache transfer IN)                        │ │
-│  │ - Encryption: None                                                      │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │ Topology C: Wide Expert-Parallelism (LeaderWorkerSet)                  │ │
-│  │                                                                         │ │
-│  │ ⚠️  ELEVATED PRIVILEGES: Runs as root (UID 0)                         │ │
-│  │ ⚠️  Capabilities: IPC_LOCK, SYS_RAWIO (required for RDMA)            │ │
-│  │                                                                         │ │
-│  │ [Worker 0 - Leader]  ←──→  [Worker 1..N - Followers]                  │ │
-│  │ - Port: 5555/TCP (gRPC data-parallel RPC coordination)                │ │
-│  │ - Transport: NVSHMEM ibgda (GPU Direct RDMA, all-to-all)              │ │
-│  │ - Transport: NCCL (RDMA/TCP collective communication)                  │ │
-│  │ - Encryption: None                                                      │ │
-│  │ - Auth: None (IPC_LOCK capability gate)                                │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
-│                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  EXTERNAL SERVICES (Egress)                                                  │
-│                                                                              │
-│  [HuggingFace Hub - huggingface.co]                                          │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: HF_TOKEN Bearer token                                              │
-│  - Purpose: Model weight downloads                                           │
-│                                                                              │
-│  [GitHub Container Registry - ghcr.io]                                       │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: Image pull secret                                                   │
-│  - Purpose: Container image pulls                                            │
-│                                                                              │
-│  [NVIDIA Container Registry - nvcr.io]                                       │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: None / Pull secret                                                  │
-│  - Purpose: CUDA base image pulls                                            │
-│                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  OBSERVABILITY (Cluster-Internal)                                            │
-│                                                                              │
-│  [Prometheus]                                                                │
-│  - Scrapes model servers: 8000/TCP HTTP /metrics                            │
-│  - Scrapes EPP: 9090/TCP HTTP /metrics                                      │
-│  - Encryption: None (configurable TLS for WVA)                              │
-│  - Auth: None (configurable for WVA via controller-manager-token)           │
-│                                                                              │
-│  [OTEL Collector]                                                            │
-│  - Port: 4317/TCP                                                            │
-│  - Protocol: gRPC                                                            │
-│  - Encryption: None                                                          │
-│  - Auth: None                                                                │
-│  - Purpose: Distributed trace collection (optional)                          │
-│                                                                              │
-│  [Workload Variant Autoscaler (WVA)]                                         │
-│  - Reads: Prometheus metrics via 9090/TCP (configurable TLS)                │
-│  - Manages: HPA scaling for model server deployments                        │
-│  - Auth: controller-manager-token (Opaque secret)                           │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+RBAC Summary:
+- ServiceAccount: model-server SA
+  - automountServiceAccountToken: false
+  - No ClusterRole bindings in default guides
+- EPP RBAC: Managed by EPP Helm chart
+  - Watches: InferencePool CRD (inference.networking.k8s.io)
+  - Uses: Kubernetes API (in-cluster mTLS)
 
-================================================================================
-RBAC SUMMARY
-================================================================================
+Secrets:
+- llm-d-hf-token (Opaque) - HuggingFace Hub authentication
+  - Provisioned by: Manual (kubectl create secret)
+  - Auto-Rotate: No
+  - Contains: HF_TOKEN for model download
 
-ServiceAccounts:
-- Model server pods: automountServiceAccountToken=false (minimal privilege)
-- EPP: chart-defined SA with CRD watch permissions (Helm-managed)
+Authentication & Authorization:
+- vLLM API (8000/TCP): NO authentication - relies on network isolation
+- Envoy proxy (8081/TCP): NO default authentication (configurable)
+- EPP (9002/TCP): NO authentication - internal gRPC
+- NIXL (5600/TCP): NO authentication - pod-to-pod RDMA
+- Mooncake (50051/TCP): NO authentication - internal gRPC
 
-ClusterRole (defined by llm-d-inference-scheduler Helm chart):
-- API Group: inference.networking.x-k8s.io
-  Resources: inferencepool, inferenceobjective
-  Verbs: get, list, watch
-- API Group: "" (core)
-  Resources: pods, endpoints
-  Verbs: get, list, watch
+Security Gaps Identified:
+- No TLS between any internal components
+- No NetworkPolicy manifests in deployment guides
+- No authentication on vLLM API endpoint
+- No service mesh configured by default
+- RDMA traffic (NIXL, Mooncake) is unencrypted
+- For RHOAI: needs kube-rbac-proxy, TLS, NetworkPolicies, AIPCC base images
 
-Note: llm-d repository does not define RBAC directly. All RBAC is managed
-by the llm-d-inference-scheduler Helm chart (separate repository).
+FIPS Compliance:
+- No FIPS-specific build flags
+- CUDA image uses UBI9 (includes OpenSSL)
+- CPU image uses Ubuntu 22.04
+- Python stdlib ssl for TLS operations
+- No Go binaries produced
 
-================================================================================
-SECRETS
-================================================================================
-
-| Secret Name              | Type   | Purpose                        | Provisioned By | Auto-Rotate |
-|--------------------------|--------|--------------------------------|----------------|-------------|
-| hf-token                 | Opaque | HuggingFace API token          | Manual (user)  | No          |
-| controller-manager-token | Opaque | WVA metrics auth token         | Manual         | No          |
-
-================================================================================
-SECURITY NOTES
-================================================================================
-
-1. MODEL SERVER SECURITY POSTURE:
-   - Plaintext HTTP on port 8000 with NO authentication or TLS
-   - Security enforcement is DELEGATED to Gateway/proxy layer
-   - This is an intentional architectural decision for cluster-internal traffic
-
-2. WIDE EXPERT-PARALLELISM ELEVATED PRIVILEGES:
-   - LeaderWorkerSet manifests run as root (UID 0)
-   - Capabilities: IPC_LOCK, SYS_RAWIO
-   - Required for RDMA/NVSHMEM GPU Direct operations
-   - Represents a security trade-off for multi-node GPU communication
-
-3. NIXL KV TRANSFER:
-   - Port 5600/TCP with no encryption or authentication
-   - Transfers KV cache blocks between prefill and decode pods
-   - Cluster-internal only, relies on network policies for isolation
-
-4. FIPS COMPLIANCE:
-   - No FIPS build flags (no GOEXPERIMENT, CGO_ENABLED, strictfipsruntime)
-   - No explicit TLS configuration in model servers
-   - Crypto operations delegated to gateway layer
-   - Expected for upstream CNCF project; downstream RHOAI would add compliance
-
-5. BUILD HERMETICITY:
-   - Partial dependency pinning via uv constraints (PyTorch, NIXL)
-   - No full lock files (rpms.lock.yaml, artifacts.lock.yaml absent)
-   - Images depend on network access at build time
-   - Downstream would add Konflux integration for hermetic builds
+Build Hermeticity:
+- Partial: torch/nixl pinned via constraints, component versions pinned in docker/common-versions
+- No uv.lock or pip freeze for transitive Python deps
+- OS packages from UBI repos not locked

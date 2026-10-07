@@ -1,0 +1,59 @@
+sequenceDiagram
+    participant Admin as Platform Admin
+    participant K8s as Kubernetes API<br/>6443/TCP HTTPS
+    participant Operator as Operator Manager<br/>/manager
+    participant Reconciler as LLMBatchGateway<br/>Reconciler
+    participant Helm as Helm Chart<br/>Renderer
+    participant TLS as SecurityProfile<br/>Watcher
+    participant SecSync as Secret<br/>Synchronizer
+    participant MetricsCtrl as Metrics<br/>Controller
+    participant Prometheus as Prometheus<br/>Scraper
+
+    Note over Admin,Prometheus: Control Plane Loop
+
+    Admin->>K8s: kubectl apply LLMBatchGateway CR<br/>(batch.llm-d.ai/v1alpha1)
+    K8s-->>Operator: Watch event: LLMBatchGateway created/updated
+    Operator->>Reconciler: Enqueue reconcile
+
+    Reconciler->>TLS: Get cluster TLS profile
+    TLS->>K8s: Read OpenShift APIServer CR
+    K8s-->>TLS: TLS profile (Intermediate default)
+    TLS-->>Reconciler: Cipher suites + min TLS version
+
+    Reconciler->>Helm: Render batch-gateway chart<br/>(images from env vars, TLS profile)
+    Helm-->>Reconciler: Rendered manifests
+    Reconciler->>K8s: Create/Update Deployments,<br/>Services, ConfigMaps, SAs
+
+    Reconciler->>Helm: Render async-processor chart<br/>(images from env vars, TLS profile)
+    Helm-->>Reconciler: Rendered manifests
+    Reconciler->>K8s: Create/Update Deployments,<br/>ConfigMaps, SAs
+
+    Note over Reconciler,K8s: Conditional Resources (if CRDs present)
+
+    Reconciler->>K8s: Create HTTPRoute (Gateway API)
+    Reconciler->>K8s: Create Certificate (cert-manager)
+    Reconciler->>K8s: Create ServiceMonitor, PodMonitor
+
+    Note over SecSync,K8s: Secret Synchronization
+
+    K8s-->>SecSync: Watch event: Secret changed
+    SecSync->>K8s: Check ReferenceGrant
+    K8s-->>SecSync: Grant approved
+    SecSync->>K8s: Copy Secret cross-namespace
+
+    Note over MetricsCtrl,Prometheus: Metrics & Monitoring
+
+    MetricsCtrl->>K8s: Create metrics Service (ClusterIP :8443)
+    MetricsCtrl->>K8s: Create ServiceMonitor
+    MetricsCtrl->>K8s: Create PrometheusRule<br/>(reconcile errors, leader election alerts)
+
+    Prometheus->>Operator: GET :8443/metrics<br/>Bearer Token
+    Operator->>K8s: TokenReview + SubjectAccessReview
+    K8s-->>Operator: Authenticated & Authorized
+    Operator-->>Prometheus: Metrics response (HTTPS)
+
+    Note over TLS,Operator: TLS Profile Change Detection
+
+    TLS->>K8s: Watch APIServer CR
+    K8s-->>TLS: TLS profile changed
+    TLS->>Operator: Trigger graceful restart

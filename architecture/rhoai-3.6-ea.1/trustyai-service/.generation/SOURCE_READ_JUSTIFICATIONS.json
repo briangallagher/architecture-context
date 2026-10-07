@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "component": "trustyai-service",
+  "reads": [
+    {
+      "path": "src/main.py",
+      "line_range": "1-299",
+      "gap_category": ["authentication", "integration_points", "fips_compliance"],
+      "question": "What authentication middleware is registered, how are network bindings configured, and what TLS/crypto configuration is used?",
+      "expected_signal": "middleware registration, bind addresses, TLS certificate handling, FIPS provider selection",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization", "Integration Points", "FIPS Compliance", "Architectural Analysis", "Data Flows"],
+      "scope_reason": "Main application entry point containing all middleware registration, server binding configuration, TLS setup, and router inclusion — no narrower symbol range captures the full auth/network/TLS configuration"
+    },
+    {
+      "path": "src/service/data/storage/__init__.py",
+      "line_range": "1-119",
+      "gap_category": ["integration_points", "internal_dependencies", "fips_compliance"],
+      "question": "What storage backends does the service connect to, and what are the database connection parameters including TLS?",
+      "expected_signal": "database connection configuration, storage backend selection, TLS/SSL parameters",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Internal Platform Dependencies", "FIPS Compliance", "Data Flows"]
+    },
+    {
+      "path": "pyproject.toml",
+      "line_range": "1-80",
+      "gap_category": ["fips_compliance", "internal_dependencies"],
+      "question": "What cryptography dependencies are declared and what optional extras define integration points?",
+      "expected_signal": "cryptography version constraints, FIPS-related dependencies, optional dependency groups",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Internal Platform Dependencies"]
+    },
+    {
+      "path": "src/endpoints/consumer/consumer_endpoint.py",
+      "line_range": "1-100",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "How does the service receive inference data from ModelMesh/KServe and what protocol does it implement?",
+      "expected_signal": "KServe v2 protocol handling, payload reconciliation, model serving integration",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Internal Platform Dependencies", "Data Flows"]
+    },
+    {
+      "path": "src/service/prometheus/prometheus_scheduler.py",
+      "line_range": "1-120",
+      "gap_category": ["integration_points"],
+      "question": "Does the Prometheus scheduler make outbound HTTP calls to other services or only publish metrics locally?",
+      "expected_signal": "outbound HTTP calls, service client initialization, external API calls",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Data Flows"]
+    },
+    {
+      "path": "Dockerfile.konflux",
+      "line_range": "1-46",
+      "gap_category": ["fips_compliance"],
+      "question": "What base image is used and does the build configure FIPS-specific cryptographic providers?",
+      "expected_signal": "base image selection, FIPS mode configuration, cryptographic provider setup",
+      "outcome": "partially-resolved",
+      "sections": ["FIPS Compliance"]
+    }
+  ]
+}

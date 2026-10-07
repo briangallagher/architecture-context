@@ -1,0 +1,55 @@
+sequenceDiagram
+    participant Client as External Client
+    participant GW as Gateway API<br/>(data-science-gateway)<br/>openshift-ingress
+    participant Authorino as Kuadrant/Authorino<br/>AuthPolicy
+    participant MaaSAPI as maas-api<br/>:8443 TLS
+    participant K8sAPI as Kubernetes API<br/>:6443 HTTPS
+    participant DB as PostgreSQL<br/>Database
+    participant Controller as maas-controller<br/>Operator
+    participant KServe as KServe<br/>LLMInferenceService
+
+    Note over Client,KServe: External API Request Flow (Gateway-routed paths)
+
+    Client->>GW: POST /v1/models, /v1/subscriptions,<br/>/v1/api-keys, /maas-api/*
+    GW->>Authorino: HTTPRoute → AuthPolicy evaluation
+
+    alt API Key Auth
+        Authorino->>MaaSAPI: Callback: /internal/v1/api-keys/validate<br/>Bearer sk-oai-*
+        MaaSAPI-->>Authorino: Validation result
+    else Kubernetes TokenReview
+        Authorino->>K8sAPI: TokenReview (cluster audience)
+        K8sAPI-->>Authorino: Token identity
+    else OIDC JWT (optional)
+        Authorino->>Authorino: JWT validation via OIDC provider
+    end
+
+    Authorino->>Authorino: OPA authorization<br/>(subscription, group, tenant isolation)
+    Authorino-->>GW: Inject headers:<br/>X-MaaS-Username, X-MaaS-Group,<br/>X-MaaS-Subscription
+    GW->>MaaSAPI: Authenticated request<br/>:8443 TLS
+    MaaSAPI->>DB: Query/update data
+    DB-->>MaaSAPI: Result
+    MaaSAPI-->>GW: JSON response
+    GW-->>Client: Response
+
+    Note over Client,KServe: Internal API Path (bypasses Gateway)
+
+    Client->>MaaSAPI: GET /v1/tenants<br/>(direct Service call)
+    MaaSAPI->>K8sAPI: TokenReview (bearer token)
+    K8sAPI-->>MaaSAPI: Identity
+    MaaSAPI->>K8sAPI: SubjectAccessReview<br/>(system:authenticated)
+    K8sAPI-->>MaaSAPI: Authorization decision
+    MaaSAPI-->>Client: Tenant data
+
+    Note over Client,KServe: Controller Reconciliation Loop
+
+    KServe-->>Controller: Watch LLMInferenceService<br/>(conditional, dynamic registration)
+    Controller->>K8sAPI: Watch CRDs:<br/>AITenant, MaaSAuthPolicy,<br/>MaaSModelRef, MaaSSubscription,<br/>MaasTenantConfig, Tenant
+    K8sAPI-->>Controller: Resource events
+    Controller->>K8sAPI: Create AuthPolicy<br/>(Kuadrant)
+    Controller->>K8sAPI: Create TokenRateLimitPolicy
+    Controller->>K8sAPI: Create/Update HTTPRoutes
+
+    Note over Client,KServe: Observability Egress
+
+    MaaSAPI->>MaaSAPI: Prometheus metrics :9090
+    MaaSAPI->>MaaSAPI: OTLP/gRPC traces →<br/>OpenTelemetry Collector

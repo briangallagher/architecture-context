@@ -1,0 +1,87 @@
+graph TB
+    subgraph OGXOperator["ogx-k8s-operator (Root Operator)"]
+        direction TB
+        Reconciler["OGXServerReconciler<br/>Watches OGXServer CRs"]
+        Webhook["Validating Webhook<br/>/validate-ogx-io-v1beta1-ogxserver<br/>Port 9443 · TLS · Fail Policy"]
+        HealthProbe["Health/Ready Probes<br/>:8081/healthz · :8081/readyz"]
+        TLSConfig["TLS Config<br/>OpenShift APIServer TLS Profile<br/>Intermediate Fallback"]
+    end
+
+    subgraph OGXModule["ogx-module (Platform Controller)"]
+        direction TB
+        ModuleReconciler["OGX Reconciler<br/>Watches OGX platform CR"]
+        KustomizeRenderer["Kustomize Manifest Renderer<br/>odh-platform-utilities"]
+        PlatformDetect["Platform Detection<br/>ODH vs RHOAI"]
+    end
+
+    subgraph ConfigGen["configgen CLI"]
+        CG["Configuration Generator<br/>Distribution Specs → Runtime Config"]
+    end
+
+    %% CRDs
+    OGXServerCR["OGXServer CR<br/>ogx.io/v1beta1<br/>Namespaced"]
+    OGXCR["OGX CR<br/>components.platform.opendatahub.io/v1alpha1<br/>Cluster-scoped"]
+    LlamaStackCR["LlamaStackDistribution CR<br/>llamastack.io/v1alpha1<br/>Namespaced"]
+
+    %% Child Resources
+    subgraph ChildResources["Managed Child Resources"]
+        Deploy["Deployment"]
+        Svc["Service"]
+        HPA["HorizontalPodAutoscaler"]
+        PDB["PodDisruptionBudget"]
+        NetPol["NetworkPolicy"]
+        CM["ConfigMap"]
+        Ing["Ingress (optional)"]
+        PVC["PVC (optional)"]
+    end
+
+    subgraph ModuleChildResources["Module Managed Resources"]
+        OpDeploy["Operator Deployment"]
+        CRDs["CRDs"]
+        RBAC["RBAC Resources"]
+        VWC["ValidatingWebhookConfiguration"]
+        ModSvc["Services"]
+    end
+
+    %% User interaction
+    User["User / Data Scientist"] -->|"kubectl create"| OGXServerCR
+    OGXServerCR -->|"watched by"| Reconciler
+    User -->|"CREATE/UPDATE"| Webhook
+
+    %% Root operator reconciliation
+    Reconciler -->|"creates/manages"| Deploy
+    Reconciler -->|"creates/manages"| Svc
+    Reconciler -->|"creates/manages"| HPA
+    Reconciler -->|"creates/manages"| PDB
+    Reconciler -->|"creates/manages"| NetPol
+    Reconciler -->|"creates/manages"| CM
+    Reconciler -->|"creates/manages"| Ing
+    Reconciler -->|"creates/manages"| PVC
+    Reconciler -->|"reads"| Secrets["Secrets<br/>(model credentials)"]
+
+    %% Module reconciliation
+    OGXCR -->|"watched by"| ModuleReconciler
+    ModuleReconciler -->|"renders via"| KustomizeRenderer
+    ModuleReconciler -->|"uses"| PlatformDetect
+    ModuleReconciler -->|"installs/manages"| OpDeploy
+    ModuleReconciler -->|"installs/manages"| CRDs
+    ModuleReconciler -->|"installs/manages"| RBAC
+    ModuleReconciler -->|"installs/manages"| VWC
+    ModuleReconciler -->|"installs/manages"| ModSvc
+
+    %% External dependencies
+    Reconciler -->|"monitors via"| Prometheus["Prometheus Operator<br/>PrometheusRules · ServiceMonitors"]
+    Reconciler -->|"label-scoped cache"| K8sAPI["Kubernetes API<br/>:6443 · HTTPS"]
+
+    %% Styling
+    style OGXOperator fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    style OGXModule fill:#5b9bd5,stroke:#333,stroke-width:2px,color:#fff
+    style ConfigGen fill:#6baed6,stroke:#333,stroke-width:2px
+    style OGXServerCR fill:#f5a623,stroke:#333,stroke-width:2px
+    style OGXCR fill:#f5a623,stroke:#333,stroke-width:2px
+    style LlamaStackCR fill:#f5a623,stroke:#333,stroke-width:2px
+    style ChildResources fill:#d5e8d4,stroke:#82b366,stroke-width:1px
+    style ModuleChildResources fill:#dae8fc,stroke:#6c8ebf,stroke-width:1px
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style Secrets fill:#fff2cc,stroke:#d6b656

@@ -1,0 +1,51 @@
+graph TD
+    subgraph LibraryContext["caikit-tgis-backend (Library Component)"]
+        Note["This is a Python library, not an operator.<br/>No direct Kubernetes API interactions.<br/>No RBAC roles or bindings defined."]
+    end
+
+    subgraph RuntimeContext["Consuming Runtime (caikit-tgis-serving)"]
+        direction TB
+        SA["Service Account<br/><i>(defined by serving runtime)</i>"]
+        Pod["Serving Runtime Pod<br/>imports caikit-tgis-backend"]
+    end
+
+    subgraph SecurityBoundary["Security Boundary"]
+        direction TB
+        TLS["TLS Configuration"]
+        mTLS["mTLS Configuration<br/>(optional)"]
+    end
+
+    subgraph Credentials["Credential Files (mounted by runtime)"]
+        direction TB
+        CACert["ca_cert_file<br/><i>CA certificate</i><br/>Validates TGIS server identity"]
+        ClientCert["client_cert_file<br/><i>Client certificate</i><br/>mTLS client authentication"]
+        ClientKey["client_key_file<br/><i>Client private key</i><br/>mTLS client authentication"]
+    end
+
+    SA -->|"runs as"| Pod
+    Pod -->|"loads library"| LibraryContext
+    Pod -->|"mounts cert volumes"| Credentials
+
+    TLS -->|"requires"| CACert
+    mTLS -->|"requires both"| ClientCert
+    mTLS -->|"requires both"| ClientKey
+
+    LibraryContext -->|"configures"| SecurityBoundary
+    SecurityBoundary -->|"reads at channel creation"| Credentials
+
+    subgraph AccessControl["Access Control Summary"]
+        direction TB
+        Remote["Remote TGIS: TLS/mTLS<br/>grpc.ssl_channel_credentials()"]
+        Local["Local TGIS: No auth<br/>grpc.insecure_channel()<br/>(localhost only)"]
+        FS["Shared Filesystem: No ACL<br/>Path convention only<br/>(per-model subdirectories)"]
+    end
+
+    style Note fill:#fff3cd,stroke:#856404,color:#856404
+    style SA fill:#4a90e2,stroke:#333,color:#fff
+    style Pod fill:#4a90e2,stroke:#333,color:#fff
+    style CACert fill:#f5a623,stroke:#333,color:#fff
+    style ClientCert fill:#f5a623,stroke:#333,color:#fff
+    style ClientKey fill:#f5a623,stroke:#333,color:#fff
+    style Remote fill:#d5e8d4,stroke:#82b366
+    style Local fill:#fff2cc,stroke:#d6b656
+    style FS fill:#f8d7da,stroke:#721c24

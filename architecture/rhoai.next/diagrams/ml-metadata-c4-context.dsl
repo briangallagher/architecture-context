@@ -1,30 +1,38 @@
 workspace {
     model {
-        datascientist = person "Data Scientist" "Creates and runs ML pipelines that produce metadata"
-        pipelinedev = person "Pipeline Developer" "Queries lineage and metadata for debugging/auditing"
+        pipelineEngineer = person "Pipeline Engineer" "Creates and monitors ML pipelines that produce metadata"
 
-        mlmd = softwareSystem "ML Metadata (MLMD)" "gRPC server that records and retrieves metadata associated with ML workflows — artifacts, executions, contexts, and lineage" {
-            server = container "metadata_store_server" "Main gRPC server exposing MetadataStoreService API for CRUD operations on ML metadata entities" "C++ gRPC Service"
-            core = container "metadata_store (core)" "Core metadata store logic including database access, query execution, and transaction management" "C++ Library"
-            queryEngine = container "Query Engine" "SQL query construction and filter parsing using ZetaSQL for flexible metadata queries" "C++ Library"
-
-            server -> core "Delegates persistence operations"
-            core -> queryEngine "Constructs SQL queries with ZetaSQL"
+        mlmd = softwareSystem "ML Metadata (MLMD)" "gRPC server for recording and retrieving metadata associated with ML workflows -- artifacts, executions, contexts, and lineage" {
+            grpcServer = container "metadata_store_server" "C++ gRPC server implementing MetadataStoreService. Connects to database backends and exposes metadata CRUD + lineage query APIs" "C++ / gRPC / BoringSSL"
+            protobufSchemas = container "Protobuf Schemas" "Protocol Buffer definitions for data model (Artifact, Execution, Context, Event) and service RPC interface" "Protocol Buffers"
+            pythonClient = container "ml_metadata Python Library" "Python API client for interacting with the metadata store via direct DB connection or gRPC" "Python / PyPI"
         }
 
-        dsp = softwareSystem "Data Science Pipelines" "ML pipeline orchestration system that records pipeline run metadata" "Internal RHOAI"
-        tfx = softwareSystem "TFX / Kubeflow Pipelines" "Legacy pipeline system integration" "External"
-        mysql = softwareSystem "MySQL / MariaDB" "Relational database for production metadata storage" "External"
-        postgresql = softwareSystem "PostgreSQL" "Alternative relational database for production metadata storage" "External"
-        pythonLib = softwareSystem "ml_metadata Python Library" "Client library for interacting with MLMD via Python" "PyPI Package"
+        dsp = softwareSystem "Data Science Pipelines" "RHOAI pipeline orchestrator that deploys MLMD and records pipeline metadata" "Internal RHOAI"
+        kfpSdk = softwareSystem "Kubeflow Pipelines SDK" "Pipeline SDK used by pipeline steps to record artifacts, executions, and events" "Internal RHOAI"
+        pipelineUI = softwareSystem "Pipeline UI (Dashboard)" "Web UI for visualizing pipeline runs and artifact lineage" "Internal RHOAI"
+        mysql = softwareSystem "MySQL / MariaDB" "Relational database for persistent metadata storage" "External Database"
+        postgresql = softwareSystem "PostgreSQL" "Alternative relational database for persistent metadata storage" "External Database"
 
-        datascientist -> dsp "Runs ML pipelines"
-        pipelinedev -> pythonLib "Queries metadata and lineage"
-        dsp -> mlmd "Records pipeline artifacts, executions, events, and contexts" "gRPC/HTTP2 8080/TCP"
-        tfx -> mlmd "Records lineage metadata" "gRPC/HTTP2 8080/TCP"
-        pythonLib -> mlmd "CRUD operations on metadata entities" "gRPC/HTTP2 8080/TCP"
-        mlmd -> mysql "Stores and retrieves metadata entities" "MySQL wire protocol 3306/TCP"
-        mlmd -> postgresql "Stores and retrieves metadata entities" "PostgreSQL wire protocol"
+        # Relationships
+        pipelineEngineer -> pipelineUI "Views pipeline runs and lineage"
+        pipelineEngineer -> dsp "Creates pipeline runs"
+
+        dsp -> mlmd "Deploys MLMD server and records metadata" "gRPC/8080"
+        kfpSdk -> mlmd "Records artifacts, executions, contexts, events" "gRPC/8080"
+        pipelineUI -> mlmd "Queries metadata for visualization" "gRPC/8080"
+
+        mlmd -> mysql "Stores/retrieves metadata" "MySQL protocol/3306"
+        mlmd -> postgresql "Stores/retrieves metadata" "PostgreSQL protocol/5432"
+
+        # Container-level relationships
+        dsp -> grpcServer "PutExecution, PutArtifacts, PutContexts" "gRPC/8080 Optional TLS/mTLS"
+        kfpSdk -> grpcServer "PutExecution, PutArtifacts, PutEvents" "gRPC/8080 Optional TLS/mTLS"
+        pipelineUI -> grpcServer "GetLineageSubgraph, GetArtifacts" "gRPC/8080 Optional TLS/mTLS"
+        pythonClient -> grpcServer "All MetadataStoreService RPCs" "gRPC/8080"
+
+        grpcServer -> mysql "CRUD operations on metadata tables" "MySQL protocol/3306 Optional TLS"
+        grpcServer -> postgresql "CRUD operations on metadata tables" "PostgreSQL protocol/5432 Optional TLS"
     }
 
     views {
@@ -39,29 +47,25 @@ workspace {
         }
 
         styles {
-            element "External" {
-                background #999999
+            element "Person" {
+                shape Person
+                background #08427b
+                color #ffffff
+            }
+            element "Software System" {
+                background #1168bd
                 color #ffffff
             }
             element "Internal RHOAI" {
                 background #7ed321
                 color #ffffff
             }
-            element "PyPI Package" {
-                background #6cb4ee
-                color #ffffff
-            }
-            element "Person" {
-                shape Person
-                background #08427B
-                color #ffffff
-            }
-            element "Software System" {
-                background #1168BD
+            element "External Database" {
+                background #999999
                 color #ffffff
             }
             element "Container" {
-                background #438DD5
+                background #438dd5
                 color #ffffff
             }
         }

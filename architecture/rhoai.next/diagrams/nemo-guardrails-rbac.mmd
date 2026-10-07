@@ -1,52 +1,62 @@
 graph TD
-    subgraph NoRBAC["No Kubernetes RBAC Defined"]
+    subgraph Note["RBAC Summary"]
         direction TB
-        Note["NeMo Guardrails is a standalone<br/>Python service, not a Kubernetes operator.<br/>No ClusterRoles, Roles, or<br/>RoleBindings are defined."]
+        Info["NeMo Guardrails is a stateless<br/>application-level service, NOT an operator.<br/>No Kubernetes RBAC resources defined."]
     end
 
     subgraph AuthModel["Authentication Model"]
         direction TB
 
-        subgraph Passthrough["Bearer Token Passthrough"]
-            ClientToken["Client Bearer Token<br/>(Authorization header)"]
-            ServerFwd["Server forwards token<br/>to upstream LLM provider"]
-            Redaction["Auth token redaction<br/>in forwarded headers<br/>(fork customization)"]
-            ClientToken --> ServerFwd
-            ServerFwd --> Redaction
+        subgraph Endpoints["HTTP Endpoints (port 8000)"]
+            ChatEndpoint["/v1/chat/completions<br/>POST"]
+            ChecksEndpoint["/v1/checks<br/>POST"]
+            ModelsEndpoint["/v1/models<br/>GET"]
+            HealthEndpoint["/v1/health, /healthz<br/>GET"]
+            ConfigsEndpoint["/v1/rails/configs<br/>GET"]
         end
 
-        subgraph Unauthenticated["Unauthenticated Endpoints"]
-            EP1["GET /v1/rails/configs"]
-            EP2["GET /v1/challenges"]
-            EP3["GET / (Health check)"]
-            EP4["POST /v1/actions/run"]
-            EP5["GET /v1/actions/list"]
-        end
-
-        subgraph Authenticated["Bearer Passthrough Endpoints"]
-            EP6["POST /v1/chat/completions"]
-            EP7["POST /v1/guardrail/checks"]
-            EP8["GET /v1/models"]
+        subgraph AuthMechanisms["Auth Mechanisms"]
+            HeaderPassthrough["Header Passthrough<br/>(Authorization header<br/>forwarded to upstream LLM)"]
+            NoAuth["No Authentication<br/>(public endpoint)"]
+            PlatformAuth["Platform-Level Auth<br/>(kube-rbac-proxy or<br/>ingress-level enforcement)"]
         end
     end
 
-    subgraph Secrets["Secrets (Environment Variables)"]
-        direction TB
-        S1["OPENAI_API_KEY<br/>Manual provisioning<br/>No auto-rotation"]
-        S2["AZURE_OPENAI_API_KEY<br/>Manual provisioning<br/>No auto-rotation"]
-        S3["ANTHROPIC_API_KEY<br/>Manual provisioning<br/>No auto-rotation"]
-        S4["COHERE_API_KEY<br/>Manual provisioning<br/>No auto-rotation"]
-        S5["Redis credentials<br/>URL / env var (optional)<br/>No auto-rotation"]
+    ChatEndpoint -->|"auth"| HeaderPassthrough
+    ChecksEndpoint -->|"auth"| HeaderPassthrough
+    ModelsEndpoint -->|"auth"| HeaderPassthrough
+    HealthEndpoint -->|"auth"| NoAuth
+    ConfigsEndpoint -->|"auth"| NoAuth
+
+    PlatformAuth -->|"enforces access to"| ChatEndpoint
+    PlatformAuth -->|"enforces access to"| ChecksEndpoint
+    PlatformAuth -->|"enforces access to"| ModelsEndpoint
+
+    subgraph Secrets["Secrets"]
+        LLMKeys["LLM API Keys (Opaque)<br/>OPENAI_API_KEY, etc.<br/>Manual provisioning<br/>No auto-rotation"]
     end
 
-    Authenticated -->|"Token forwarded to"| LLMProviders["Upstream LLM Providers<br/>(OpenAI, Azure, Anthropic,<br/>Cohere, NIM, vLLM)"]
-    Secrets -->|"Used for direct<br/>provider auth"| LLMProviders
+    subgraph MultiTenancy["Multi-Tenancy Isolation"]
+        ConfigId["config_id Routing<br/>(per-tenant guardrails config)"]
+        PathProtection["Path Traversal Protection<br/>(rejects '..' and '/' in config_id)"]
+        ThreadIsolation["Thread Isolation<br/>(per-thread-id message storage)"]
+    end
+
+    HeaderPassthrough -->|"uses"| LLMKeys
+    ConfigId --> PathProtection
+    ConfigId --> ThreadIsolation
 
     %% Styling
-    style NoRBAC fill:#f5f5f5,stroke:#999,stroke-width:2px
-    style Note fill:#fff9c4,stroke:#f9a825
-    style Passthrough fill:#e3f2fd,stroke:#1565c0
-    style Unauthenticated fill:#ffcdd2,stroke:#c62828
-    style Authenticated fill:#c8e6c9,stroke:#388e3c
-    style Secrets fill:#fff3e0,stroke:#e65100
-    style LLMProviders fill:#f5a623,stroke:#333
+    style Info fill:#fff3cd,stroke:#ffc107,stroke-width:2px
+    style ChatEndpoint fill:#4a90e2,stroke:#333,color:#fff
+    style ChecksEndpoint fill:#4a90e2,stroke:#333,color:#fff
+    style ModelsEndpoint fill:#4a90e2,stroke:#333,color:#fff
+    style HealthEndpoint fill:#28a745,stroke:#333,color:#fff
+    style ConfigsEndpoint fill:#28a745,stroke:#333,color:#fff
+    style HeaderPassthrough fill:#f5a623,stroke:#333
+    style NoAuth fill:#28a745,stroke:#333,color:#fff
+    style PlatformAuth fill:#9b59b6,stroke:#333,color:#fff
+    style LLMKeys fill:#dc3545,stroke:#333,color:#fff
+    style ConfigId fill:#17a2b8,stroke:#333,color:#fff
+    style PathProtection fill:#17a2b8,stroke:#333,color:#fff
+    style ThreadIsolation fill:#17a2b8,stroke:#333,color:#fff

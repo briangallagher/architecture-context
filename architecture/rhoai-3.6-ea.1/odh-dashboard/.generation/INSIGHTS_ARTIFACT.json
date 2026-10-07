@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "component": "odh-dashboard",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "odh-dashboard-pattern-001",
+      "claim": "The dashboard uses a vertically-sliced micro-frontend architecture where ten Go BFF sidecars each serve a domain-specific API on a dedicated port, creating independent deployment and authentication boundaries per feature domain.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/http_endpoints"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "manifests/rhoai/base/federation-configmap.yaml:15-162"
+        }
+      ],
+      "reasoning": "The federation configmap maps 10 distinct path prefixes to separate BFF sidecar ports (8043-8843), each backed by an independent Go binary with its own authentication middleware. This architectural pattern enables independent scaling, deployment, and failure isolation per feature domain but increases operational complexity and resource consumption.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "odh-dashboard-pattern-002",
+      "claim": "All Go binaries in the dashboard use -tags strictfipsruntime with CGO_ENABLED=1 for FIPS compliance, but the Node.js frontend/backend relies on inherited OpenSSL from UBI9 without explicit FIPS opt-in.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux.dashboard-operator:18-20"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux.genai:86"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:34"
+        }
+      ],
+      "reasoning": "The Go operator and BFF sidecars explicitly opt into FIPS-validated crypto via strictfipsruntime build tags. However, the Node.js backend (serving the React SPA and proxying K8s API) uses UBI9/nodejs-22 which provides OpenSSL but Node.js does not have an explicit FIPS mode toggle. This creates an asymmetric FIPS posture within the same component.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "odh-dashboard-risk-001",
+      "claim": "The dashboard operator's ClusterRole grants 59 RBAC rules covering 30+ API groups, making it one of the widest permission surfaces in the RHOAI platform.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/security/rbac"
+        }
+      ],
+      "reasoning": "The odh-dashboard-operator-role ClusterRole includes impersonate verbs for users, groups, and service accounts, full CRUD on secrets and configmaps across namespaces, and watch permissions on nearly all platform CRDs. This broad permission surface is architecturally necessary for the dashboard's role as the central management console but represents a significant attack surface if the operator or any BFF sidecar is compromised.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    }
+  ]
+}

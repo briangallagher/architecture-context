@@ -1,0 +1,43 @@
+graph TB
+    subgraph HostProcess["HOST PROCESS (Caller's Security Context)"]
+        direction TB
+
+        subgraph Library["Training Hub Library (In-Process)"]
+            direction TB
+
+            subgraph Core["Core (No Network Activity)"]
+                SFT["SFT Algorithm<br/>InstructLab / Mini-Trainer"]
+                LoRA["LoRA Algorithm<br/>Unsloth"]
+                GRPO["GRPO Algorithm<br/>ART / VeRL"]
+            end
+
+            subgraph GEPAZone["GEPA (Outbound Network)"]
+                GEPA["GEPA Algorithm<br/>Env: OPENAI_API_BASE<br/>Env: OPENAI_API_KEY"]
+                MLflowBackend["MLflow GEPA Backend<br/>mlflow SDK"]
+            end
+        end
+
+        CallerPod["Caller Pod<br/>(Notebook / Training Job)<br/>SA: inherited<br/>Network: pod namespace"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        LLMEndpoint["OpenAI-compatible LLM Endpoint<br/>Protocol: HTTPS<br/>Auth: Bearer Token (OPENAI_API_KEY)<br/>Encryption: TLS (endpoint-dependent)"]
+        MLflowServer["MLflow Tracking Server<br/>Protocol: HTTPS<br/>Auth: mlflow SDK session<br/>Encryption: TLS (server-dependent)"]
+    end
+
+    %% Flows
+    GEPA -->|"HTTPS<br/>Bearer Token<br/>(via litellm)"| LLMEndpoint
+    MLflowBackend -->|"HTTPS<br/>mlflow SDK<br/>(experiment tracking)"| MLflowServer
+
+    %% Styling
+    classDef hostprocess fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef library fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef core fill:#e1d5e7,stroke:#9673a6,stroke-width:1px
+    classDef gepazone fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef caller fill:#f5f5f5,stroke:#666,stroke-width:1px
+
+    class CallerPod caller
+    class SFT,LoRA,GRPO core
+    class GEPA,MLflowBackend gepazone
+    class LLMEndpoint,MLflowServer externalservice

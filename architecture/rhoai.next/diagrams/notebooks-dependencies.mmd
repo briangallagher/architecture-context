@@ -1,145 +1,137 @@
 graph LR
-    Notebooks["Notebooks<br/>(Workbench Images)"]
+    Notebooks["Notebooks<br/>Image Factory"]
 
-    %% External Dependencies - Languages & Runtimes
-    subgraph Runtimes["Languages & Runtimes"]
+    %% ── External Runtime Dependencies ──
+    subgraph ExtRuntime["External Runtime Dependencies"]
         Python["Python 3.12"]
-        NodeJS["Node.js 22.21.1"]
-        Java["Java 17 OpenJDK<br/>(TrustyAI only)"]
+        JupyterLab["JupyterLab 4.5-4.6"]
+        CodeServerDep["code-server v4.112.0"]
+        NodeJS["Node.js 22.22.0"]
+        NginxDep["nginx 1.24"]
+        HttpdDep["httpd (Apache) 2.4"]
     end
 
     Notebooks -->|"primary runtime"| Python
-    Notebooks -->|"code-server build"| NodeJS
-    Notebooks -->|"TrustyAI JRE"| Java
-
-    %% External Dependencies - ML Frameworks
-    subgraph MLFrameworks["ML Frameworks"]
-        PyTorch["PyTorch<br/>(locked in pylock.toml)"]
-        TensorFlow["TensorFlow<br/>(locked in pylock.toml)"]
-        TrustyAI["TrustyAI<br/>Fairness/Explainability"]
-        LLMCompressor["LLM Compressor<br/>Model Optimization"]
-    end
-
-    Notebooks -->|"deep learning"| PyTorch
-    Notebooks -->|"deep learning"| TensorFlow
-    Notebooks -->|"AI fairness"| TrustyAI
-    Notebooks -->|"model optimization"| LLMCompressor
-
-    %% External Dependencies - GPU
-    subgraph GPUStack["GPU Compute"]
-        CUDA129["CUDA 12.9.1"]
-        CUDA130["CUDA 13.0.2"]
-        cuDNN["cuDNN 9.14.0.64"]
-        ROCm64["ROCm 6.4.3"]
-        ROCm71["ROCm 7.1.1"]
-    end
-
-    Notebooks -->|"NVIDIA GPU"| CUDA129
-    Notebooks -->|"NVIDIA GPU"| CUDA130
-    Notebooks -->|"DL acceleration"| cuDNN
-    Notebooks -->|"AMD GPU"| ROCm64
-    Notebooks -->|"AMD GPU"| ROCm71
-
-    %% External Dependencies - Web/Server
-    subgraph WebStack["Web / Server"]
-        JupyterLab["JupyterLab 4.5"]
-        CodeServerApp["code-server 4.106.3"]
-        NginxDep["nginx 1.24"]
-        HttpdDep["httpd (Apache)"]
-    end
-
     Notebooks -->|"notebook IDE"| JupyterLab
-    Notebooks -->|"VS Code IDE"| CodeServerApp
+    Notebooks -->|"VS Code IDE"| CodeServerDep
+    Notebooks -->|"code-server runtime"| NodeJS
     Notebooks -->|"reverse proxy"| NginxDep
     Notebooks -->|"CGI gateway"| HttpdDep
 
-    %% External Dependencies - Build Tools
-    subgraph BuildTools["Build Tools"]
-        UV["uv 0.11.13"]
-        Micropipenv["micropipenv 1.10.0"]
-        TexLive["TeX Live"]
-        Pandoc["Pandoc"]
-        Mongocli["mongocli<br/>(FIPS-compiled Go)"]
+    %% ── Conditional ML Framework Dependencies ──
+    subgraph MLFrameworks["ML Frameworks (Conditional)"]
+        PyTorchDep["PyTorch 2.11<br/>(CUDA variants)"]
+        TensorFlowDep["TensorFlow 2.x<br/>(CUDA/ROCm variants)"]
+        CUDA["CUDA Toolkit<br/>12.9 / 13.0"]
+        ROCm["ROCm 7.14<br/>(AMD GPU)"]
+        Java17["Java 17 OpenJDK<br/>(TrustyAI only)"]
+        Elyra["Elyra 5.0<br/>(ODH fork)"]
     end
 
-    Notebooks -->|"package installer"| UV
-    Notebooks -->|"legacy resolver"| Micropipenv
-    Notebooks -->|"PDF export"| TexLive
-    Notebooks -->|"doc conversion"| Pandoc
-    Notebooks -->|"MongoDB CLI"| Mongocli
+    Notebooks -->|"deep learning"| PyTorchDep
+    Notebooks -->|"deep learning"| TensorFlowDep
+    Notebooks -->|"NVIDIA accel"| CUDA
+    Notebooks -->|"AMD accel"| ROCm
+    Notebooks -.->|"TrustyAI only"| Java17
+    Notebooks -->|"pipeline editor"| Elyra
 
-    %% Internal Platform Dependencies
-    subgraph InternalODH["Internal ODH/RHOAI Platform"]
-        RhodsOperator["rhods-operator /<br/>opendatahub-operator"]
-        ODHDashboard["ODH Dashboard"]
-        NotebookController["Kubeflow Notebook<br/>Controller"]
-        DSPA["Data Science Pipelines<br/>Application (DSPA)"]
-        Elyra["Elyra<br/>JupyterLab Extension"]
+    %% ── Build-Time Dependencies ──
+    subgraph BuildDeps["Build-Time Dependencies"]
+        UV["uv >=0.10,<0.12<br/>(pkg installer)"]
+        Cachi2["Cachi2 / Hermeto<br/>(hermetic prefetch)"]
+        MongoCLI["mongocli<br/>(FIPS Go binary)"]
     end
 
-    Notebooks -->|"ImageStream manifests"| RhodsOperator
-    RhodsOperator -->|"deploys ImageStreams"| ODHDashboard
-    ODHDashboard -->|"reads annotations"| Notebooks
-    NotebookController -->|"injects sidecar,<br/>CA certs, configs"| Notebooks
-    NotebookController -->|"polls idle culling"| Notebooks
-    Notebooks -->|"pipeline submission"| DSPA
-    Elyra -->|"uses runtime images"| Notebooks
+    Notebooks -->|"pkg install"| UV
+    Notebooks -->|"hermetic build"| Cachi2
+    Notebooks -.->|"datascience variants"| MongoCLI
 
-    %% External Services
-    subgraph ExternalSvc["External Services"]
-        RegistryRH["registry.redhat.io"]
-        RegistryQuay["quay.io"]
-        KonfluxSvc["Konflux Build System"]
-        Renovate["Renovate<br/>(dependency updates)"]
-        SecuritySync["security-config-sync"]
+    %% ── Internal Platform Dependencies ──
+    subgraph InternalODH["Internal Platform Dependencies"]
+        NotebookCtrl["ODH Notebook Controller<br/>(creates pods from Notebook CR)"]
+        Dashboard["ODH Dashboard<br/>(discovers via ImageStream)"]
+        Operator["ODH/RHOAI Operator<br/>(deploys manifests)"]
+        DSPA["Data Science Pipelines<br/>(pipeline execution)"]
+        ElyraEngine["Elyra Pipeline Engine<br/>(runtime image consumer)"]
+        AIPCCImages["AIPCC Base Images<br/>(RHEL 9.6 EUS)"]
+        CheckPayload["check-payload<br/>(FIPS validation)"]
     end
 
-    KonfluxSvc -->|"builds hermetically"| Notebooks
-    Notebooks -->|"pushes RHOAI images"| RegistryRH
-    Notebooks -->|"pushes ODH images"| RegistryQuay
-    Renovate -->|"automated PRs"| Notebooks
-    SecuritySync -->|"syncs security configs"| Notebooks
+    NotebookCtrl -->|"instantiates images"| Notebooks
+    Dashboard -->|"discovers images"| Notebooks
+    Operator -->|"deploys manifests"| Notebooks
+    DSPA -->|"mounts secret"| Notebooks
+    ElyraEngine -->|"pulls runtime images"| Notebooks
+    Notebooks -->|"FROM base image"| AIPCCImages
+    CheckPayload -->|"validates"| Notebooks
+
+    %% ── External Service Dependencies (Egress) ──
+    subgraph ExternalServices["External Services (Runtime Egress)"]
+        S3["S3 Object Storage<br/>443/TCP HTTPS"]
+        KFP["Kubeflow Pipelines<br/>443/TCP HTTPS"]
+        Git["Git Repositories<br/>443/TCP HTTPS"]
+        MongoDB["MongoDB<br/>27017/TCP"]
+        PostgreSQL["PostgreSQL<br/>5432/TCP"]
+        MySQL["MySQL<br/>3306/TCP"]
+        MLflowSvc["MLflow Tracking<br/>5000/TCP"]
+    end
+
+    Notebooks -->|"data access"| S3
+    Notebooks -->|"pipeline submission"| KFP
+    Notebooks -->|"git operations"| Git
+    Notebooks -->|"database"| MongoDB
+    Notebooks -->|"database"| PostgreSQL
+    Notebooks -->|"database"| MySQL
+    Notebooks -->|"experiment tracking"| MLflowSvc
+
+    %% ── CI/CD Dependencies ──
+    subgraph CICD["CI/CD Integration"]
+        Konflux["Konflux / Tekton<br/>(build pipeline)"]
+        SecuritySync["security-config-sync[bot]<br/>(config sync)"]
+        Renovate["Renovate / MintMaker<br/>(dependency updates)"]
+    end
+
+    Konflux -->|"builds images"| Notebooks
+    SecuritySync -.->|"syncs config"| Notebooks
+    Renovate -.->|"updates deps"| Notebooks
 
     %% Styling
     style Notebooks fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
-    style Runtimes fill:#f5f5f5,stroke:#999
-    style MLFrameworks fill:#f5f5f5,stroke:#999
-    style GPUStack fill:#f5f5f5,stroke:#999
-    style WebStack fill:#f5f5f5,stroke:#999
-    style BuildTools fill:#f5f5f5,stroke:#999
-    style InternalODH fill:#e8f5e9,stroke:#4caf50
-    style ExternalSvc fill:#fff3e0,stroke:#f5a623
 
     style Python fill:#999,stroke:#333
-    style NodeJS fill:#999,stroke:#333
-    style Java fill:#999,stroke:#333
-    style PyTorch fill:#999,stroke:#333
-    style TensorFlow fill:#999,stroke:#333
-    style TrustyAI fill:#999,stroke:#333
-    style LLMCompressor fill:#999,stroke:#333
-    style CUDA129 fill:#999,stroke:#333
-    style CUDA130 fill:#999,stroke:#333
-    style cuDNN fill:#999,stroke:#333
-    style ROCm64 fill:#999,stroke:#333
-    style ROCm71 fill:#999,stroke:#333
     style JupyterLab fill:#999,stroke:#333
-    style CodeServerApp fill:#999,stroke:#333
+    style CodeServerDep fill:#999,stroke:#333
+    style NodeJS fill:#999,stroke:#333
     style NginxDep fill:#999,stroke:#333
     style HttpdDep fill:#999,stroke:#333
-    style UV fill:#999,stroke:#333
-    style Micropipenv fill:#999,stroke:#333
-    style TexLive fill:#999,stroke:#333
-    style Pandoc fill:#999,stroke:#333
-    style Mongocli fill:#999,stroke:#333
 
-    style RhodsOperator fill:#7ed321,stroke:#333
-    style ODHDashboard fill:#7ed321,stroke:#333
-    style NotebookController fill:#7ed321,stroke:#333
+    style PyTorchDep fill:#b39ddb,stroke:#333
+    style TensorFlowDep fill:#b39ddb,stroke:#333
+    style CUDA fill:#b39ddb,stroke:#333
+    style ROCm fill:#b39ddb,stroke:#333
+    style Java17 fill:#b39ddb,stroke:#333
+    style Elyra fill:#b39ddb,stroke:#333
+
+    style UV fill:#bcaaa4,stroke:#333
+    style Cachi2 fill:#bcaaa4,stroke:#333
+    style MongoCLI fill:#bcaaa4,stroke:#333
+
+    style NotebookCtrl fill:#7ed321,stroke:#333
+    style Dashboard fill:#7ed321,stroke:#333
+    style Operator fill:#7ed321,stroke:#333
     style DSPA fill:#7ed321,stroke:#333
-    style Elyra fill:#7ed321,stroke:#333
+    style ElyraEngine fill:#7ed321,stroke:#333
+    style AIPCCImages fill:#7ed321,stroke:#333
+    style CheckPayload fill:#7ed321,stroke:#333
 
-    style RegistryRH fill:#f5a623,stroke:#333
-    style RegistryQuay fill:#f5a623,stroke:#333
-    style KonfluxSvc fill:#f5a623,stroke:#333
-    style Renovate fill:#f5a623,stroke:#333
-    style SecuritySync fill:#f5a623,stroke:#333
+    style S3 fill:#f5a623,stroke:#333
+    style KFP fill:#f5a623,stroke:#333
+    style Git fill:#f5a623,stroke:#333
+    style MongoDB fill:#f5a623,stroke:#333
+    style PostgreSQL fill:#f5a623,stroke:#333
+    style MySQL fill:#f5a623,stroke:#333
+    style MLflowSvc fill:#f5a623,stroke:#333
+
+    style Konflux fill:#e0e0e0,stroke:#333
+    style SecuritySync fill:#e0e0e0,stroke:#333
+    style Renovate fill:#e0e0e0,stroke:#333

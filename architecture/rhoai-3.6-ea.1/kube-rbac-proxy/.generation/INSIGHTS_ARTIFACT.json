@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "kube-rbac-proxy",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "kube-rbac-proxy-pattern-001",
+      "claim": "kube-rbac-proxy uses a union authorizer pattern that hard-codes OpenShift metrics scraping as the highest-priority authorization rule, bypassing all other authorization checks for platform monitoring.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/kube-rbac-proxy/app/kube-rbac-proxy.go:268-275"
+        }
+      ],
+      "reasoning": "The hardcoded metrics authorizer is placed first in the union chain (before static and SAR authorizers), meaning OpenShift platform monitoring can always read metrics without SubjectAccessReview evaluation. This is an intentional platform integration pattern but has implications for audit completeness since these requests are authorized without explicit RBAC evaluation.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "kube-rbac-proxy-risk-001",
+      "claim": "Configurable ignore-paths allow specific URL patterns to completely bypass the authentication and authorization handler chain, forwarding unauthenticated requests directly to the upstream service.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/kube-rbac-proxy/app/kube-rbac-proxy.go:300-336"
+        }
+      ],
+      "reasoning": "The ignore-paths feature uses path.Match pattern matching to decide whether to skip the entire WithAuthentication/WithAuthorization chain. If an ignore-path is configured to match sensitive upstream endpoints, those endpoints become unprotected. The security posture depends entirely on correct path configuration by the deploying component.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "kube-rbac-proxy-pattern-002",
+      "claim": "The Konflux build enables strictfipsruntime via both GOEXPERIMENT and build tags, producing a dynamically linked binary that uses OpenSSL-backed FIPS-validated cryptography at runtime.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:8-10"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/kube-rbac-proxy/app/transport.go:36"
+        }
+      ],
+      "reasoning": "The combination of GOEXPERIMENT=strictfipsruntime, -tags strictfipsruntime, and CGO_ENABLED=1 ensures Go's crypto/tls delegates to OpenSSL. The transport layer enforces TLS 1.2 minimum for upstream connections, and the server supports configurable cipher suites via k8s component-base. No non-FIPS crypto providers were detected in the codebase.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

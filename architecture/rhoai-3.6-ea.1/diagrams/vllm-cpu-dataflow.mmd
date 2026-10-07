@@ -1,0 +1,66 @@
+sequenceDiagram
+    participant Client as External Client
+    participant FastAPI as FastAPI/ASGI Server<br/>HTTP/HTTPS
+    participant Auth as AuthenticationMiddleware<br/>Bearer Token (conditional)
+    participant Router as API Router<br/>(OpenAI/Anthropic/Pooling)
+    participant Engine as vLLM Engine
+    participant S3 as S3-Compatible Storage<br/>443/TCP HTTPS
+    participant HF as HuggingFace Hub<br/>443/TCP HTTPS
+
+    Note over FastAPI,Engine: Startup: Model Loading Flow
+    FastAPI->>Engine: Initialize engine
+    alt S3 model source
+        Engine->>S3: Download model weights (boto3)<br/>AWS credentials / HTTPS
+        S3-->>Engine: Model artifacts
+    else HuggingFace Hub source
+        Engine->>HF: Download model (huggingface_hub)<br/>HTTPS / optional auth token
+        HF-->>Engine: Model weights & config
+    end
+    Note over Engine: Model loaded into memory
+
+    Note over Client,Engine: Runtime: Inference Request Flow
+    Client->>FastAPI: POST /v1/chat/completions<br/>Content-Type: application/json
+    alt API key configured (--api-key or VLLM_API_KEY)
+        FastAPI->>Auth: Forward request
+        Auth->>Auth: Check path prefix (/v1, /v2, /inference)
+        Auth->>Auth: Validate Bearer token<br/>SHA-256 hash + secrets.compare_digest
+        alt Token valid
+            Auth->>Router: Authenticated request
+        else Token invalid
+            Auth-->>Client: 401 Unauthorized
+        end
+    else No API key configured
+        FastAPI->>Router: Pass through (no auth)
+    end
+    Router->>Engine: Inference request
+    Engine->>Engine: Run LLM inference
+    alt Streaming response
+        Engine-->>Router: SSE stream chunks
+        Router-->>FastAPI: Stream response
+        FastAPI-->>Client: text/event-stream
+    else Non-streaming response
+        Engine-->>Router: Complete result
+        Router-->>FastAPI: JSON response
+        FastAPI-->>Client: application/json
+    end
+
+    Note over Client,Engine: Runtime: LoRA Adapter Hot-Loading
+    Client->>FastAPI: POST /v1/load_lora_adapter<br/>Bearer token (if configured)
+    FastAPI->>Auth: Validate (if auth active)
+    Auth->>Router: Forward
+    Router->>Engine: Load LoRA adapter
+    alt Filesystem source
+        Engine->>Engine: Load from local path
+    else HuggingFace source
+        Engine->>HF: Resolve & download adapter<br/>HTTPS
+        HF-->>Engine: LoRA weights
+    end
+    Engine-->>Router: Adapter loaded
+    Router-->>Client: 200 OK
+
+    Note over Client,FastAPI: Health & Operational Probes (Unauthenticated)
+    Client->>FastAPI: GET /health
+    Note right of FastAPI: No auth guard<br/>(outside /v1, /v2, /inference prefix)
+    FastAPI-->>Client: 200 OK
+    Client->>FastAPI: GET /ready
+    FastAPI-->>Client: 200 OK (if model loaded)

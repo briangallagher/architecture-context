@@ -1,105 +1,85 @@
-┌──────────────────────────────────────────────────────────────────────────┐
-│  EXTERNAL (Untrusted)                                                    │
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
 │                                                                          │
-│  [Client / Platform Ingress]                                             │
+│  [REST Client / Inference Consumer]                                      │
 │         │                                                                │
 │         │ Port: 8008/TCP                                                 │
 │         │ Protocol: HTTP or HTTPS                                        │
-│         │ Encryption: TLS optional (cert via MM_TLS_KEY_CERT_PATH)       │
-│         │ Auth: None (delegated to ModelMesh / platform ingress)         │
+│         │ Encryption: Optional TLS (via MM_TLS_KEY_CERT_PATH)            │
+│         │ Auth: None at proxy level                                      │
+│         │       Platform-enforced (kube-rbac-proxy / service mesh)       │
 │         ▼                                                                │
-├──────────────────────────────────────────────────────────────────────────┤
-│  POD BOUNDARY (ModelMesh Serving Pod)                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│  MODELMESH SERVING POD (Pod-Local Network)                              │
 │                                                                          │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │  SIDECAR: rest-proxy                                               │  │
-│  │                                                                    │  │
-│  │  [rest-proxy - gRPC-Gateway Reverse Proxy]                         │  │
-│  │  - Image: restProxy.image (from model-serving-config ConfigMap)    │  │
-│  │  - Language: Go 1.23.6                                             │  │
-│  │  - Inbound: 8008/TCP (HTTP or HTTPS)                               │  │
-│  │  - TLS Termination: Optional                                       │  │
-│  │    - Cert: MM_TLS_KEY_CERT_PATH env var                            │  │
-│  │    - Key: MM_TLS_PRIVATE_KEY_PATH env var                          │  │
-│  │  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1             │  │
-│  │  - Max gRPC message size: 16 MiB (configurable via                 │  │
-│  │    REST_PROXY_GRPC_MAX_MSG_SIZE_BYTES)                             │  │
-│  │                                                                    │  │
-│  │  Purpose: Translates KServe V2 REST API → gRPC V2 Predict Protocol │  │
-│  │                                                                    │  │
-│  │  HTTP Endpoints:                                                   │  │
-│  │    GET  /v2/models/{name}                                          │  │
-│  │    GET  /v2/models/{name}/versions/{version}                       │  │
-│  │    POST /v2/models/{model_name}/infer                              │  │
-│  │    POST /v2/models/{model_name}/versions/{model_version}/infer     │  │
-│  │         │                                                          │  │
-│  │         │ Port: 8033/TCP                                           │  │
-│  │         │ Protocol: gRPC                                           │  │
-│  │         │ Encryption: TLS optional (REST_PROXY_USE_TLS env var)    │  │
-│  │         │ TLS Verify: Configurable (REST_PROXY_SKIP_VERIFY)        │  │
-│  │         │ Auth: None                                               │  │
-│  │         │ Transport: localhost (pod-internal)                       │  │
-│  │         ▼                                                          │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  rest-proxy Sidecar Container                                    │    │
+│  │                                                                   │    │
+│  │  [REST Server]                                                    │    │
+│  │  - Listen: 0.0.0.0:8008/TCP                                      │    │
+│  │  - Protocol: HTTP or HTTPS                                        │    │
+│  │  - TLS: Optional (MM_TLS_KEY_CERT_PATH, MM_TLS_PRIVATE_KEY_PATH) │    │
+│  │  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1            │    │
+│  │  - No MinVersion set (defaults to Go TLS 1.2)                     │    │
+│  │  - No cipher suite restrictions configured                        │    │
+│  │                                                                   │    │
+│  │  [gRPC Client]                                                    │    │
+│  │  - Connects to: localhost:8033/TCP                                 │    │
+│  │  - Protocol: gRPC                                                 │    │
+│  │  - TLS: Optional (REST_PROXY_USE_TLS env var)                     │    │
+│  │  - InsecureSkipVerify: Configurable (REST_PROXY_SKIP_VERIFY)      │    │
+│  │  - WARNING: InsecureSkipVerify=true disables cert verification    │    │
+│  │         │                                                         │    │
+│  └─────────┼─────────────────────────────────────────────────────────┘    │
+│            │                                                              │
+│            │ Port: 8033/TCP                                               │
+│            │ Protocol: gRPC                                               │
+│            │ Encryption: Optional TLS (REST_PROXY_USE_TLS)                │
+│            │ Auth: None                                                   │
+│            │ Network: localhost (pod-local)                                │
+│            ▼                                                              │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  ModelMesh Serving Container                                      │    │
+│  │                                                                   │    │
+│  │  [gRPC Inference Service]                                         │    │
+│  │  - Listen: 8033/TCP                                               │    │
+│  │  - Protocol: gRPC (KServe V2 Predict Protocol)                    │    │
+│  │  - Services: ModelInfer, ModelMetadata, ModelReady                 │    │
+│  │                                                                   │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │  CONTAINER: gRPC Inference Server                                  │  │
-│  │                                                                    │  │
-│  │  [GRPCInferenceService]                                            │  │
-│  │  - Port: 8033/TCP                                                  │  │
-│  │  - Protocol: gRPC (KServe V2 Predict Protocol)                     │  │
-│  │  - Encryption: TLS optional                                        │  │
-│  │  - Purpose: Model inference backend                                │  │
-│  │                                                                    │  │
-│  │  gRPC RPCs served:                                                 │  │
-│  │    - ModelInfer (inference requests)                                │  │
-│  │    - ModelMetadata (model metadata queries)                        │  │
-│  │    - ModelReady (readiness checks)                                 │  │
-│  │    - ServerLive / ServerReady (health checks)                      │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────────────────┘
 
 RBAC Summary:
-- No Kubernetes RBAC. This component does not interact with the Kubernetes API.
-- No ServiceAccount requirements specific to rest-proxy (uses pod's SA).
-- No ClusterRoles, Roles, or RoleBindings.
-
-Authentication & Authorization:
-- rest-proxy does NOT implement authentication or authorization.
-- All auth is delegated to the platform layer (ModelMesh Serving / platform ingress).
-- No Bearer tokens, mTLS identity, or API keys are validated by this component.
+- No RBAC roles or bindings. The rest-proxy does not interact with the
+  Kubernetes API server.
 
 Secrets:
-- TLS certificate (path via MM_TLS_KEY_CERT_PATH)
-  - Type: TLS cert file
-  - Purpose: TLS termination for incoming REST connections
-  - Provisioned by: External (ModelMesh / cert-manager)
-  - Auto-Rotate: Unknown
-- TLS private key (path via MM_TLS_PRIVATE_KEY_PATH)
-  - Type: TLS key file
-  - Purpose: TLS termination for incoming REST connections
-  - Provisioned by: External (ModelMesh / cert-manager)
-  - Auto-Rotate: Unknown
+- TLS cert/key (via MM_TLS_KEY_CERT_PATH / MM_TLS_PRIVATE_KEY_PATH)
+  - Type: kubernetes.io/tls
+  - Purpose: TLS certificate and key for HTTPS listener
+  - Provisioned by: ModelMesh Serving operator
+  - Auto-rotate: Unknown
+  - Shared within pod (mounted volume)
 
-Environment Variables (Security-relevant):
-- MM_TLS_KEY_CERT_PATH: Path to TLS certificate for HTTPS listener
-- MM_TLS_PRIVATE_KEY_PATH: Path to TLS private key for HTTPS listener
-- REST_PROXY_USE_TLS: Enable TLS on outbound gRPC connection (to inference server)
-- REST_PROXY_SKIP_VERIFY: Disable TLS certificate verification on gRPC upstream
-  ⚠️  WARNING: Setting this to "true" disables cert verification. Acceptable for
-     development/testing only. Should be "false" or unset in production.
-- REST_PROXY_GRPC_MAX_MSG_SIZE_BYTES: Max gRPC message size (default: 16 MiB)
+Authentication & Authorization:
+- Proxy-level auth: NONE
+- Auth enforcement: External to rest-proxy
+  - RHOAI 3.x: kube-rbac-proxy sidecar
+  - RHOAI 2.x: oauth-proxy
+  - Service mesh may provide additional mTLS enforcement
+- All endpoints (GET, POST) are unprotected at the proxy level
+- Risk: REST listener binds to 0.0.0.0, so network access control
+  depends on Kubernetes NetworkPolicy or service mesh configuration
 
 FIPS Compliance:
-- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, -tags strictfipsruntime
-- Base image: ubi9/ubi-minimal (includes OpenSSL)
-- Crypto: stdlib crypto/tls (FIPS-compliant via OpenSSL at runtime)
-- Risk: InsecureSkipVerify can be enabled (does not break FIPS, but reduces security)
+- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
+- Base image: ubi9/ubi-minimal (provides OpenSSL for FIPS crypto)
+- TLS library: stdlib crypto/tls (FIPS via OpenSSL with strictfipsruntime)
+- Risks:
+  - InsecureSkipVerify can be enabled via REST_PROXY_SKIP_VERIFY=true
+  - No MinVersion set on tls.Config (relies on Go default TLS 1.2)
+  - No cipher suite restrictions configured
 
-Network Topology:
-- All communication is pod-internal (localhost) between rest-proxy and inference server
-- No external egress from rest-proxy itself
-- External ingress to 8008/TCP is managed by ModelMesh Serving infrastructure
-- No Kubernetes Service objects defined by this component
-- No NetworkPolicy defined by this component
+Multi-Architecture:
+- Platforms: x86_64, arm64, ppc64le, s390x

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jctanner/arch-query/internal/loader"
+	"github.com/jctanner/arch-query/internal/types"
 	"github.com/spf13/cobra"
 )
 
@@ -33,7 +34,7 @@ var existsCmd = &cobra.Command{
 		for k, doc := range data.Components {
 			if strings.EqualFold(k, name) {
 				fmt.Printf("%s exists in %s inventory.\n", k, version)
-				fmt.Printf("Type: %s | Doc: %s/%s\n", doc.DeployType, version, doc.FileName)
+				fmt.Println(formatExistsLocation(doc, version, k))
 				return nil
 			}
 		}
@@ -56,6 +57,13 @@ var existsCmd = &cobra.Command{
 		os.Exit(1)
 		return nil
 	},
+}
+
+func formatExistsLocation(doc *types.ComponentDoc, version, component string) string {
+	if doc.FileName != "" {
+		return fmt.Sprintf("Type: %s | Doc: %s/%s", doc.DeployType, version, doc.FileName)
+	}
+	return fmt.Sprintf("Type: %s | Authority: %s/%s/document.json | Markdown: unavailable", doc.DeployType, version, component)
 }
 
 func init() {

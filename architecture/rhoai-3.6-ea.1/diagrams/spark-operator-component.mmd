@@ -1,0 +1,83 @@
+graph TB
+    subgraph SparkOperatorModule["Spark Operator Module (RHOAI Platform Layer)"]
+        ModuleController["SparkOperator Module Controller<br/>cmd/spark-operator-module<br/>SA: spark-operator-module-controller-manager"]
+        ModuleController -->|"reconciles"| SparkOperatorCR["SparkOperator CR<br/>components.platform.opendatahub.io/v1alpha1"]
+        ModuleController -->|"manages"| ControllerDeploy["Controller Deployment"]
+        ModuleController -->|"manages"| WebhookDeploy["Webhook Deployment"]
+        ModuleController -->|"manages"| CRDs["CRDs"]
+        ModuleController -->|"manages"| RBACResources["RBAC (Roles, Bindings)"]
+        ModuleController -->|"manages"| NetPolicies["NetworkPolicies"]
+        ModuleController -->|"manages"| CertResources["cert-manager Certificates/Issuers"]
+        ModuleController -->|"manages"| PodMon["PodMonitors"]
+    end
+
+    subgraph CoreOperator["Spark Operator (Core Layer)"]
+        direction TB
+        subgraph ControllerPod["spark-operator-controller Deployment"]
+            SparkAppCtrl["SparkApplication Controller"]
+            SchedCtrl["ScheduledSparkApplication Controller"]
+            ConnectCtrl["SparkConnect Controller"]
+            MWHCCtrl["MutatingWebhookConfig Controller"]
+            VWHCCtrl["ValidatingWebhookConfig Controller"]
+        end
+
+        subgraph WebhookPod["spark-operator-webhook Deployment"]
+            MutatePod["/mutate--v1-pod"]
+            MutateApp["/mutate-sparkapplication"]
+            MutateSched["/mutate-scheduledsparkapplication"]
+            MutateConnect["/mutate-sparkconnect"]
+            ValidateApp["/validate-sparkapplication"]
+            ValidateSched["/validate-scheduledsparkapplication"]
+            ValidateConnect["/validate-sparkconnect"]
+            Convert["/convert"]
+        end
+    end
+
+    subgraph SparkCRDs["Custom Resource Definitions"]
+        SparkAppCRD["SparkApplication<br/>sparkoperator.k8s.io/v1beta2"]
+        SchedAppCRD["ScheduledSparkApplication<br/>sparkoperator.k8s.io/v1beta2"]
+        ConnectCRD["SparkConnect<br/>sparkoperator.k8s.io/v1alpha1"]
+    end
+
+    User["User / CI"] -->|"kubectl create"| SparkAppCRD
+    User -->|"kubectl create"| SchedAppCRD
+    User -->|"kubectl create"| ConnectCRD
+
+    ODHOperator["ODH Operator"] -->|"creates"| SparkOperatorCR
+
+    SparkAppCRD -->|"watched by"| SparkAppCtrl
+    SchedAppCRD -->|"watched by"| SchedCtrl
+    ConnectCRD -->|"watched by"| ConnectCtrl
+
+    SparkAppCtrl -->|"creates"| DriverPod["Driver Pod"]
+    SparkAppCtrl -->|"creates"| ExecutorPods["Executor Pods"]
+    SparkAppCtrl -->|"creates"| SparkService["Services"]
+    SparkAppCtrl -->|"creates"| SparkCM["ConfigMaps"]
+    SparkAppCtrl -->|"creates"| PDB["PodDisruptionBudgets"]
+
+    KubeAPI["kube-apiserver"] -->|"admission call"| WebhookPod
+
+    MWHCCtrl -->|"updates CA bundle"| MutatingWHC["MutatingWebhookConfiguration"]
+    VWHCCtrl -->|"updates CA bundle"| ValidatingWHC["ValidatingWebhookConfiguration"]
+
+    style ModuleController fill:#4a90e2,color:#fff
+    style SparkAppCtrl fill:#4a90e2,color:#fff
+    style SchedCtrl fill:#4a90e2,color:#fff
+    style ConnectCtrl fill:#4a90e2,color:#fff
+    style MWHCCtrl fill:#4a90e2,color:#fff
+    style VWHCCtrl fill:#4a90e2,color:#fff
+    style MutatePod fill:#e8744f,color:#fff
+    style MutateApp fill:#e8744f,color:#fff
+    style MutateSched fill:#e8744f,color:#fff
+    style MutateConnect fill:#e8744f,color:#fff
+    style ValidateApp fill:#e8744f,color:#fff
+    style ValidateSched fill:#e8744f,color:#fff
+    style ValidateConnect fill:#e8744f,color:#fff
+    style Convert fill:#e8744f,color:#fff
+    style SparkAppCRD fill:#f5a623,color:#fff
+    style SchedAppCRD fill:#f5a623,color:#fff
+    style ConnectCRD fill:#f5a623,color:#fff
+    style SparkOperatorCR fill:#f5a623,color:#fff
+    style ODHOperator fill:#7ed321,color:#fff
+    style DriverPod fill:#b8e986
+    style ExecutorPods fill:#b8e986

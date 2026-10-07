@@ -1,0 +1,109 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [Request Producer]                                                      │
+│  - Publishes inference requests to message broker                        │
+│         │                                                                │
+│         │ Port: 6379/TCP (Redis) or 443/TCP (GCP Pub/Sub)               │
+│         │ Protocol: TCP / HTTPS                                          │
+│         │ Encryption: Configurable TLS (Redis) / TLS 1.2+ (GCP)         │
+│         │ Auth: Redis password or GCP IAM                                │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  MESSAGE BROKER TIER                                                     │
+│                                                                          │
+│  [Redis Broker]                       [GCP Pub/Sub]                      │
+│  - Port: 6379/TCP                     - Port: 443/TCP                    │
+│  - Protocol: RESP (Redis)             - Protocol: HTTPS                  │
+│  - Encryption: Configurable TLS       - Encryption: TLS 1.2+            │
+│  - Auth: Redis password               - Auth: GCP IAM / OAuth2          │
+│  - Modes: Pub/Sub, Sorted Set         - Topics & Subscriptions           │
+│         │                                      │                         │
+│         │ Port: 6379/TCP                       │ Port: 443/TCP           │
+│         │ Protocol: RESP                       │ Protocol: HTTPS         │
+│         │ Encryption: Configurable TLS         │ Encryption: TLS 1.2+   │
+│         │ Auth: Redis password                 │ Auth: GCP IAM          │
+│         ▼                                      ▼                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ASYNC PROCESSOR POD (Workload)                                          │
+│                                                                          │
+│  [async-processor]                                                       │
+│  - Image: FIPS-enabled (GOEXPERIMENT=strictfipsruntime, UBI 9)          │
+│  - Entrypoint: /async-processor                                          │
+│  - Concurrency: Configurable worker pool(s) from JSON config            │
+│  - TLS Client: Min TLS 1.2, optional mTLS (CA bundle + client certs)   │
+│         │                                                                │
+│         ├── Port: 8081/TCP (Health Server)                               │
+│         │   Protocol: HTTP/1.1                                           │
+│         │   Encryption: None (pod-local only)                            │
+│         │   Auth: None (kubelet probes)                                   │
+│         │   Endpoints:                                                    │
+│         │     /healthz → always-OK liveness                              │
+│         │     /readyz  → gate-aware readiness                            │
+│         │                                                                │
+│         ├── Port: 9090/TCP (Metrics Server)                              │
+│         │   Protocol: HTTP/1.1                                           │
+│         │   Encryption: Unknown                                          │
+│         │   Auth: Kubernetes-delegated authentication & authorization     │
+│         │   Endpoint: /metrics (Prometheus format)                        │
+│         │                                                                │
+│         │ Port: 8000/TCP                                                 │
+│         │ Protocol: HTTP or HTTPS                                        │
+│         │ Encryption: TLS 1.2+ (optional mTLS)                           │
+│         │ Auth: None / mTLS client certificate                           │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INFERENCE BACKEND (Internal)                                            │
+│                                                                          │
+│  [Inference Gateway (e.g. vLLM)]                                         │
+│  - Port: 8000/TCP                                                        │
+│  - Protocol: HTTP/HTTPS                                                  │
+│  - Encryption: TLS 1.2+ (when configured)                               │
+│  - Auth: mTLS client certificate (when enabled)                          │
+│  - Health: /health (GET), /v1/models (GET)                               │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  OBSERVABILITY & CONTROL PLANE (Internal)                                │
+│                                                                          │
+│  [Prometheus]                                                            │
+│  - Port: 9090/TCP                                                        │
+│  - Protocol: HTTP                                                        │
+│  - Purpose: Flow-control gate metric queries                             │
+│  - Direction: async-processor → Prometheus (outbound query)              │
+│                                                                          │
+│  [OpenTelemetry Collector]                                               │
+│  - Protocol: OTLP/gRPC                                                   │
+│  - Encryption: Configurable                                              │
+│  - Purpose: Distributed tracing export                                   │
+│  - Direction: async-processor → Collector (outbound)                     │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 6443/TCP                                                        │
+│  - Protocol: HTTPS/WSS                                                   │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: ServiceAccount token                                            │
+│  - Purpose: Kubernetes resource operations                               │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No ClusterRoles or RoleBindings defined in component manifests
+- Component relies on ServiceAccount token for Kubernetes API access
+- Metrics endpoint uses controller-runtime WithAuthenticationAndAuthorization filter
+
+Authentication & Authorization:
+- /healthz : Unauthenticated (kubelet liveness probe, pod-local network)
+- /readyz  : Unauthenticated (kubelet readiness probe, pod-local network)
+- /metrics : Kubernetes-delegated auth (controller-runtime filters, --metrics-endpoint-auth)
+
+Secrets:
+- No secrets explicitly defined in component manifests
+- Redis credentials expected via runtime configuration
+- GCP credentials expected via environment or workload identity
+- Optional TLS client certs via CLI flags (--tls-ca-cert, --tls-client-cert, --tls-client-key)
+
+FIPS Compliance:
+- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, dynamic linking
+- Runtime: UBI 9 base with OpenSSL FIPS module
+- TLS: Min version TLS 1.2, stdlib crypto/tls backed by OpenSSL at runtime
+- No non-FIPS crypto risks detected

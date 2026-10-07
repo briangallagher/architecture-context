@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "data-science-pipelines",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "dsp-fips-native-001",
+      "claim": "The Konflux API server build uses Go's native FIPS 140 module (GOFIPS140=v1.0.0) with -tags no_openssl, explicitly excluding OpenSSL as the crypto provider.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "backend/Dockerfile.konflux.api:29"
+        }
+      ],
+      "reasoning": "The build line 'CGO_ENABLED=1 GOFIPS140=v1.0.0 go build -tags no_openssl' selects Go 1.24+ native FIPS module rather than the traditional OpenSSL-backed boringcrypto approach. This means FIPS compliance relies on Go's own validated FIPS module rather than the system OpenSSL, which is architecturally distinct from other RHOAI components that may use GOEXPERIMENT=strictfipsruntime with OpenSSL.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "dsp-tokenreview-auth-002",
+      "claim": "The ml-pipeline API server delegates all request authentication to Kubernetes TokenReview and authorization to SubjectAccessReview, with no application-level credential store.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "backend/src/apiserver/auth/authenticator_token_review.go:47-89"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "backend/src/apiserver/resource/resource_manager.go:2323-2332"
+        }
+      ],
+      "reasoning": "The TokenReviewAuthenticator extracts bearer tokens from request headers and validates them against the Kubernetes API, while ResourceManager.checkAccess creates SubjectAccessReview resources for per-operation authorization. This design means the API server's security posture is entirely dependent on the Kubernetes API server's availability and RBAC configuration, with no fallback authentication path.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "dsp-s3-flexible-003",
+      "claim": "The object storage integration supports static credentials and default AWS credential chains with configurable endpoints, enabling compatibility with MinIO, SeaweedFS, and cloud S3 without code changes.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "backend/src/apiserver/client_manager/client_manager.go:1044-1069"
+        }
+      ],
+      "reasoning": "The newS3BucketClient function constructs an AWS SDK v2 S3 client with a configurable base endpoint and path-style access. When static credentials are provided (accessKey/secretKey), they are used via StaticCredentialsProvider; otherwise the default AWS config credential chain applies. This supports both in-cluster object stores (SeaweedFS/MinIO via mlpipeline-minio-artifact secret) and external S3-compatible services.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+graph TD
+    subgraph ClientAuth["Client Authentication"]
+        Client["ML Client / SDK"]
+        SAToken["Kubernetes SA Bearer Token<br/>/var/run/secrets/kubernetes.io/serviceaccount/token"]
+    end
+
+    subgraph AuthPlugin["kubernetes-auth Plugin (Server-Side)"]
+        KubeAuth["kubernetes-auth<br/>(mlflow-kubernetes-plugins v1.5.0)"]
+        TokenValidator["Token Validator<br/>Validates SA token against K8s API"]
+    end
+
+    subgraph ClientProviders["Client Auth Providers (SDK-Side)"]
+        KubeProvider["kubernetes Provider<br/>MLFLOW_TRACKING_AUTH=kubernetes<br/>Bearer token only"]
+        KubeNSProvider["kubernetes-namespaced Provider<br/>MLFLOW_TRACKING_AUTH=kubernetes-namespaced<br/>Bearer token + X-MLFLOW-WORKSPACE"]
+    end
+
+    subgraph RBACEnforcement["Application-Level RBAC (mlflow/server/auth)"]
+        RBACModule["RBAC Authorization Module"]
+
+        subgraph Roles["Roles"]
+            AdminRole["Admin Role<br/>Full access"]
+            UserRole["User Role<br/>Scoped access"]
+            ReadOnly["Read-Only Role<br/>View access"]
+        end
+
+        subgraph Resources["Protected Resources"]
+            Experiments["Experiments<br/>create, read, update, delete"]
+            RegisteredModels["Registered Models<br/>create, read, update, delete"]
+            GatewayEndpoints["Gateway Endpoints<br/>(disabled in RHOAI)"]
+            Workspaces["Workspaces<br/>create, read, update, delete"]
+        end
+    end
+
+    subgraph WorkspaceIsolation["Workspace Isolation"]
+        WorkspaceStore["Workspace Store<br/>kubernetes://"]
+        NamespaceA["Namespace A<br/>Workspace A resources"]
+        NamespaceB["Namespace B<br/>Workspace B resources"]
+    end
+
+    subgraph K8sIntegration["Kubernetes API"]
+        K8sAPI["Kubernetes API Server<br/>Token validation<br/>Namespace lookup"]
+    end
+
+    %% Authentication flow
+    Client -->|"Authorization: Bearer <token>"| KubeAuth
+    SAToken -->|"token file"| KubeProvider
+    SAToken -->|"token file"| KubeNSProvider
+    KubeProvider -->|"header"| Client
+    KubeNSProvider -->|"header + workspace"| Client
+
+    KubeAuth --> TokenValidator
+    TokenValidator -->|"validate token"| K8sAPI
+    K8sAPI -->|"identity confirmed"| TokenValidator
+    TokenValidator -->|"authenticated identity"| RBACModule
+
+    %% RBAC evaluation
+    RBACModule --> AdminRole
+    RBACModule --> UserRole
+    RBACModule --> ReadOnly
+    AdminRole -->|"full access"| Experiments
+    AdminRole -->|"full access"| RegisteredModels
+    AdminRole -->|"full access"| Workspaces
+    UserRole -->|"scoped access"| Experiments
+    UserRole -->|"scoped access"| RegisteredModels
+    ReadOnly -->|"read only"| Experiments
+    ReadOnly -->|"read only"| RegisteredModels
+
+    %% Workspace isolation
+    RBACModule -->|"X-MLFLOW-WORKSPACE"| WorkspaceStore
+    WorkspaceStore -->|"namespace lookup"| K8sAPI
+    WorkspaceStore --> NamespaceA
+    WorkspaceStore --> NamespaceB
+
+    %% Styling
+    style KubeAuth fill:#e74c3c,color:#fff
+    style TokenValidator fill:#e74c3c,color:#fff
+    style RBACModule fill:#e74c3c,color:#fff
+    style AdminRole fill:#f5a623
+    style UserRole fill:#f5a623
+    style ReadOnly fill:#f5a623
+    style Experiments fill:#7ed321
+    style RegisteredModels fill:#7ed321
+    style GatewayEndpoints fill:#999,stroke-dasharray: 5 5
+    style Workspaces fill:#7ed321
+    style K8sAPI fill:#438dd5,color:#fff
+    style WorkspaceStore fill:#4a90e2,color:#fff
+    style NamespaceA fill:#d5e8d4,stroke:#82b366
+    style NamespaceB fill:#d5e8d4,stroke:#82b366
+    style KubeProvider fill:#dae8fc,stroke:#6c8ebf
+    style KubeNSProvider fill:#dae8fc,stroke:#6c8ebf

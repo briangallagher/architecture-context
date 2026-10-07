@@ -1,69 +1,54 @@
 workspace {
     model {
-        dataScientist = person "Data Scientist" "Creates and deploys ML models via InferenceService resources"
-        platformAdmin = person "Platform Admin" "Manages RHOAI platform and NIM accounts"
-        dashboardUser = person "Dashboard / CLI User" "Discovers Gateways for model deployment"
+        user = person "Data Scientist" "Creates and deploys ML models via kubectl/oc"
+        dashboardUser = person "Dashboard User" "Uses RHOAI Dashboard to manage inference services"
 
-        odmcSystem = softwareSystem "odh-model-controller" "Kubernetes operator extending KServe with RHOAI-specific model serving capabilities" {
-            odmcOperator = container "odh-model-controller" "Reconciles InferenceService, LLMInferenceService, InferenceGraph, ServingRuntime, NIM Account resources" "Go Operator (controller-runtime)" {
-                isvcController = component "InferenceService Controller" "Manages InferenceService lifecycle with 9 sub-reconcilers" "Go Controller"
-                llmisvcController = component "LLMInferenceService Controller" "Manages AuthPolicy for LLMInferenceService HTTPRoutes" "Go Controller"
-                gatewayController = component "Gateway Controller" "Creates EnvoyFilters and AuthPolicies on Gateways" "Go Controller"
-                nimController = component "NIM Account Controller" "Validates NGC API keys, syncs model catalogs, creates pull secrets" "Go Controller"
-                igController = component "InferenceGraph Controller" "Validates InferenceGraph service URL references" "Go Controller"
-                srController = component "ServingRuntime Controller" "Manages ServingRuntime authorization" "Go Controller"
-                webhookServer = component "Webhook Server" "Mutating and validating admission webhooks" "Go HTTP Server"
-            }
-            msaServer = container "model-serving-api" "REST API for Gateway discovery with RBAC enforcement" "Go HTTP Server" {
-                gwHandler = component "Gateway Handler" "GET /api/v1/gateways endpoint" "HTTP Handler"
-                authMiddleware = component "Auth Middleware" "Bearer token extraction and SSAR check" "HTTP Middleware"
-                gwDiscovery = component "Gateway Discovery" "Lists and filters Gateways by namespace selector and RBAC" "Business Logic"
-            }
+        odmcSystem = softwareSystem "odh-model-controller" "Manages model serving infrastructure, webhooks, and runtime templates for RHOAI" {
+            controller = container "odh-model-controller" "Reconciles InferenceService, LLMInferenceService, ServingRuntime, NIM Account; creates Routes, AuthPolicies, EnvoyFilters, ServiceMonitors, NetworkPolicies" "Go Operator (controller-runtime)"
+            webhooks = container "Admission Webhooks" "Mutates InferenceServices (credentials/HardwareProfile), LLMInferenceServices, Pods (Ray TLS); validates InferenceGraphs and NIM Account singleton" "Go Webhook Server"
+            apiServer = container "model-serving-api" "Provides Gateway discovery and LLM-D sample configuration REST endpoints" "Go HTTPS Server (FIPS)"
+            templates = container "ServingRuntime Templates" "vLLM, OVMS, MLServer, Caikit, AutoGluon across CUDA, ROCm, Gaudi, Spyre, CPU with fast-track channels" "Kustomize Templates"
         }
 
-        kserve = softwareSystem "KServe" "Serverless ML inference platform providing InferenceService, ServingRuntime, LLMInferenceService CRDs" "External Dependency"
-        kuadrant = softwareSystem "Kuadrant Operator" "Authentication/authorization policy management for Gateway API" "External Dependency"
-        authorino = softwareSystem "Authorino Operator" "Authorization service; TLS bootstrap status checked by controller" "External Dependency"
-        istio = softwareSystem "Istio / Service Mesh" "Service mesh providing EnvoyFilter CRD for TLS bootstrap" "External Dependency"
-        gatewayAPI = softwareSystem "Gateway API" "Provides Gateway and HTTPRoute CRDs for ingress management" "External Dependency"
-        keda = softwareSystem "KEDA" "Event-driven autoscaling via TriggerAuthentication CRD" "External Dependency"
-        prometheusOp = softwareSystem "Prometheus Operator" "Metrics collection via ServiceMonitor and PodMonitor CRDs" "External Dependency"
-        certManager = softwareSystem "cert-manager" "Optional TLS certificate management for webhooks" "External Dependency"
-        ngcAPI = softwareSystem "NVIDIA NGC API" "NIM model catalog, API key validation, registry tokens" "External Service"
-        nvcrRegistry = softwareSystem "nvcr.io" "NVIDIA container registry for NIM image manifests" "External Service"
-        modelRegistry = softwareSystem "Model Registry" "Stores InferenceService metadata" "Internal ODH"
-        rhodsOperator = softwareSystem "rhods-operator" "RHOAI platform operator providing DataScienceCluster CRD" "Internal ODH"
-        osDashboard = softwareSystem "ODH Dashboard" "Web UI for model serving management" "Internal ODH"
-        k8sAPI = softwareSystem "Kubernetes API" "Cluster API server for all resource operations" "Infrastructure"
-        openshiftAuth = softwareSystem "OpenShift Authentication" "Provides ServiceAccountIssuer auto-detection" "Infrastructure"
+        kserve = softwareSystem "KServe" "Serverless ML inference platform providing InferenceService, ServingRuntime, and LLMInferenceService CRDs" "Internal ODH"
+        kuadrant = softwareSystem "Kuadrant / Authorino" "API gateway authentication and authorization via AuthPolicy CRDs" "Internal ODH"
+        istio = softwareSystem "Istio" "Service mesh providing EnvoyFilter for TLS bootstrap on Gateways" "External"
+        keda = softwareSystem "KEDA" "Event-driven autoscaling via TriggerAuthentication" "External"
+        promOperator = softwareSystem "Prometheus Operator" "Metrics collection via ServiceMonitor and PodMonitor CRDs" "External"
+        gatewayAPI = softwareSystem "Gateway API" "Kubernetes Gateway and HTTPRoute for LLM inference ingress" "External"
+        openshiftRouter = softwareSystem "OpenShift Router" "External route exposure for InferenceServices" "External"
+        openshiftMonitoring = softwareSystem "OpenShift Monitoring" "Prometheus federation for KEDA metrics" "External"
+        knative = softwareSystem "Knative Serving" "Serverless autoscaling for serving mode" "External"
+        certManager = softwareSystem "cert-manager" "Optional TLS certificate management" "External"
+        rhods = softwareSystem "rhods-operator" "RHOAI platform operator providing DataScienceCluster configuration" "Internal ODH"
+        modelRegistry = softwareSystem "Model Registry" "Stores model metadata for deployed models" "Internal ODH"
+        dashboard = softwareSystem "RHOAI Dashboard" "Web UI for managing model serving" "Internal ODH"
+        hwProfile = softwareSystem "HardwareProfile Controller" "Resolves hardware scheduling constraints (resources, nodeSelector, tolerations)" "Internal ODH"
+        nimAPI = softwareSystem "NVIDIA NIM API" "NGC API for model catalog discovery and API key validation" "External"
+        s3 = softwareSystem "S3 Storage" "Model artifact storage accessed via connection credentials" "External"
 
-        # User relationships
-        dataScientist -> odmcSystem "Creates InferenceService / LLMInferenceService via kubectl"
-        platformAdmin -> odmcSystem "Creates NIM Account resources"
-        dashboardUser -> msaServer "Discovers available Gateways" "HTTPS/443"
+        # User interactions
+        user -> odmcSystem "Creates InferenceService, LLMInferenceService, NIM Account via kubectl"
+        dashboardUser -> dashboard "Manages inference services via web UI"
+        dashboard -> apiServer "GET /api/v1/gateways, GET /api/v1/samples/llm-d" "HTTPS/8443 FIPS"
 
-        # Internal relationships
-        odmcOperator -> k8sAPI "Watch CRDs, CRUD supporting resources" "HTTPS/6443"
-        msaServer -> k8sAPI "SelfSubjectAccessReview, list Gateways" "HTTPS/6443"
+        # Internal container relationships
+        controller -> webhooks "Webhook admission flow" "HTTPS/9443"
 
-        # External dependency relationships
-        odmcOperator -> kserve "Watches InferenceService, ServingRuntime, LLMInferenceService, InferenceGraph CRDs" "via K8s API"
-        odmcOperator -> kuadrant "Watches Kuadrant CR, creates AuthPolicy resources" "via K8s API"
-        odmcOperator -> authorino "Watches Authorino CR for TLS status" "via K8s API"
-        odmcOperator -> istio "Creates EnvoyFilter for Authorino TLS bootstrap" "via K8s API"
-        odmcOperator -> gatewayAPI "Watches Gateway, HTTPRoute resources" "via K8s API"
-        odmcOperator -> keda "Creates TriggerAuthentication for autoscaling" "via K8s API"
-        odmcOperator -> prometheusOp "Creates ServiceMonitor, PodMonitor" "via K8s API"
-
-        # External service relationships
-        odmcOperator -> ngcAPI "Validates API keys, fetches model catalog" "HTTPS/443"
-        odmcOperator -> nvcrRegistry "Validates registry access, token exchange" "HTTPS/443"
-        odmcOperator -> modelRegistry "Syncs InferenceService metadata" "HTTPS/443"
-
-        # Internal platform relationships
-        odmcOperator -> rhodsOperator "Watches DataScienceCluster, DSCInitialization" "via K8s API"
-        odmcOperator -> openshiftAuth "Reads Authentication CR for ServiceAccountIssuer" "via K8s API"
-        osDashboard -> msaServer "Discovers Gateways for UI" "HTTPS/443"
+        # Platform dependencies
+        odmcSystem -> kserve "Watches InferenceService, ServingRuntime, InferenceGraph, LLMInferenceService CRDs"
+        odmcSystem -> kuadrant "Creates AuthPolicies, watches Kuadrant/Authorino availability"
+        odmcSystem -> istio "Creates EnvoyFilters for Authorino TLS bootstrap"
+        odmcSystem -> keda "Creates TriggerAuthentications for autoscaling"
+        odmcSystem -> promOperator "Creates ServiceMonitors and PodMonitors"
+        odmcSystem -> gatewayAPI "Watches Gateways, reads HTTPRoutes"
+        odmcSystem -> openshiftRouter "Creates Routes for InferenceServices" "HTTPS/443"
+        odmcSystem -> openshiftMonitoring "KEDA metrics source" "HTTPS"
+        odmcSystem -> knative "Service CRD for serverless mode"
+        odmcSystem -> rhods "Reads DataScienceCluster, DSCInitialization config"
+        odmcSystem -> modelRegistry "Syncs deployed models to registry" "HTTPS/443"
+        odmcSystem -> hwProfile "Resolves HardwareProfile CRDs in webhooks"
+        odmcSystem -> nimAPI "Validates API keys, fetches model catalog" "HTTPS/443"
     }
 
     views {
@@ -77,37 +62,27 @@ workspace {
             autoLayout
         }
 
-        component odmcOperator "OperatorComponents" {
-            include *
-            autoLayout
-        }
-
-        component msaServer "APIServerComponents" {
-            include *
-            autoLayout
-        }
-
         styles {
-            element "External Dependency" {
+            element "External" {
                 background #999999
-                color #ffffff
-            }
-            element "External Service" {
-                background #f5a623
                 color #ffffff
             }
             element "Internal ODH" {
                 background #7ed321
                 color #ffffff
             }
-            element "Infrastructure" {
+            element "Person" {
+                shape person
                 background #4a90e2
                 color #ffffff
             }
-            element "Person" {
-                background #08427b
+            element "Software System" {
+                background #438dd5
                 color #ffffff
-                shape person
+            }
+            element "Container" {
+                background #438dd5
+                color #ffffff
             }
         }
     }

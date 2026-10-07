@@ -1,0 +1,47 @@
+sequenceDiagram
+    participant User as User / kubectl
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS TLS 1.2+
+    participant Reconciler as MCPServerReconciler<br/>controller-runtime
+    participant HandshakeClient as MCP Handshake Client<br/>go-sdk
+    participant MCPPod as MCP Server Pod<br/>dynamic port HTTP
+    participant Prometheus as Prometheus Scraper
+    participant Metrics as Metrics Server<br/>8443/TCP HTTPS
+
+    Note over User,MCPPod: Flow 1: MCPServer Reconciliation
+
+    User->>K8sAPI: kubectl apply MCPServer CR<br/>mcp.x-k8s.io/v1alpha1
+    K8sAPI-->>Reconciler: Watch event: MCPServer created/updated<br/>ServiceAccount token auth
+
+    Reconciler->>K8sAPI: Get referenced ConfigMaps & Secrets<br/>ServiceAccount token
+    K8sAPI-->>Reconciler: ConfigMap/Secret data
+
+    Reconciler->>Reconciler: Compute configuration hash<br/>for rolling updates
+
+    Reconciler->>K8sAPI: Create/Update Deployment<br/>ServiceAccount token
+    K8sAPI-->>Reconciler: Deployment created
+
+    Reconciler->>K8sAPI: Create/Update Service<br/>ServiceAccount token
+    K8sAPI-->>Reconciler: Service created
+
+    Reconciler->>K8sAPI: Create/Update NetworkPolicy<br/>ServiceAccount token
+    K8sAPI-->>Reconciler: NetworkPolicy created
+
+    Reconciler->>K8sAPI: Check Deployment availability<br/>ServiceAccount token
+    K8sAPI-->>Reconciler: Deployment available
+
+    Note over HandshakeClient,MCPPod: MCP Protocol Handshake (exponential backoff: 10s, 20s, 40s, 80s)
+
+    Reconciler->>HandshakeClient: Initiate MCP handshake
+    HandshakeClient->>MCPPod: POST initialize request<br/>HTTP (in-cluster, no auth)
+    MCPPod-->>HandshakeClient: MCP initialize response<br/>capabilities: tools, resources, prompts
+    HandshakeClient-->>Reconciler: Server capabilities extracted
+
+    Reconciler->>K8sAPI: Update MCPServer status<br/>capabilities, conditions
+    K8sAPI-->>Reconciler: Status updated
+
+    Note over Prometheus,Metrics: Flow 2: Metrics Collection
+
+    Prometheus->>Metrics: GET /metrics<br/>HTTPS/8443 TLS (self-signed)
+    Metrics->>K8sAPI: TokenReview + SubjectAccessReview<br/>Verify scraper identity
+    K8sAPI-->>Metrics: Authorized
+    Metrics-->>Prometheus: Prometheus metrics response

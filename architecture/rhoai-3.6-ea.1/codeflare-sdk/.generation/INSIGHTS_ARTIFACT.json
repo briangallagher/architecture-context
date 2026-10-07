@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "codeflare-sdk",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "codeflare-sdk-pattern-001",
+      "claim": "The SDK's authentication layer is transitioning from legacy in-house implementations to kube-authkit, with deprecated classes preserved for backward compatibility.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/codeflare_sdk/common/kubernetes_cluster/auth.py:30-31,90-91"
+        }
+      ],
+      "reasoning": "auth.py imports kube-authkit as a mandatory dependency and marks both TokenAuthentication and KubeConfigFileAuthentication with @deprecated decorators. The config_check() function tries kube-authkit auto-detection first, falling back to legacy kubernetes.config methods. This dual-path architecture indicates an ongoing migration where both paths must be maintained until downstream consumers adopt kube-authkit.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "codeflare-sdk-risk-001",
+      "claim": "The SDK's FIPS compliance is entirely inherited from the platform's OpenSSL configuration with no explicit FIPS mode selection.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/codeflare_sdk/common/utils/generate_cert.py:21-24,56-59"
+        },
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/dependencies"
+        }
+      ],
+      "reasoning": "The cryptography library (>=46.0.7) delegates to the platform's OpenSSL provider. Certificate generation uses RSA-3072 and SHA-256, which are FIPS-approved algorithms, but no explicit FIPS provider selection or validation occurs. On a non-FIPS platform, the same code would execute without FIPS guarantees. The skip_tls=True option in TokenAuthentication can bypass TLS verification entirely.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "codeflare-sdk-pattern-002",
+      "claim": "Analyzer-detected architecture components (minio Deployment, test Dockerfiles, RBAC manifests) are test infrastructure, not shipped SDK artifacts.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/architecture_components"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pyproject.toml:12-18"
+        }
+      ],
+      "reasoning": "The pyproject.toml explicitly excludes vendored tests, examples, and build files from the package. The minio Deployment (tests/e2e/minio_deployment.yaml), test Dockerfiles (images/tests/), and RBAC manifests (images/tests/rbac-test-user-permissions.yaml) serve as e2e test infrastructure. The RBAC roles illustrate the permissions end users need but are not deployed by the SDK itself. This distinction is important for platform architects assessing the SDK's security surface.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

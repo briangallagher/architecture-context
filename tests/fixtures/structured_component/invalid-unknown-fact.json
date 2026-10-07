@@ -1,0 +1,7 @@
+{
+  "component": "invalid",
+  "schema_version": "1",
+  "future_required_facts": [
+    {"value": "must not be dropped"}
+  ]
+}

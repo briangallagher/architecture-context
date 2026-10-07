@@ -1,80 +1,62 @@
 graph LR
-    Planner["llm-d Planner<br/>(Backend API)"]
+    Planner["llm-d Planner<br/>(FastAPI + Streamlit)"]
 
-    %% Infrastructure Dependencies (in-cluster, same namespace)
-    subgraph InCluster["In-Cluster Infrastructure (planner namespace)"]
-        PostgreSQL["PostgreSQL<br/>5432/TCP<br/>Password Auth"]
-        Ollama["Ollama LLM<br/>11434/TCP HTTP<br/>granite3.3:2b / qwen2.5:7b"]
-    end
+    %% Required External Dependencies
+    Planner -->|"database<br/>5432/TCP"| PostgreSQL["PostgreSQL 16<br/>(required)"]
+    Planner -->|"LLM inference<br/>11434/TCP HTTP"| Ollama["Ollama<br/>(required, default LLM)"]
+    Planner -->|"model metadata<br/>443/TCP HTTPS"| HFHub["HuggingFace Hub<br/>(required)"]
+    Planner -->|"roofline model<br/>in-process"| BentoML["BentoML<br/>llm-optimizer<br/>(required)"]
 
-    Planner -->|"benchmark queries<br/>PostgreSQL/5432<br/>Password"| PostgreSQL
-    Planner -->|"intent extraction<br/>HTTP/11434<br/>No Auth"| Ollama
+    %% Optional External Dependencies
+    Planner -.->|"LLM inference<br/>443/TCP HTTPS"| VertexAI["Vertex AI<br/>(optional LLM)"]
+    Planner -.->|"LLM inference<br/>443/TCP HTTPS"| OpenAI["OpenAI-compatible<br/>(optional LLM)"]
 
-    %% Internal RHOAI Platform Dependencies
-    subgraph RHOAIPlatform["Internal RHOAI Platform"]
-        ModelCatalog["RHOAI Model Catalog<br/>8443/TCP HTTPS<br/>Bearer / SA Token"]
-        KServe["KServe<br/>InferenceService CRD"]
-        vLLM["vLLM Runtime<br/>Container Image"]
-        Prometheus["Prometheus<br/>ServiceMonitor CRD"]
-        Grafana["Grafana<br/>Dashboard ConfigMap"]
-    end
+    %% Internal RHOAI Dependencies
+    Planner -->|"benchmark data<br/>8443/TCP HTTPS"| ModelCatalog["RHOAI Model Catalog<br/>(optional, RHOAI mode)"]
+    Planner -->|"cluster mgmt<br/>6443/TCP HTTPS"| K8sAPI["Kubernetes API<br/>(required for deploy)"]
 
-    Planner -->|"model + artifact sync<br/>HTTPS/8443 TLS<br/>Bearer Token"| ModelCatalog
-    Planner -.->|"generates manifests"| KServe
-    Planner -.->|"generates ServiceMonitor"| Prometheus
-    Planner -.->|"generates Dashboard"| Grafana
-    KServe -.->|"runs"| vLLM
-
-    %% External Service Dependencies
-    subgraph ExternalServices["External Services"]
-        HFHub["HuggingFace Hub<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer (optional)"]
-        K8sAPI["Kubernetes API<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>SA Token"]
-    end
-
-    Planner -->|"model metadata<br/>HTTPS/443 TLS 1.2+"| HFHub
-    Planner -->|"GPU detection<br/>InferenceService CRUD<br/>HTTPS/6443"| K8sAPI
-
-    %% Library Dependencies (in-process)
-    subgraph Libraries["In-Process Libraries"]
-        BentoML["BentoML llm-optimizer<br/>(roofline model)"]
-        Jinja2["Jinja2<br/>(YAML templates)"]
-    end
-
-    Planner -->|"performance estimation<br/>(in-process)"| BentoML
-    Planner -->|"manifest rendering<br/>(in-process)"| Jinja2
+    %% Deployment Targets
+    Planner -->|"generates CRD YAML"| KServe["KServe v0.14.0<br/>(target cluster)"]
+    Planner -->|"generates manifests"| LLMDStack["llm-d Stack<br/>(kustomize + Helm)"]
+    KServe -->|"runs"| vLLM["vLLM Runtime<br/>(target cluster)"]
 
     %% Platform Infrastructure
-    subgraph Platform["OpenShift Platform"]
-        Router["OpenShift Router<br/>443/TCP HTTPS<br/>TLS Edge"]
-        ServiceCA["service-ca operator<br/>CA cert injection"]
+    Planner -.->|"CA bundle mount"| ServiceCA["OpenShift<br/>service-CA"]
+
+    %% Key Python Libraries
+    subgraph PythonDeps["Key Python Libraries"]
+        FastAPI["FastAPI >=0.139.2"]
+        Streamlit["Streamlit 1.60.0"]
+        Pydantic["Pydantic 2.13.4"]
+        Jinja2["Jinja2 3.1.6"]
+        Transformers["transformers >=5.14.1"]
     end
 
-    Router -->|"TLS termination<br/>→ 8000/8501 HTTP"| Planner
-    ServiceCA -.->|"injects CA cert<br/>ConfigMap annotation"| Planner
+    Planner -->|"web framework"| FastAPI
+    Planner -->|"UI framework"| Streamlit
+    Planner -->|"data validation"| Pydantic
+    Planner -->|"YAML templates"| Jinja2
+    Planner -->|"model config parsing"| Transformers
 
-    %% Components that integrate WITH the planner
-    subgraph Consumers["Consumers (use Planner output)"]
-        DataScientist["Data Scientist<br/>(Browser)"]
-        MLOps["MLOps Engineer<br/>(CLI)"]
-    end
+    %% Consumers (what depends on Planner)
+    %% None detected — Planner is a leaf service
 
-    DataScientist -->|"HTTPS/443<br/>via Route"| Router
-    MLOps -->|"CLI commands<br/>planner plan / estimate"| Planner
-
-    %% Styles
+    %% Styling
     style Planner fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
     style PostgreSQL fill:#336791,stroke:#333,color:#fff
-    style Ollama fill:#333,stroke:#666,color:#fff
-    style ModelCatalog fill:#7ed321,stroke:#333
-    style KServe fill:#7ed321,stroke:#333
-    style vLLM fill:#7ed321,stroke:#333
-    style Prometheus fill:#7ed321,stroke:#333
-    style Grafana fill:#7ed321,stroke:#333
-    style HFHub fill:#f5a623,stroke:#333
+    style Ollama fill:#f5a623,stroke:#333,color:#fff
+    style HFHub fill:#999,stroke:#333,color:#fff
+    style BentoML fill:#999,stroke:#333,color:#fff
+    style VertexAI fill:#ccc,stroke:#999
+    style OpenAI fill:#ccc,stroke:#999
+    style ModelCatalog fill:#7ed321,stroke:#333,color:#fff
     style K8sAPI fill:#326ce5,stroke:#333,color:#fff
-    style BentoML fill:#f5a623,stroke:#333
-    style Jinja2 fill:#f5a623,stroke:#333
-    style Router fill:#326ce5,stroke:#333,color:#fff
-    style ServiceCA fill:#326ce5,stroke:#333,color:#fff
-    style DataScientist fill:#08427b,stroke:#333,color:#fff
-    style MLOps fill:#08427b,stroke:#333,color:#fff
+    style KServe fill:#7ed321,stroke:#333,color:#fff
+    style LLMDStack fill:#7ed321,stroke:#333,color:#fff
+    style vLLM fill:#7ed321,stroke:#333,color:#fff
+    style ServiceCA fill:#7ed321,stroke:#333,color:#fff
+    style FastAPI fill:#e8e8e8,stroke:#aaa
+    style Streamlit fill:#e8e8e8,stroke:#aaa
+    style Pydantic fill:#e8e8e8,stroke:#aaa
+    style Jinja2 fill:#e8e8e8,stroke:#aaa
+    style Transformers fill:#e8e8e8,stroke:#aaa

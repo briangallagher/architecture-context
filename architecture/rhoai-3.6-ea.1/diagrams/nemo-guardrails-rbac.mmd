@@ -1,0 +1,78 @@
+graph TD
+    subgraph "NeMo-Guardrails Authentication Architecture"
+        direction TB
+
+        subgraph "Application-Level Auth"
+            NoAuth["No Built-in Authentication<br/>at FastAPI Level"]
+            Note1["Authentication is fully delegated<br/>to Kubernetes infrastructure"]
+        end
+
+        subgraph "Infrastructure Auth (Inbound)"
+            K8sIngress["Kubernetes Ingress/Proxy"]
+            ServiceMesh["Service Mesh (optional)"]
+            K8sIngress -->|"enforces auth"| InboundAuth["Inbound Authentication<br/>Bearer Token / mTLS / OIDC"]
+            ServiceMesh -->|"enforces auth"| InboundAuth
+            InboundAuth -->|"authenticated request"| FastAPI["FastAPI Server<br/>Port 8000"]
+        end
+
+        subgraph "Header Forwarding (Outbound Auth)"
+            FastAPI -->|"outbound LLM call"| HeaderModule["Header Forwarding Module"]
+
+            HeaderModule -->|"INCLUDES"| XAuth["X-Authorization Header<br/>(mapped to Authorization)"]
+            HeaderModule -->|"EXCLUDES"| AuthHeader["Authorization Header<br/>(K8s/proxy auth - NOT forwarded)"]
+
+            XAuth -->|"forwarded as Authorization"| LLMProvider["LLM Provider<br/>(OpenAI / Azure OpenAI)"]
+        end
+
+        subgraph "API Key Secrets (Environment Variables)"
+            direction LR
+            AZURE["AZURE_OPENAI_API_KEY"]
+            ACTIVEFENCE["ACTIVEFENCE_API_KEY"]
+            AIDEFENSE["AI_DEFENSE_API_KEY"]
+            AUTOALIGN["AUTOALIGN_API_KEY"]
+            CLAVATA["CLAVATA_API_KEY"]
+            CLEANLAB["CLEANLAB_API_KEY"]
+            CSAIDR["CS_AIDR_TOKEN"]
+            F5["F5_GUARDRAILS_API_KEY"]
+            FIDDLER["FIDDLER_API_KEY"]
+            PANGEA["PANGEA_API_TOKEN"]
+            PATRONUS["PATRONUS_API_KEY"]
+            POLICYAI["POLICYAI_API_KEY"]
+            POLYGRAF["POLYGRAF_API_KEY"]
+            PAI["PAI_API_KEY"]
+            HF["HF_TOKEN"]
+        end
+    end
+
+    subgraph "RBAC (Kubernetes)"
+        NoRBAC["No ClusterRoles or RoleBindings<br/>defined by this component"]
+        NoK8sAPI["No direct Kubernetes API<br/>interaction required"]
+    end
+
+    style NoAuth fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style Note1 fill:#f8cecc,stroke:#b85450
+    style K8sIngress fill:#d5e8d4,stroke:#82b366
+    style ServiceMesh fill:#d5e8d4,stroke:#82b366
+    style InboundAuth fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style FastAPI fill:#4a90e2,stroke:#333,stroke-width:2px
+    style HeaderModule fill:#7ed321,stroke:#333,stroke-width:2px
+    style XAuth fill:#d5e8d4,stroke:#82b366
+    style AuthHeader fill:#f8cecc,stroke:#b85450
+    style LLMProvider fill:#fff2cc,stroke:#d6b656
+    style NoRBAC fill:#e8e8e8,stroke:#999
+    style NoK8sAPI fill:#e8e8e8,stroke:#999
+    style AZURE fill:#fff2cc,stroke:#d6b656
+    style ACTIVEFENCE fill:#fff2cc,stroke:#d6b656
+    style AIDEFENSE fill:#fff2cc,stroke:#d6b656
+    style AUTOALIGN fill:#fff2cc,stroke:#d6b656
+    style CLAVATA fill:#fff2cc,stroke:#d6b656
+    style CLEANLAB fill:#fff2cc,stroke:#d6b656
+    style CSAIDR fill:#fff2cc,stroke:#d6b656
+    style F5 fill:#fff2cc,stroke:#d6b656
+    style FIDDLER fill:#fff2cc,stroke:#d6b656
+    style PANGEA fill:#fff2cc,stroke:#d6b656
+    style PATRONUS fill:#fff2cc,stroke:#d6b656
+    style POLICYAI fill:#fff2cc,stroke:#d6b656
+    style POLYGRAF fill:#fff2cc,stroke:#d6b656
+    style PAI fill:#fff2cc,stroke:#d6b656
+    style HF fill:#fff2cc,stroke:#d6b656

@@ -1,0 +1,195 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  USER WORKSTATION / NOTEBOOK (Client-Side)                                  │
+│                                                                              │
+│  [User Python Code]                                                          │
+│  - kubeflow SDK installed via pip                                            │
+│  - Runs as user identity (kubeconfig or ServiceAccount)                      │
+│         │                                                                    │
+│         │ In-process Python calls                                            │
+│         ▼                                                                    │
+│  [Kubeflow SDK]                                                              │
+│  - kubeflow.trainer.TrainerClient                                            │
+│  - kubeflow.optimizer.OptimizerClient                                        │
+│  - kubeflow.spark.SparkClient                                                │
+│  - kubeflow.hub.ModelRegistryClient                                          │
+│         │                                                                    │
+├──────────┼───────────────────────────────────────────────────────────────────┤
+│          │  EGRESS CONNECTIONS                                               │
+│          │                                                                    │
+│  ┌───────┼──────────────────────────────────────────────────────────────┐    │
+│  │       │                                                              │    │
+│  │       ├──────────────────────────────────────────────────────┐       │    │
+│  │       │                                                      │       │    │
+│  │       │ Port: 443/TCP                                        │       │    │
+│  │       │ Protocol: HTTPS                                      │       │    │
+│  │       │ Encryption: TLS 1.2+                                 │       │    │
+│  │       │ Auth: Bearer Token (kubeconfig/ServiceAccount)       │       │    │
+│  │       │ Operations: CRD CRUD (TrainJob, Experiment,          │       │    │
+│  │       │   SparkConnect, TrainingRuntime), pod logs, events   │       │    │
+│  │       ▼                                                      │       │    │
+│  │  [Kubernetes API Server]                                     │       │    │
+│  │  - Port: 443/TCP                                             │       │    │
+│  │  - AuthN: Bearer Token, x509 client certs                   │       │    │
+│  │  - AuthZ: Kubernetes RBAC                                    │       │    │
+│  └──────────────────────────────────────────────────────────────┘       │    │
+│                                                                         │    │
+│  ┌──────────────────────────────────────────────────────────────┐       │    │
+│  │       │ Port: 443/TCP or 8080/TCP                            │       │    │
+│  │       │ Protocol: HTTPS or HTTP                              │       │    │
+│  │       │ Encryption: TLS 1.2+ (if HTTPS) or None (HTTP)      │       │    │
+│  │       │ Auth: Bearer Token (user_token) or None              │       │    │
+│  │       │ Custom CA: custom_ca parameter (optional)            │       │    │
+│  │       ▼                                                      │       │    │
+│  │  [Model Registry Server]                                     │       │    │
+│  │  - Port: 443/TCP (secure) or 8080/TCP (insecure)            │       │    │
+│  │  - AuthN: Application-level (Bearer Token)                   │       │    │
+│  └──────────────────────────────────────────────────────────────┘       │    │
+│                                                                         │    │
+│  ┌──────────────────────────────────────────────────────────────┐       │    │
+│  │       │ Port: 15002/TCP                                      │       │    │
+│  │       │ Protocol: gRPC                                       │       │    │
+│  │       │ Encryption: None                                     │       │    │
+│  │       │ Auth: None                                           │       │    │
+│  │       ▼                                                      │       │    │
+│  │  [SparkConnect Service]                                      │       │    │
+│  │  - Service: spark-connect-{uuid}-svc (ClusterIP)             │       │    │
+│  │  - Port: 15002/TCP                                           │       │    │
+│  │  - Note: No encryption or auth on gRPC channel               │       │    │
+│  └──────────────────────────────────────────────────────────────┘       │    │
+│                                                                         │    │
+│  ┌──────────────────────────────────────────────────────────────┐       │    │
+│  │       │ Port: Unix socket                                    │       │    │
+│  │       │ Protocol: HTTP over Unix socket                      │       │    │
+│  │       │ Encryption: None                                     │       │    │
+│  │       │ Auth: None (local socket)                            │       │    │
+│  │       ▼                                                      │       │    │
+│  │  [Docker/Podman Daemon]                                      │       │    │
+│  │  - Local development only (container backend)                │       │    │
+│  └──────────────────────────────────────────────────────────────┘       │    │
+│                                                                         │    │
+└─────────────────────────────────────────────────────────────────────────┘    │
+                                                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER-INTERNAL (Server-Side Operators)                                    │
+│                                                                              │
+│  [Kubernetes API Server]                                                     │
+│         │                                                                    │
+│         ├──► [Trainer Operator] ──► [JobSet Controller] ──► [Training Pods]  │
+│         │    Watches: TrainJob, TrainingRuntime, ClusterTrainingRuntime       │
+│         │                                                                    │
+│         ├──► [Katib Controller]                                              │
+│         │    Watches: Experiment, Trial                                       │
+│         │    Creates: Trial CRs → TrainJobs                                  │
+│         │                                                                    │
+│         └──► [Spark Operator]                                                │
+│              Watches: SparkConnect                                           │
+│              Creates: Pods, Services (15002/TCP)                             │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  TRAINING POD NETWORK (RHAI TransformersTrainer)                             │
+│                                                                              │
+│  [Training Pod]                                                              │
+│         │                                                                    │
+│         ├──► Metrics Server                                                  │
+│         │    Port: 28080/TCP                                                 │
+│         │    Protocol: HTTP                                                  │
+│         │    Encryption: None                                                │
+│         │    Auth: None                                                      │
+│         │    Polled by: Trainer Controller                                    │
+│         │                                                                    │
+│         ├──► S3-Compatible Storage                                           │
+│         │    Port: 443/TCP                                                   │
+│         │    Protocol: HTTPS                                                 │
+│         │    Encryption: TLS 1.2+                                            │
+│         │    Auth: AWS IAM credentials (access_key_id/secret_access_key)     │
+│         │    Purpose: Checkpoint storage, dataset/model downloads             │
+│         │                                                                    │
+│         └──► HuggingFace Hub (huggingface.co)                                │
+│              Port: 443/TCP                                                   │
+│              Protocol: HTTPS                                                 │
+│              Encryption: TLS 1.2+                                            │
+│              Auth: Bearer Token (ACCESS_TOKEN env var)                        │
+│              Purpose: Dataset and model downloads                            │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                           │
+│                                                                              │
+│  [HuggingFace Hub - huggingface.co]                                          │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS                                                           │
+│  - Auth: Bearer Token (ACCESS_TOKEN)                                         │
+│  - Purpose: Dataset and model downloads via initializers                     │
+│                                                                              │
+│  [S3-Compatible Storage]                                                     │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS, TLS 1.2+                                                │
+│  - Auth: AWS IAM credentials or access key/secret                            │
+│  - Purpose: Dataset/model downloads, checkpoint storage                      │
+│                                                                              │
+│  [Maven Central - repo1.maven.org]                                           │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS                                                           │
+│  - Auth: None                                                                │
+│  - Purpose: Spark Connect JAR download                                       │
+│                                                                              │
+│  [PyPI - pypi.org]                                                           │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS                                                           │
+│  - Auth: None                                                                │
+│  - Purpose: Package installation (container/local-process backends)          │
+│                                                                              │
+│  [Model Registry Server]                                                     │
+│  - Port: 443/TCP (secure) or 8080/TCP (insecure)                            │
+│  - Protocol: HTTPS or HTTP                                                   │
+│  - Auth: Bearer Token (user_token)                                           │
+│  - Purpose: Model registration, version listing, artifact retrieval          │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary (Required Permissions - SDK is a client library):
+- API Group: trainer.kubeflow.org
+  - Resources: trainjobs
+  - Verbs: create, get, list, delete
+  - SDK Methods: TrainerClient.train(), get_job(), list_jobs(), delete_job()
+- API Group: trainer.kubeflow.org
+  - Resources: trainingruntimes, clustertrainingruntimes
+  - Verbs: get, list
+  - SDK Methods: TrainerClient.list_runtimes(), get_runtime()
+- API Group: kubeflow.org
+  - Resources: experiments
+  - Verbs: create, get, list, delete
+  - SDK Methods: OptimizerClient.optimize(), get_job(), list_jobs(), delete_job()
+- API Group: kubeflow.org
+  - Resources: trials
+  - Verbs: get, list
+  - SDK Methods: OptimizerClient (internal trial listing)
+- API Group: sparkoperator.k8s.io
+  - Resources: sparkconnects
+  - Verbs: create, get, list, delete
+  - SDK Methods: SparkClient.connect(), get_session(), list_sessions(), delete_session()
+- API Group: "" (core)
+  - Resources: pods, pods/log, events, configmaps, secrets
+  - Verbs: get, list
+  - SDK Methods: Log streaming, status checks, version check, credential injection
+
+Secrets:
+- Data connection secret (user-specified) - Opaque - S3 credentials for checkpoint storage - User provisioned - No auto-rotate
+- HuggingFace access token (user-specified) - Opaque - Auth for private HuggingFace resources - User provisioned - No auto-rotate
+
+Authentication Mechanisms:
+- Kubernetes API: Bearer Token (kubeconfig or ServiceAccount) - enforced by Kubernetes RBAC
+- Model Registry: Bearer Token (user_token) or mTLS (custom_ca) - enforced by application
+- HuggingFace Hub: Bearer Token (ACCESS_TOKEN env var) - enforced by HuggingFace API
+- S3 Storage: AWS IAM credentials (access_key_id/secret_access_key) or IAM role (role_arn) - enforced by IAM policy
+
+FIPS Compliance:
+- Pure Python library, no compiled binaries
+- Delegates TLS to kubernetes Python client and urllib3
+- No direct crypto operations in SDK code
+- cryptography library is a transitive dependency (via kubernetes client)
+
+Security Considerations:
+- SparkConnect gRPC (15002/TCP) has NO encryption or authentication
+- RHAI metrics endpoint (28080/TCP) has NO encryption or authentication
+- Model Registry supports both HTTP (insecure) and HTTPS modes
+- Docker/Podman daemon access via unencrypted Unix socket

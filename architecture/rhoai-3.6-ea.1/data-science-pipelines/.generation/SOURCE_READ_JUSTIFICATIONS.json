@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "component": "data-science-pipelines",
+  "reads": [
+    {
+      "path": "backend/src/apiserver/auth/authenticator_token_review.go",
+      "line_range": "40-89",
+      "gap_category": ["authentication", "internal_dependencies"],
+      "question": "How does the apiserver authenticate incoming API requests, and what Kubernetes API dependency does TokenReview represent?",
+      "expected_signal": "TokenReview client call, token extraction from headers, authentication enforcement logic",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Data Flows", "Authentication & Authorization"]
+    },
+    {
+      "path": "backend/src/apiserver/resource/resource_manager.go",
+      "line_range": "2310-2339",
+      "gap_category": ["authentication", "internal_dependencies"],
+      "question": "How does the apiserver enforce per-resource authorization, and what Kubernetes API dependency does SubjectAccessReview represent?",
+      "expected_signal": "SubjectAccessReview client call, user identity check, authorization enforcement logic",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Data Flows", "Authentication & Authorization"]
+    },
+    {
+      "path": "backend/src/apiserver/client_manager/client_manager.go",
+      "line_range": "1040-1069",
+      "gap_category": ["integration_points"],
+      "question": "How is the S3-compatible storage client constructed, and what protocol/credentials/TLS configuration does it use?",
+      "expected_signal": "S3 client construction, endpoint configuration, credential provider, TLS settings",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Data Flows", "Integration Points"]
+    },
+    {
+      "path": "backend/Dockerfile.konflux.api",
+      "line_range": "1-62",
+      "gap_category": ["fips_compliance"],
+      "question": "What FIPS-related build flags, linking mode, and crypto provider selection are used in the Konflux build?",
+      "expected_signal": "GOFIPS140, CGO_ENABLED, GOEXPERIMENT, build tags, OpenSSL usage, base image",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "FIPS Compliance"]
+    },
+    {
+      "path": "backend/src/common/util/tls_config.go",
+      "line_range": "1-47",
+      "gap_category": ["fips_compliance"],
+      "question": "What TLS configuration does the application use, and does it set explicit cipher suites or non-FIPS crypto?",
+      "expected_signal": "crypto/tls config, cipher suite selection, certificate handling, custom CA bundle",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "FIPS Compliance"]
+    },
+    {
+      "path": "manifests/kustomize/env/cert-manager/platform-agnostic-k8s-native/patches/role.yaml",
+      "line_range": "1-33",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "Does the role patch contain RBAC rules for Kubeflow Notebooks (kubeflow.org) as the gap evidence index suggests?",
+      "expected_signal": "RBAC rules for kubeflow.org notebooks resources",
+      "outcome": "contradicted",
+      "sections": ["Integration Points", "Internal Platform Dependencies"]
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["Client<br/>(CLI / UI / DSP Controller)"]
+    end
+
+    subgraph ArgoServerZone["ARGO SERVER (API Gateway)"]
+        direction TB
+        Gatekeeper["Gatekeeper Interceptor<br/>AuthN: Bearer/SSO/Server/Hybrid"]
+        ArgoServer["Argo API Server<br/>Service: argo-server (ClusterIP)<br/>Port: 2746/TCP<br/>HTTP + gRPC co-hosted<br/>TLS: crypto/tls + gRPC credentials"]
+
+        subgraph HTTPRoutes["HTTP Routes"]
+            API["/api/* → gRPC Gateway"]
+            Artifacts["/artifacts/* → Artifact Handler"]
+            OAuth["/oauth2/* → OAuth2"]
+            Metrics["/metrics → Prometheus<br/>(conditional auth)"]
+            Pprof["/debug/pprof/*"]
+        end
+
+        subgraph GRPCServices["gRPC Services (port 2746)"]
+            WFService["WorkflowService"]
+            WFTemplateService["WorkflowTemplateService"]
+            CronWFService["CronWorkflowService"]
+            EventService["EventService"]
+            InfoService["InfoService"]
+        end
+
+        Gatekeeper --> ArgoServer
+        ArgoServer --> HTTPRoutes
+        ArgoServer --> GRPCServices
+    end
+
+    subgraph ControlPlane["KUBERNETES API (Control Plane)"]
+        K8sAPI["Kubernetes API Server<br/>Port: 6443/TCP<br/>HTTPS + WebSocket<br/>TLS 1.2+<br/>Auth: ServiceAccount"]
+    end
+
+    subgraph ControllerZone["WORKFLOW CONTROLLER (Internal)"]
+        Controller["Workflow Controller<br/>Health: 6060/TCP /healthz (no auth)<br/>Watches: 8 CRDs<br/>Creates: Pods, ConfigMaps, PDBs<br/>AuthZ: SelfSubjectAccessReview"]
+    end
+
+    subgraph WorkflowZone["WORKFLOW PODS (Ephemeral)"]
+        WorkflowPod["Workflow Step Pod<br/>+ argoexec sidecar<br/>Artifact collection<br/>Script execution"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        Storage["Artifact Storage<br/>S3 / GCS / Azure Blob / HDFS<br/>TLS (provider-specific)<br/>Auth: Storage credentials"]
+    end
+
+    %% Flows
+    Client -->|"HTTP+gRPC/2746<br/>TLS<br/>Bearer/SSO/Server SA"| Gatekeeper
+    ArgoServer -->|"HTTPS/6443<br/>TLS 1.2+<br/>ServiceAccount"| K8sAPI
+    Controller -->|"HTTPS+WSS/6443<br/>TLS 1.2+<br/>ServiceAccount"| K8sAPI
+    Controller -->|"Creates Pods<br/>with argoexec"| WorkflowPod
+    WorkflowPod -->|"HTTPS/443<br/>TLS<br/>Storage creds"| Storage
+    ArgoServer -->|"Artifact fetch<br/>TLS"| Storage
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef apigateway fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef controlplane fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef internal fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef ephemeral fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+
+    class Client external
+    class Gatekeeper,ArgoServer,API,Artifacts,OAuth,Metrics,Pprof,WFService,WFTemplateService,CronWFService,EventService,InfoService apigateway
+    class K8sAPI controlplane
+    class Controller internal
+    class WorkflowPod ephemeral
+    class Storage externalservice

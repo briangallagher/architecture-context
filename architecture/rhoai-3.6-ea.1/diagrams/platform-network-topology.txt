@@ -1,0 +1,318 @@
+================================================================================
+RHOAI 3.6-ea.1 — PLATFORM NETWORK TOPOLOGY
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                        │
+│                                                                              │
+│  Data Scientists, API Consumers, CI/CD Systems                               │
+│         │                                                                    │
+├─────────┼────────────────────────────────────────────────────────────────────┤
+│  INGRESS│— Gateway API (openshift-ingress namespace)                        │
+│         │                                                                    │
+│  GATEWAY 1: data-science-gateway                                             │
+│  ├─ Owner: rhods-operator Gateway service controller                         │
+│  ├─ GatewayClass: platform                                                   │
+│  ├─ Status: derived (dynamically provisioned)                                │
+│  │                                                                           │
+│  ├─ HTTPRoute: odh-dashboard                                                 │
+│  │   Port: 443/TCP (ext) -> 8080/TCP (int)                                  │
+│  │   Protocol: HTTPS -> HTTP                                                 │
+│  │   Auth: EnvoyFilter ext_authz -> kube-auth-proxy (OIDC)                   │
+│  │   Condition: EnvoyFilter created only when Istio CRDs present             │
+│  │                                                                           │
+│  ├─ HTTPRoute: models-as-a-service                                           │
+│  │   Port: 443/TCP (ext) -> 8443/TCP (int)                                  │
+│  │   Protocol: HTTPS                                                         │
+│  │   Auth: Kuadrant AuthPolicy (API key, TokenReview, OIDC JWT)              │
+│  │                                                                           │
+│  ├─ HTTPRoute: model-registry-operator                                       │
+│  │   Port: 443/TCP (ext) -> 8443/TCP (int)                                  │
+│  │   Protocol: HTTPS                                                         │
+│  │   Auth: kube-rbac-proxy sidecar (SubjectAccessReview)                     │
+│  │                                                                           │
+│  ├─ HTTPRoute: kserve llmisvc (LLMInferenceService)                          │
+│  │   Port: 443/TCP (ext) -> model server port (int)                          │
+│  │   Protocol: HTTPS                                                         │
+│  │   Auth: varies by serving runtime                                         │
+│  │                                                                           │
+│  └─ HTTPRoute: odh-model-controller                                          │
+│      Port: 443/TCP (ext) -> 8080/TCP (int)                                   │
+│      Protocol: HTTPS                                                         │
+│      Auth: Kuadrant AuthPolicy                                               │
+│                                                                              │
+│  GATEWAY 2: maas-default-gateway                                             │
+│  ├─ Owner: models-as-a-service deployment manifest                           │
+│  ├─ Status: observed                                                         │
+│  │                                                                           │
+│  └─ HTTPRoute: maas-api-route                                                │
+│      Paths: /v1/models, /v1/subscriptions, /v1/api-keys, /maas-api/*        │
+│      Port: 443/TCP (ext) -> 8443/TCP (int)                                   │
+│      Protocol: HTTPS                                                         │
+│      Auth: Kuadrant/Authorino AuthPolicy                                     │
+│        - API key extraction (Bearer sk-oai-*)                                │
+│        - K8s TokenReview                                                     │
+│        - Optional OIDC JWT validation                                        │
+│        - OPA Rego authorization (subscription/group/binding)                 │
+│                                                                              │
+│  LEGACY: OpenShift Routes (various namespaces)                               │
+│  ├─ odh-dashboard Route (backward compatibility)                             │
+│  ├─ model-registry REST Route (dual ingress)                                 │
+│  ├─ Prometheus monitoring proxy Routes (TLS)                                 │
+│  └─ TrustyAI service Route                                                   │
+│      Auth: TLS termination at router; kube-rbac-proxy at pod level           │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  AUTHENTICATION LAYER                                                        │
+│                                                                              │
+│  Pattern 1: kube-auth-proxy (Dashboard OIDC)                                 │
+│  ├─ Port: 4180                                                               │
+│  ├─ Endpoint: /oauth2/auth                                                   │
+│  ├─ Flow: OAuth2/OIDC + K8s TokenReview + Basic Auth                         │
+│  ├─ Session: Cookie-based session management                                 │
+│  └─ Used by: odh-dashboard (via EnvoyFilter ext_authz)                       │
+│                                                                              │
+│  Pattern 2: Kuadrant/Authorino (MaaS + Serving)                              │
+│  ├─ Namespace: kuadrant-system                                               │
+│  ├─ Flow: AuthPolicy -> API key callback -> TokenReview -> OIDC JWT          │
+│  ├─ Authorization: OPA Rego for subscription/group/binding                   │
+│  ├─ Rate Limiting: TokenRateLimitPolicy                                      │
+│  └─ Used by: models-as-a-service, odh-model-controller, ai-gateway-operator  │
+│                                                                              │
+│  Pattern 3: kube-rbac-proxy Sidecar (Pod-level)                              │
+│  ├─ TLS-terminating authentication proxy (sidecar container)                 │
+│  ├─ Validates tokens via K8s TokenReview                                     │
+│  ├─ Checks authorization via SubjectAccessReview                             │
+│  └─ Used by: kserve, odh-model-controller, model-registry-operator,          │
+│              rhods-operator (monitoring), odh-dashboard, odh-observability    │
+│                                                                              │
+│  Pattern 4: Application-level TokenReview/SAR                                │
+│  ├─ Direct K8s API calls for token validation and authorization              │
+│  └─ Used by: odh-dashboard BFF sidecars, maas-api TenantAuthMiddleware,      │
+│              odh-model-controller gateway discoverer                         │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  OPERATOR NAMESPACE (redhat-ods-operator / opendatahub-operator-system)      │
+│                                                                              │
+│  rhods-operator                                                              │
+│  ├─ SA: rhods-operator-controller-manager                                    │
+│  ├─ Controllers: Auth, Gateway, Monitoring (3 service controllers)           │
+│  ├─ CRDs: DataScienceCluster, DSCInitialization, + per-component CRDs       │
+│  ├─ Webhooks: 3 mutating, 6 validating, 1 conversion (Fail policy)          │
+│  ├─ -> K8s API (HTTPS/443, SA token): reconcile all component CRDs          │
+│  ├─ -> openshift-ingress: provisions data-science-gateway                    │
+│  ├─ -> models-as-a-service NS: watches MaaS resources                        │
+│  ├─ -> kuadrant-system NS: watches Kuadrant resources                        │
+│  └─ -> Istio (conditional): creates EnvoyFilter, DestinationRule             │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  APPLICATIONS NAMESPACE (redhat-ods-applications / opendatahub)              │
+│                                                                              │
+│  odh-dashboard                                                               │
+│  ├─ SA: odh-dashboard                                                        │
+│  ├─ Architecture: Node.js + Webpack Module Federation micro-frontend         │
+│  ├─ Auth: kube-rbac-proxy sidecar (8443) + BFF sidecars (TokenReview+SAR)    │
+│  ├─ Webhooks: 4 validating, 1 conversion (Fail policy)                       │
+│  ├─ -> K8s API: watches DSC, DSCI, InferenceService, ModelRegistry, etc.     │
+│  └─ -> model-registry, kserve: model catalog and serving management          │
+│                                                                              │
+│  odh-model-controller                                                        │
+│  ├─ SA: odh-model-controller                                                 │
+│  ├─ 10 reconcilers: InferenceService, InferenceGraph, LLMInferenceService    │
+│  ├─ Auth: kube-rbac-proxy sidecar                                            │
+│  ├─ Webhooks: 10 mutating, 6 validating (Fail policy)                        │
+│  ├─ -> K8s API: creates NetworkPolicy, ServiceMonitor, PodMonitor, Route     │
+│  ├─ -> Kuadrant: creates AuthPolicy for serving endpoints                    │
+│  └─ -> Istio (conditional): creates EnvoyFilter                              │
+│                                                                              │
+│  data-science-pipelines-operator                                             │
+│  ├─ SA: data-science-pipelines-operator                                      │
+│  ├─ Manages: API server, persistence agent, scheduled workflow controller    │
+│  ├─ Webhooks: 1 mutating, 1 validating (Fail policy)                         │
+│  └─ -> argo-workflows: executes workflow steps                               │
+│                                                                              │
+│  model-registry-operator                                                     │
+│  ├─ SA: model-registry-operator                                              │
+│  ├─ Dual ingress: Gateway API HTTPRoute + OpenShift Route                    │
+│  ├─ Auth: kube-rbac-proxy sidecar (conditional)                              │
+│  ├─ Backend: PostgreSQL                                                      │
+│  ├─ Webhooks: 2 mutating, 2 validating, 1 conversion (Fail policy)           │
+│  └─ -> K8s API: reconciles ModelRegistry resources                           │
+│                                                                              │
+│  workbenches-operator                                                        │
+│  ├─ SA: workbenches-operator                                                 │
+│  ├─ Webhooks: 4 mutating, 1 conversion (Fail policy)                         │
+│  ├─ Injects HardwareProfile + data-connection secrets into notebook pods     │
+│  └─ -> user NS: creates notebook StatefulSets                                │
+│                                                                              │
+│  trainer-operator, kueue-operator, kuberay, spark-operator,                  │
+│  trustyai-service-operator, ai-gateway-operator, feast-module-operator,      │
+│  mlflow-operator, ogx-k8s-operator                                           │
+│  └─ Module operators with independent RBAC and leader election               │
+│                                                                              │
+│  Monitoring Infrastructure                                                   │
+│  ├─ Prometheus collectors and proxies                                        │
+│  ├─ kube-rbac-proxy sidecars with cluster-monitoring-view ClusterRole        │
+│  └─ Deployed by rhods-operator Monitoring service controller                 │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  KSERVE NAMESPACE                                                            │
+│                                                                              │
+│  kserve-controller-manager                                                   │
+│  ├─ SA: kserve-controller-manager                                            │
+│  ├─ Reconciles: InferenceService -> Deployment, Service, HTTPRoute, HPA      │
+│  ├─ Webhooks: 4 mutating, 11 validating, 1 conversion (Fail policy)          │
+│  ├─ Pod mutator: injects sidecar containers for storage init + model agent   │
+│  ├─ -> K8s API: creates workloads in user namespaces                         │
+│  ├─ -> cert-manager: TLS certificate automation                              │
+│  └─ -> Gateway API: configures HTTPRoutes                                    │
+│                                                                              │
+│  kserve llmisvc controller                                                   │
+│  ├─ SA: kserve-llmisvc-controller                                            │
+│  ├─ Manages 13 resource types: HPA, KEDA ScaledObjects, LeaderWorkerSets,    │
+│  │   InferencePools, Gateway resources, Deployments                          │
+│  ├─ -> K8s API: creates prefill/decode Deployments, InferencePool            │
+│  └─ -> Istio: creates DestinationRule for llm-d traffic                      │
+│                                                                              │
+│  kserve localmodel controllers (2 processes)                                 │
+│  ├─ SA: kserve-localmodel-controller                                         │
+│  └─ Local model caching and node-level management                            │
+│                                                                              │
+│  kserve-module operator                                                      │
+│  ├─ SA: kserve-module                                                        │
+│  └─ ODH module pattern: manifest rendering via odh-platform-utilities        │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  MODELS-AS-A-SERVICE NAMESPACE                                               │
+│                                                                              │
+│  maas-api                                                                    │
+│  ├─ SA: maas-api                                                             │
+│  ├─ Port: 8443 (HTTPS)                                                       │
+│  ├─ API: OpenAI-compatible REST (/v1/models, /v1/subscriptions, etc.)        │
+│  ├─ Auth: TenantAuthMiddleware (TokenReview + SAR for /v1/tenants)           │
+│  ├─ -> PostgreSQL: tenant state, subscriptions, API keys                     │
+│  └─ -> kserve: validates model availability via LLMInferenceService watch    │
+│                                                                              │
+│  maas-controller                                                             │
+│  ├─ SA: maas-controller                                                      │
+│  ├─ MaaSModelRefReconciler: watches KServe LLMInferenceService               │
+│  ├─ MaaSAuthPolicyReconciler: creates AuthPolicy resources                   │
+│  └─ -> data-science-gateway: creates HTTPRoutes for model endpoints          │
+│                                                                              │
+│  Webhooks: 4 validating (Fail policy)                                        │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  KUADRANT-SYSTEM NAMESPACE                                                   │
+│                                                                              │
+│  Kuadrant / Authorino Controllers                                            │
+│  ├─ AuthPolicy enforcement for MaaS and serving endpoints                    │
+│  ├─ TokenRateLimitPolicy for API rate limiting                               │
+│  └─ Watched by rhods-operator Auth service controller                        │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  USER NAMESPACES ({user-namespaces})                                         │
+│                                                                              │
+│  InferenceService Pods                                                       │
+│  ├─ Model servers: vLLM, OpenVINO, MLServer, HuggingFace, sklearn, etc.     │
+│  ├─ Runtimes defined via ClusterServingRuntime CRDs                          │
+│  ├─ -> S3/Object Storage: model artifact download                            │
+│  └─ -> Container Registry: image pull                                        │
+│                                                                              │
+│  llm-d Pods (Disaggregated Inference)                                        │
+│  ├─ Prefill + Decode Deployments (separate scaling)                          │
+│  ├─ llm-d-router EPP: Envoy sidecar, model-aware routing via InferencePool  │
+│  ├─ llm-d-kv-cache: ModelExpress gRPC KV cache broker                       │
+│  ├─ mTLS: STRICT (for ModelExpress gRPC control plane)                       │
+│  └─ -> S3/Object Storage: model download                                     │
+│                                                                              │
+│  Notebook Pods                                                               │
+│  ├─ Jupyter StatefulSets (via kubeflow notebook-controller)                  │
+│  ├─ Data connection secrets injected by workbenches-operator                 │
+│  └─ -> S3/Object Storage: training data, model artifacts                     │
+│                                                                              │
+│  Pipeline Workflow Pods                                                       │
+│  ├─ Argo Workflow step pods                                                  │
+│  ├─ Artifact storage: SeaweedFS or S3                                        │
+│  └─ Scheduled workflow controller for recurring runs                         │
+│                                                                              │
+│  Training Job Pods                                                           │
+│  ├─ Ray clusters (kuberay), Spark jobs (spark-operator)                      │
+│  ├─ Kubeflow training (training-operator), custom training (trainer)         │
+│  └─ Job scheduling via kueue-operator                                        │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  EGRESS (External Services)                                                  │
+│                                                                              │
+│  Kubernetes API Server                                                       │
+│  ├─ Port: 443/TCP HTTPS                                                      │
+│  ├─ Auth: ServiceAccount tokens                                             │
+│  ├─ Used for: TokenReview, SubjectAccessReview, CRD watch/reconcile          │
+│  └─ Consumers: All operators and controllers                                 │
+│                                                                              │
+│  Container Registries (quay.io, registry.redhat.io)                          │
+│  ├─ Port: 443/TCP HTTPS                                                      │
+│  ├─ Auth: Pull secrets                                                       │
+│  └─ Consumers: All pods (image pull)                                         │
+│                                                                              │
+│  Object Storage (S3-compatible)                                              │
+│  ├─ Port: 443/TCP HTTPS                                                      │
+│  ├─ Auth: AWS IAM (IRSA) or static credentials                              │
+│  └─ Consumers: KServe, model-registry, notebooks, pipelines                 │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+NAMESPACES:
+- redhat-ods-operator / opendatahub-operator-system: Platform operator
+- redhat-ods-applications / opendatahub: Platform applications and controllers
+- openshift-ingress: Gateway infrastructure (data-science-gateway)
+- kserve: KServe controllers (4 processes)
+- models-as-a-service: MaaS API and controller
+- kuadrant-system: Kuadrant/Authorino controllers
+- {user-namespaces}: User workloads (inference, notebooks, pipelines, training)
+
+GATEWAY ARCHITECTURE:
+- Primary: Gateway API through data-science-gateway (central, shared)
+- MaaS: maas-default-gateway (capability-specific, Kuadrant-authenticated)
+- Legacy: OpenShift Routes (backward compatibility, TLS termination at router)
+- Relationship between data-science-gateway and maas-default-gateway is unresolved
+  (may be same Gateway with different names, or distinct resources)
+- Istio integration: conditional (EnvoyFilter/DestinationRule only when CRDs detected)
+
+AUTHENTICATION SUMMARY (4 patterns):
+1. kube-auth-proxy OIDC (gateway-level, dashboard)
+2. Kuadrant/Authorino AuthPolicy (gateway-level, MaaS + serving)
+3. kube-rbac-proxy sidecar (pod-level, SubjectAccessReview)
+4. Application-level TokenReview/SAR (in-code, BFF sidecars)
+
+ADMISSION WEBHOOKS:
+- Total: 210 webhooks across 17 components
+- All use Fail policy (fail-closed)
+- Cross-component targets: rhods-operator -> prometheus-operator PodMonitors,
+  odh-model-controller -> kserve InferenceServices,
+  workbenches-operator -> kubeflow Notebooks
+
+RBAC SUMMARY:
+- Total RBAC entries: 1658 across all components
+- Most privileged: ai-gateway-operator (128 entries, 10+ API groups)
+- Module operators: independent SA, ClusterRoles, leader election per process
+- 19+ operators/controllers with dedicated RBAC identities
+
+ISTIO / SERVICE MESH:
+- Mode: Conditional (when Istio/SAIL CRDs detected on cluster)
+- mTLS: STRICT for llm-d ModelExpress gRPC control plane
+- Platform-wide mTLS depends on Istio deployment presence
+- EnvoyFilter: created by rhods-operator (dashboard), odh-model-controller
+- DestinationRule: created by rhods-operator, kserve llmisvc
+
+TLS CONFIGURATION:
+- Platform TLS profile alignment: operators read OpenShift APIServer TLS profile
+- Fallback: TLS 1.2 + Mozilla Intermediate cipher suites
+- Webhook TLS: service-CA provisioned certificates
+- Components aligning: rhods-operator, kserve, odh-model-controller,
+  model-registry-operator, workbenches-operator, trainer
+
+FIPS POSTURE:
+- All shipped Go binaries: CGO_ENABLED=1 + GOEXPERIMENT=strictfipsruntime
+- Python components: inherit FIPS from UBI 9 base OpenSSL
+- Base images: UBI 9 (FIPS-validated OpenSSL)
+- Exception: upstream KServe core manager uses CGO_ENABLED=0 (overridden by Konflux)

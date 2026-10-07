@@ -1,0 +1,55 @@
+graph TB
+    subgraph Workstation["USER WORKSTATION (Trusted)"]
+        User["User / AI Agent"]
+        CLI["rhai-cli (kubectl-odh)<br/>FIPS: strictfipsruntime + CGO<br/>Base: ose-cli-rhel9"]
+        MCPServer["MCP Server<br/>127.0.0.1:8080 (localhost only)<br/>No auth (process-level creds)"]
+    end
+
+    subgraph ControlPlane["KUBERNETES CONTROL PLANE (Trusted)"]
+        direction TB
+        K8sAPI["Kubernetes API Server<br/>6443/TCP<br/>TLS 1.2+<br/>RBAC enforcement"]
+
+        subgraph K8sClients["Client Types"]
+            DynClient["Dynamic Client"]
+            DiscClient["Discovery Client"]
+            CoreClient["Core Client"]
+            AuthzClient["Authz Client<br/>(SelfSubjectAccessReview)"]
+            MetaClient["Metadata Client"]
+        end
+
+        OLM["OLM API<br/>CSVs, Subscriptions<br/>(via K8s API)"]
+    end
+
+    subgraph InCluster["IN-CLUSTER SERVICES (Migration Only)"]
+        TrustYAI["TrustYAI Service<br/>443/TCP HTTPS<br/>TLS 1.2+ (InsecureSkipVerify)<br/>Bearer Token"]
+    end
+
+    %% User interactions
+    User -->|stdio / SSE<br/>localhost only<br/>No auth| MCPServer
+    User -->|CLI invocation<br/>kubeconfig credentials| CLI
+
+    %% CLI to Kubernetes API
+    CLI -->|HTTPS/WSS 6443<br/>TLS 1.2+<br/>kubeconfig credential chain<br/>(bearer/cert/OIDC)| K8sAPI
+
+    K8sAPI --- DynClient
+    K8sAPI --- DiscClient
+    K8sAPI --- CoreClient
+    K8sAPI --- AuthzClient
+    K8sAPI --- MetaClient
+    K8sAPI --- OLM
+
+    %% CLI to TrustYAI (migration only)
+    CLI -->|HTTPS/443<br/>TLS 1.2+ InsecureSkipVerify<br/>Bearer Token<br/>GET+POST /metrics/schedule| TrustYAI
+
+    %% MCP to CLI
+    MCPServer -->|tool calls<br/>process-level kubeconfig| CLI
+
+    %% Styling
+    classDef workstation fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef controlplane fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef incluster fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef warning fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    class User,CLI,MCPServer workstation
+    class K8sAPI,DynClient,DiscClient,CoreClient,AuthzClient,MetaClient,OLM controlplane
+    class TrustYAI incluster

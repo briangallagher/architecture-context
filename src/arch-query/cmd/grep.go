@@ -148,8 +148,8 @@ func grepComponent(term string, doc *types.ComponentDoc) []grepHit {
 	}
 
 	for _, r := range doc.RBACRoles {
-		if matchAny(term, r.RoleName, r.APIGroup, r.Resources, r.Verbs) {
-			hits = append(hits, grepHit{"rbac", fmt.Sprintf("%s %s %s [%s]", r.RoleName, r.APIGroup, r.Resources, r.Verbs)})
+		if matchAny(term, r.RoleName, r.APIGroup, r.Resources, r.NonResourceURLs, r.Verbs) {
+			hits = append(hits, grepHit{"rbac", fmt.Sprintf("%s %s %s %s [%s]", r.RoleName, r.APIGroup, r.Resources, r.NonResourceURLs, r.Verbs)})
 		}
 	}
 

@@ -1,0 +1,62 @@
+graph TB
+    subgraph UserWorkstation["User Workstation"]
+        CLI["rhaii-validator CLI<br/>(kubectl rhaii-validate)<br/>Go Binary"]
+    end
+
+    subgraph KubernetesCluster["Kubernetes Cluster"]
+        direction TB
+
+        API["Kubernetes API Server<br/>6443/TCP HTTPS"]
+
+        subgraph ValidationNS["Namespace: rhaii-validation"]
+            SA["ServiceAccount<br/>rhaii-validator"]
+            ConfigMap["ConfigMap<br/>(Validation Report JSON)"]
+            PlatformCM["ConfigMap<br/>rhaii-validate-config"]
+
+            subgraph NodeCheckJobs["Per-Node Check Jobs"]
+                CheckJob1["Check Job (Node 1)<br/>Privileged Container"]
+                CheckJob2["Check Job (Node 2)<br/>Privileged Container"]
+            end
+
+            subgraph BandwidthJobs["Bandwidth Test Jobs"]
+                ServerJob["Server Job<br/>validator-tools image"]
+                ClientJob["Client Job<br/>validator-tools image"]
+            end
+        end
+
+        subgraph GPUNodes["GPU Worker Nodes"]
+            GPU1["GPU Node 1<br/>nvidia-smi / rocm-smi"]
+            GPU2["GPU Node 2<br/>nvidia-smi / rocm-smi"]
+        end
+    end
+
+    %% Orchestration flows
+    CLI -->|"kubeconfig<br/>Bearer Token"| API
+    API -->|"create Jobs<br/>read Nodes"| ValidationNS
+    CLI -->|"read pod logs<br/>(JSON stdout)"| CheckJob1
+    CLI -->|"read pod logs<br/>(JSON stdout)"| CheckJob2
+    CLI -->|"write results"| ConfigMap
+
+    %% Node check flows
+    CheckJob1 -->|"chroot /host<br/>nvidia-smi"| GPU1
+    CheckJob2 -->|"chroot /host<br/>nvidia-smi"| GPU2
+
+    %% Bandwidth test flows
+    ClientJob -->|"ib_write_bw<br/>18515+/TCP RDMA"| ServerJob
+    ClientJob -->|"iperf3<br/>5201/TCP"| ServerJob
+
+    %% Platform config
+    PlatformCM -.->|"platform defaults"| CLI
+
+    %% Styling
+    style CLI fill:#4a90e2,stroke:#333,stroke-width:3px,color:#fff
+    style API fill:#e8e8e8,stroke:#333,stroke-width:2px
+    style CheckJob1 fill:#f5a623,stroke:#333
+    style CheckJob2 fill:#f5a623,stroke:#333
+    style ServerJob fill:#7ed321,stroke:#333
+    style ClientJob fill:#7ed321,stroke:#333
+    style ConfigMap fill:#bd10e0,stroke:#333,color:#fff
+    style GPU1 fill:#d0021b,stroke:#333,color:#fff
+    style GPU2 fill:#d0021b,stroke:#333,color:#fff
+    style SA fill:#9b9b9b,stroke:#333,color:#fff
+    style PlatformCM fill:#bd10e0,stroke:#333,color:#fff

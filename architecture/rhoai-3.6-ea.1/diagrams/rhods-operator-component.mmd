@@ -1,0 +1,109 @@
+graph TB
+    subgraph RhodsOperator["rhods-operator (RHOAI Platform Operator)"]
+        direction TB
+
+        subgraph TopLevel["Top-Level Controller"]
+            DSCController["DataScienceCluster<br/>Controller"]
+            DSCIController["DSCInitialization<br/>Controller"]
+            WebhookServer["Webhook Server<br/>Port 9443/TLS"]
+        end
+
+        subgraph ComponentControllers["Component Controllers"]
+            DSPController["DataSciencePipelines<br/>Controller"]
+            KueueController["Kueue<br/>Controller"]
+            ModelRegController["ModelRegistry<br/>Controller"]
+            RayController["Ray<br/>Controller"]
+            SparkController["SparkOperator<br/>Controller"]
+            TrainerController["Trainer<br/>Controller"]
+            TrainingOpController["TrainingOperator<br/>Controller"]
+            TrustyAIController["TrustyAI<br/>Controller"]
+        end
+
+        subgraph ServiceControllers["Service Controllers"]
+            AuthController["Auth Service<br/>Controller"]
+            GatewayController["Gateway Service<br/>Controller"]
+            MonitoringController["Monitoring Service<br/>Controller"]
+        end
+    end
+
+    subgraph CRDs["Custom Resources"]
+        DSCCR["DataScienceCluster CR<br/>v1, v2"]
+        DSCICR["DSCInitialization CR<br/>v1, v2"]
+        PlatformCR["Platform CR"]
+        ComponentCRDs["Component CRDs<br/>(DSP, Kueue, ModelRegistry,<br/>Ray, Spark, Trainer,<br/>TrainingOp, TrustyAI)"]
+        ServiceCRDs["Service CRDs<br/>(Auth, GatewayConfig,<br/>Monitoring)"]
+        InfraCRDs["Infrastructure CRDs<br/>(HardwareProfile, AWS/Azure/<br/>CoreWeave KubernetesEngine)"]
+    end
+
+    subgraph CloudManager["Cloud Manager"]
+        CloudMgr["cloudmanager binary<br/>(AWS, Azure, CoreWeave)"]
+    end
+
+    subgraph Monitoring["Monitoring Infrastructure"]
+        ClusterProxy["Prometheus<br/>Cluster Proxy<br/>8443/TCP"]
+        NamespaceProxy["Prometheus<br/>Namespace Proxy<br/>8443/TCP, 9090/TCP"]
+        Collector["Data Science<br/>Collector<br/>8889/TCP"]
+    end
+
+    %% CR Relationships
+    Admin["Platform Admin"] -->|creates| DSCCR
+    Admin -->|creates| DSCICR
+    DSCCR -->|watched by| DSCController
+    DSCICR -->|watched by| DSCIController
+
+    DSCController -->|triggers| ComponentCRDs
+    DSCIController -->|triggers| ServiceCRDs
+    ComponentCRDs -->|watched by| DSPController
+    ComponentCRDs -->|watched by| KueueController
+    ComponentCRDs -->|watched by| ModelRegController
+    ComponentCRDs -->|watched by| RayController
+    ComponentCRDs -->|watched by| SparkController
+    ComponentCRDs -->|watched by| TrainerController
+    ComponentCRDs -->|watched by| TrainingOpController
+    ComponentCRDs -->|watched by| TrustyAIController
+    ServiceCRDs -->|watched by| AuthController
+    ServiceCRDs -->|watched by| GatewayController
+    ServiceCRDs -->|watched by| MonitoringController
+    InfraCRDs -->|managed by| CloudMgr
+
+    %% Webhook relationships
+    K8sAPI["Kubernetes API Server"] -->|admission requests| WebhookServer
+
+    %% Monitoring
+    MonitoringController -->|deploys| ClusterProxy
+    MonitoringController -->|deploys| NamespaceProxy
+    MonitoringController -->|deploys| Collector
+
+    %% External dependencies
+    GatewayController -->|provisions| GatewayAPI["Gateway API<br/>Resources"]
+    GatewayController -->|conditional| Istio["Istio<br/>(EnvoyFilter,<br/>DestinationRule)"]
+    GatewayController -->|provisions| KubeAuthProxy["kube-auth-proxy<br/>(OIDC)"]
+    AuthController -->|watches ns| MaaS["models-as-a-service"]
+    AuthController -->|watches ns| Kuadrant["kuadrant-system"]
+
+    %% Styling
+    style DSCController fill:#4a90e2,color:#fff
+    style DSCIController fill:#4a90e2,color:#fff
+    style WebhookServer fill:#e74c3c,color:#fff
+    style DSPController fill:#3498db,color:#fff
+    style KueueController fill:#3498db,color:#fff
+    style ModelRegController fill:#3498db,color:#fff
+    style RayController fill:#3498db,color:#fff
+    style SparkController fill:#3498db,color:#fff
+    style TrainerController fill:#3498db,color:#fff
+    style TrainingOpController fill:#3498db,color:#fff
+    style TrustyAIController fill:#3498db,color:#fff
+    style AuthController fill:#2ecc71,color:#fff
+    style GatewayController fill:#2ecc71,color:#fff
+    style MonitoringController fill:#2ecc71,color:#fff
+    style DSCCR fill:#f5a623
+    style DSCICR fill:#f5a623
+    style PlatformCR fill:#f5a623
+    style ComponentCRDs fill:#f5a623
+    style ServiceCRDs fill:#f5a623
+    style InfraCRDs fill:#f5a623
+    style CloudMgr fill:#9b59b6,color:#fff
+    style Istio fill:#e8e8e8
+    style GatewayAPI fill:#e8e8e8
+    style MaaS fill:#e8e8e8
+    style Kuadrant fill:#e8e8e8

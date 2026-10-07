@@ -1,0 +1,38 @@
+graph LR
+    SDK["codeflare-sdk<br/>Python Client Library<br/>v0.38.2"]
+
+    %% External Dependencies
+    SDK -->|"client library<br/>>=25.0.0"| K8sClient["kubernetes<br/>Python Client"]
+    SDK -->|"runtime<br/>^3.11"| Python["Python Runtime"]
+    SDK -->|"TLS cert gen<br/>>=46.0.7"| Cryptography["cryptography<br/>Library"]
+
+    %% Internal Platform Dependencies
+    SDK -->|"auth delegation"| KubeAuthKit["kube-authkit<br/>Auth Auto-detection"]
+    SDK -->|"CRD management<br/>(vendored)"| KubeRay["KubeRay<br/>Python Client"]
+    SDK -->|"job submission"| Ray["Ray<br/>Job Submission Client"]
+    SDK -->|"queue scheduling<br/>CustomObjects API"| Kueue["Kueue<br/>Batch Scheduler"]
+
+    %% Runtime Integrations
+    SDK -->|"resource operations"| K8sAPI["Kubernetes API<br/>Server"]
+    SDK -->|"job dispatch"| RayDashboard["Ray Dashboard<br/>HTTP Endpoint"]
+
+    %% CRD Dependencies
+    KubeRay -.->|manages| RayCluster["RayCluster CR<br/>ray.io"]
+    KubeRay -.->|manages| RayJob["RayJob CR<br/>ray.io"]
+    Kueue -.->|queries| LocalQueue["LocalQueue CR<br/>kueue.x-k8s.io"]
+    Kueue -.->|queries| ClusterQueue["ClusterQueue CR<br/>kueue.x-k8s.io"]
+
+    style SDK fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style K8sClient fill:#999,stroke:#333,color:#fff
+    style Python fill:#999,stroke:#333,color:#fff
+    style Cryptography fill:#999,stroke:#333,color:#fff
+    style KubeAuthKit fill:#7ed321,stroke:#333,color:#fff
+    style KubeRay fill:#7ed321,stroke:#333,color:#fff
+    style Ray fill:#7ed321,stroke:#333,color:#fff
+    style Kueue fill:#7ed321,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style RayDashboard fill:#f5a623,stroke:#333,color:#fff
+    style RayCluster fill:#f5d76e,stroke:#333
+    style RayJob fill:#f5d76e,stroke:#333
+    style LocalQueue fill:#f5d76e,stroke:#333
+    style ClusterQueue fill:#f5d76e,stroke:#333

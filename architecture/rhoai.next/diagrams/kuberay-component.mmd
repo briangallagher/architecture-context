@@ -1,83 +1,99 @@
 graph TB
-    subgraph KubeRay["KubeRay Operator"]
+    subgraph KubeRayOperator["KubeRay Operator"]
         direction TB
+
         subgraph Controllers["Controllers"]
-            RCCtrl["RayCluster Controller"]
-            RJCtrl["RayJob Controller"]
-            RSCtrl["RayService Controller"]
-            AuthCtrl["Authentication Controller"]
+            RayClusterCtrl["RayCluster Controller"]
+            RayJobCtrl["RayJob Controller"]
+            RayServiceCtrl["RayService Controller"]
+            RayCronJobCtrl["RayCronJob Controller"]
             mTLSCtrl["mTLS Controller"]
-            NPCtrl["NetworkPolicy Controller"]
+            AuthCtrl["Authentication Controller"]
+            NetPolCtrl["NetworkPolicy Controller"]
         end
 
-        subgraph Webhooks["Admission Webhooks (9443/TCP)"]
-            MutWebhook["Mutating Webhook<br/>mraycluster.kb.io"]
-            ValWebhook["Validating Webhook<br/>vraycluster.kb.io"]
+        subgraph Webhooks["Webhooks (9443/TCP)"]
+            MutatingWH["RayCluster Mutating Webhook"]
+            ValidatingWH_Cluster["RayCluster Validating Webhook"]
+            ValidatingWH_Job["RayJob Validating Webhook"]
+            ValidatingWH_Service["RayService Validating Webhook"]
         end
 
-        Metrics["Metrics Endpoint<br/>8080/TCP"]
-        Health["Health/Ready<br/>8081/TCP"]
+        MetricsEP["Metrics Endpoint\n8080/TCP"]
+        HealthEP["Health Probes\n8082/TCP"]
     end
 
     %% CRDs
-    User[User / Data Scientist] -->|creates| RayClusterCR["RayCluster CR<br/>(ray.io/v1)"]
-    User -->|creates| RayJobCR["RayJob CR<br/>(ray.io/v1)"]
-    User -->|creates| RayServiceCR["RayService CR<br/>(ray.io/v1)"]
+    RayClusterCR["RayCluster CR\nray.io/v1"]
+    RayJobCR["RayJob CR\nray.io/v1"]
+    RayServiceCR["RayService CR\nray.io/v1"]
+    RayCronJobCR["RayCronJob CR\nray.io/v1"]
+    ConfigCR["Configuration CR\nconfig.ray.io/v1alpha1"]
 
-    %% Webhook intercept
-    RayClusterCR -->|admission| MutWebhook
-    MutWebhook -->|defaults security annotation<br/>blocks enableIngress| ValWebhook
-    ValWebhook -->|validates name + worker groups| RayClusterCR
+    %% User
+    User["User / Data Scientist"]
 
-    %% Controller watches
-    RayClusterCR -->|watched by| RCCtrl
-    RayJobCR -->|watched by| RJCtrl
-    RayServiceCR -->|watched by| RSCtrl
-    RayClusterCR -->|watched by| AuthCtrl
+    %% CRD → Controller watches
+    RayClusterCR -->|watched by| RayClusterCtrl
+    RayJobCR -->|watched by| RayJobCtrl
+    RayServiceCR -->|watched by| RayServiceCtrl
+    RayCronJobCR -->|watched by| RayCronJobCtrl
     RayClusterCR -->|watched by| mTLSCtrl
-    RayClusterCR -->|watched by| NPCtrl
+    RayClusterCR -->|watched by| AuthCtrl
+    RayClusterCR -->|watched by| NetPolCtrl
 
-    %% Created resources
-    RCCtrl -->|creates| HeadPod["Head Pod<br/>(with auth sidecar)"]
-    RCCtrl -->|creates| WorkerPods["Worker Pods"]
-    RCCtrl -->|creates| HeadSvc["{cluster}-head-svc<br/>ClusterIP"]
-    RCCtrl -->|creates| ServeSvc["{cluster}-serve-svc<br/>8000/TCP"]
-    RJCtrl -->|creates| SubmitterJob["K8s Job<br/>(submitter pod)"]
-    RJCtrl -->|creates auto| RayClusterCR
+    %% User creates CRDs
+    User -->|creates| RayClusterCR
+    User -->|creates| RayJobCR
+    User -->|creates| RayServiceCR
+    User -->|creates| RayCronJobCR
 
-    AuthCtrl -->|creates in platform ns| HTTPRoute["HTTPRoute<br/>(Gateway API)"]
-    AuthCtrl -->|creates| RefGrant["ReferenceGrant<br/>(cross-namespace)"]
-    AuthCtrl -->|injects| AuthSidecar["kube-rbac-proxy<br/>sidecar (8443/TCP)"]
+    %% Webhook validation
+    RayClusterCR -.->|validated/mutated| MutatingWH
+    RayClusterCR -.->|validated| ValidatingWH_Cluster
+    RayJobCR -.->|validated| ValidatingWH_Job
+    RayServiceCR -.->|validated| ValidatingWH_Service
 
-    mTLSCtrl -->|creates| CAIssuer["CA Issuer<br/>(cert-manager)"]
-    mTLSCtrl -->|creates| NodeCerts["Head/Worker Certs<br/>(90-day validity)"]
+    %% Controller creates resources
+    RayClusterCtrl -->|creates| HeadPod["Head Pod\n+ kube-rbac-proxy sidecar"]
+    RayClusterCtrl -->|creates| WorkerPods["Worker Pods"]
+    RayClusterCtrl -->|creates| HeadSvc["{cluster}-head-svc\nClusterIP"]
+    RayClusterCtrl -->|creates| ServeSvc["{cluster}-serve-svc\nClusterIP"]
 
-    NPCtrl -->|creates| NetPol["NetworkPolicies"]
+    RayJobCtrl -->|creates| RayClusterCR
+    RayJobCtrl -->|creates| SubmitterJob["Submitter Job"]
+    RayServiceCtrl -->|manages| RayClusterCR
+    RayCronJobCtrl -->|creates| RayJobCR
+
+    AuthCtrl -->|creates| HTTPRoute["HTTPRoute\n(platform namespace)"]
+    AuthCtrl -->|creates| RefGrant["ReferenceGrant"]
+    AuthCtrl -->|creates| ProxySA["OIDC Proxy SA"]
+
+    mTLSCtrl -->|creates| Issuer["cert-manager Issuer"]
+    mTLSCtrl -->|creates| Certificate["cert-manager Certificate"]
+
+    NetPolCtrl -->|creates| NetPol["NetworkPolicies\n(head + worker)"]
 
     %% External dependencies
-    HTTPRoute -->|references| Gateway["data-science-gateway<br/>(Gateway CR)"]
-    AuthCtrl -->|watches| OAuthConfig["OpenShift OAuth/OIDC<br/>Config"]
+    RayClusterCtrl -->|depends on| K8sAPI["Kubernetes API"]
+    AuthCtrl -->|depends on| Gateway["Platform Gateway\n(data-science-gateway)"]
+    mTLSCtrl -->|depends on| CertManager["cert-manager"]
+
+    %% Monitoring
+    Prometheus["Prometheus"] -->|scrapes| MetricsEP
 
     %% Styling
-    style KubeRay fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    style Controllers fill:#bbdefb,stroke:#1565c0
-    style Webhooks fill:#bbdefb,stroke:#1565c0
-    style RCCtrl fill:#4a90e2,color:#fff
-    style RJCtrl fill:#4a90e2,color:#fff
-    style RSCtrl fill:#4a90e2,color:#fff
-    style AuthCtrl fill:#4a90e2,color:#fff
-    style mTLSCtrl fill:#4a90e2,color:#fff
-    style NPCtrl fill:#4a90e2,color:#fff
-    style MutWebhook fill:#7b1fa2,color:#fff
-    style ValWebhook fill:#7b1fa2,color:#fff
-    style RayClusterCR fill:#f5a623
-    style RayJobCR fill:#f5a623
-    style RayServiceCR fill:#f5a623
-    style HTTPRoute fill:#7ed321
-    style RefGrant fill:#7ed321
-    style Gateway fill:#999
-    style OAuthConfig fill:#999
-    style CAIssuer fill:#ff9800
-    style NodeCerts fill:#ff9800
-    style NetPol fill:#e91e63,color:#fff
-    style AuthSidecar fill:#e91e63,color:#fff
+    style KubeRayOperator fill:#e8f0fe,stroke:#4a90e2,stroke-width:2px
+    style Controllers fill:#dae8fc,stroke:#6c8ebf,stroke-width:1px
+    style Webhooks fill:#dae8fc,stroke:#6c8ebf,stroke-width:1px
+    style RayClusterCR fill:#f5a623,stroke:#333
+    style RayJobCR fill:#f5a623,stroke:#333
+    style RayServiceCR fill:#f5a623,stroke:#333
+    style RayCronJobCR fill:#f5a623,stroke:#333
+    style ConfigCR fill:#f5a623,stroke:#333
+    style HeadPod fill:#7ed321,stroke:#333
+    style WorkerPods fill:#7ed321,stroke:#333
+    style Gateway fill:#e8e8e8,stroke:#333
+    style CertManager fill:#e8e8e8,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333

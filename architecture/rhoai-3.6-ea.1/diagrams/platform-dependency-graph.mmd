@@ -1,0 +1,144 @@
+graph TB
+    subgraph "Platform Orchestration"
+        RhodsOp["rhods-operator<br/>Platform Root<br/>Auth + Gateway + Monitoring Controllers"]
+    end
+
+    subgraph "Model Serving Stack"
+        KServe["KServe<br/>5 Controllers, 13 CRDs<br/>manager, llmisvc, localmodel, kserve-module"]
+        ODHModelCtrl["odh-model-controller<br/>10 Reconcilers<br/>Serving Control Plane Companion"]
+        MaaS["models-as-a-service<br/>Multi-tenant Gateway<br/>OpenAI-compatible API"]
+    end
+
+    subgraph "LLM Disaggregated Inference"
+        LLMdRouter["llm-d-router<br/>Endpoint Picker Plugin"]
+        LLMdKVCache["llm-d-kv-cache<br/>ModelExpress gRPC Broker"]
+        WVA["workload-variant-autoscaler<br/>KEDA-based Scaling"]
+    end
+
+    subgraph "User Interface"
+        Dashboard["odh-dashboard<br/>Micro-frontend<br/>Webpack Module Federation"]
+    end
+
+    subgraph "Data & Models"
+        ModelReg["model-registry-operator<br/>Dual Ingress<br/>PostgreSQL Backend"]
+        DSPipelines["data-science-pipelines-operator<br/>Pipeline Orchestration"]
+        ArgoWF["argo-workflows<br/>Workflow Engine"]
+        MLMetadata["ml-metadata<br/>Artifact Tracking"]
+    end
+
+    subgraph "Notebooks & Training"
+        Workbenches["workbenches-operator<br/>Notebook Management"]
+        Trainer["trainer-operator<br/>Training Jobs"]
+        TrainingOp["training-operator<br/>Kubeflow Training"]
+        Kueue["kueue-operator<br/>Job Queuing<br/>70 Webhooks"]
+        KubeRay["kuberay<br/>Ray Cluster Management"]
+        Spark["spark-operator<br/>Spark Jobs"]
+    end
+
+    subgraph "Guardrails & Trust"
+        Guardrails["fms-guardrails-orchestrator<br/>Safety Orchestration"]
+        TrustyAI["trustyai-service-operator<br/>AI Explainability"]
+    end
+
+    subgraph "Gateway & Auth Infrastructure"
+        KubeAuthProxy["kube-auth-proxy<br/>OIDC Auth Proxy"]
+        KubeRbacProxy["kube-rbac-proxy<br/>SubjectAccessReview"]
+        Kuadrant["Kuadrant / Authorino<br/>API Auth + Rate Limiting"]
+        AIGateway["ai-gateway-operator<br/>128 RBAC Entries"]
+    end
+
+    subgraph "Additional Capabilities"
+        Feast["feast-module-operator<br/>Feature Store"]
+        MLflow["mlflow-operator<br/>Experiment Tracking"]
+        OGX["ogx-k8s-operator<br/>GPU Orchestration"]
+        Observability["odh-observability<br/>Platform Monitoring"]
+        MCPLifecycle["mcp-lifecycle-operator<br/>MCP Management"]
+    end
+
+    subgraph "External Platform Dependencies"
+        CertManager["cert-manager<br/>TLS Certificates"]
+        GatewayAPI["Gateway API<br/>Primary Ingress"]
+        Istio["Istio / SAIL<br/>Conditional Integration"]
+        PromOp["prometheus-operator<br/>Monitoring"]
+    end
+
+    %% rhods-operator lifecycle management (explicit dependency tree)
+    RhodsOp -->|"lifecycle mgmt"| KServe
+    RhodsOp -->|"lifecycle mgmt"| ModelReg
+    RhodsOp -->|"lifecycle mgmt"| MaaS
+    RhodsOp -->|"provisions gateway"| GatewayAPI
+    RhodsOp -->|"deploys"| KubeAuthProxy
+    RhodsOp -->|"conditional"| Istio
+
+    %% Explicit dependency tree from PLATFORM.md
+    MaaS -->|"runtime-library"| KServe
+    ModelReg -->|"runtime-integration"| KServe
+    KServe -->|"pod-level auth"| KubeRbacProxy
+
+    %% Serving stack integrations
+    ODHModelCtrl -->|"serving companion"| KServe
+    ODHModelCtrl -->|"AuthPolicy, ScaledObject"| Kuadrant
+    ODHModelCtrl -->|"conditional"| Istio
+    MaaS -->|"gateway auth"| Kuadrant
+    AIGateway -->|"gateway auth"| Kuadrant
+
+    %% LLM disaggregated inference chain
+    KServe -->|"llmisvc creates"| LLMdRouter
+    LLMdRouter -->|"KV cache coord"| LLMdKVCache
+    WVA -->|"scales replicas"| KServe
+
+    %% Dashboard integrations
+    Dashboard -->|"model mgmt UI"| KServe
+    Dashboard -->|"model catalog"| ModelReg
+    Dashboard -->|"notebook UI"| Workbenches
+    Dashboard -->|"pipeline UI"| DSPipelines
+    Dashboard -->|"pod-level auth"| KubeRbacProxy
+
+    %% Pipeline chain
+    DSPipelines -->|"executes"| ArgoWF
+
+    %% External dependency edges
+    KServe -->|"TLS certs"| CertManager
+    KubeRay -->|"TLS certs"| CertManager
+    Kueue -->|"TLS certs"| CertManager
+    Spark -->|"TLS certs"| CertManager
+    Workbenches -->|"TLS certs"| CertManager
+
+    KServe -->|"routing"| GatewayAPI
+    MaaS -->|"routing"| GatewayAPI
+    ModelReg -->|"routing"| GatewayAPI
+
+    %% Styling
+    style RhodsOp fill:#c0392b,stroke:#333,stroke-width:3px,color:#fff
+    style KServe fill:#2471a3,stroke:#333,stroke-width:3px,color:#fff
+    style ODHModelCtrl fill:#2471a3,stroke:#333,stroke-width:2px,color:#fff
+    style MaaS fill:#2471a3,stroke:#333,stroke-width:2px,color:#fff
+    style Dashboard fill:#27ae60,stroke:#333,stroke-width:2px,color:#fff
+    style ModelReg fill:#27ae60,stroke:#333,color:#fff
+    style DSPipelines fill:#27ae60,stroke:#333,color:#fff
+    style Workbenches fill:#27ae60,stroke:#333,color:#fff
+    style Trainer fill:#27ae60,stroke:#333,color:#fff
+    style TrainingOp fill:#27ae60,stroke:#333,color:#fff
+    style Kueue fill:#27ae60,stroke:#333,color:#fff
+    style KubeRay fill:#27ae60,stroke:#333,color:#fff
+    style Spark fill:#27ae60,stroke:#333,color:#fff
+    style LLMdRouter fill:#8e44ad,stroke:#333,color:#fff
+    style LLMdKVCache fill:#8e44ad,stroke:#333,color:#fff
+    style WVA fill:#8e44ad,stroke:#333,color:#fff
+    style KubeAuthProxy fill:#e67e22,stroke:#333,color:#fff
+    style KubeRbacProxy fill:#e67e22,stroke:#333,color:#fff
+    style Kuadrant fill:#e67e22,stroke:#333,color:#fff
+    style AIGateway fill:#e67e22,stroke:#333,color:#fff
+    style CertManager fill:#bdc3c7,stroke:#333
+    style GatewayAPI fill:#bdc3c7,stroke:#333
+    style Istio fill:#bdc3c7,stroke:#333
+    style PromOp fill:#bdc3c7,stroke:#333
+    style Guardrails fill:#16a085,stroke:#333,color:#fff
+    style TrustyAI fill:#16a085,stroke:#333,color:#fff
+    style ArgoWF fill:#27ae60,stroke:#333,color:#fff
+    style Feast fill:#7f8c8d,stroke:#333,color:#fff
+    style MLflow fill:#7f8c8d,stroke:#333,color:#fff
+    style OGX fill:#7f8c8d,stroke:#333,color:#fff
+    style Observability fill:#7f8c8d,stroke:#333,color:#fff
+    style MCPLifecycle fill:#7f8c8d,stroke:#333,color:#fff
+    style MLMetadata fill:#27ae60,stroke:#333,color:#fff

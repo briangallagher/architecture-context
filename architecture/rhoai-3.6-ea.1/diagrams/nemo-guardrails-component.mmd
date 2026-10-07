@@ -1,0 +1,68 @@
+graph TB
+    subgraph "NeMo-Guardrails Service"
+        direction TB
+        Entrypoint["entrypoint.sh"]
+        Uvicorn["Uvicorn ASGI Server"]
+        FastAPI["FastAPI Application<br/>nemoguardrails/server/api.py"]
+        HeaderFwd["Header Forwarding Module<br/>nemoguardrails/header_forwarding.py"]
+
+        subgraph "Guardrail Pipeline"
+            direction LR
+            InputRails["Input Rails<br/>Jailbreak Detection<br/>Content Filtering<br/>Prompt Security"]
+            OutputRails["Output Rails<br/>Fact-Checking<br/>Content Moderation<br/>PII Anonymization"]
+        end
+
+        subgraph "NLP Models (Pre-fetched)"
+            SpaCy["spaCy<br/>en_core_web_lg"]
+            SentenceTransformers["Sentence Transformers"]
+            FastEmbed["FastEmbed"]
+        end
+
+        subgraph "Guardrail Providers"
+            ActiveFence["ActiveFence"]
+            AIDefense["AI Defense"]
+            PromptSecurity["Prompt Security"]
+            Presidio["Presidio<br/>Analyzer + Anonymizer"]
+        end
+
+        Entrypoint --> Uvicorn
+        Uvicorn --> FastAPI
+        FastAPI --> InputRails
+        InputRails --> HeaderFwd
+        FastAPI --> OutputRails
+        InputRails -.-> SpaCy
+        InputRails -.-> SentenceTransformers
+        OutputRails -.-> FastEmbed
+        InputRails -.-> ActiveFence
+        InputRails -.-> AIDefense
+        OutputRails -.-> Presidio
+    end
+
+    Client[Client] -->|"POST /v1/chat/completions<br/>POST /v1/checks<br/>POST /v1/guardrail/checks"| FastAPI
+
+    subgraph "LLM Providers (External)"
+        OpenAI["OpenAI API<br/>HTTPS"]
+        AzureOpenAI["Azure OpenAI<br/>443/HTTPS"]
+    end
+
+    HeaderFwd -->|"X-Authorization → Authorization<br/>or static API key"| OpenAI
+    HeaderFwd -->|"X-Authorization → Authorization<br/>or AZURE_OPENAI_API_KEY"| AzureOpenAI
+
+    K8sIngress["Kubernetes Ingress/Proxy<br/>Authentication Layer"] -->|"Authenticated requests"| FastAPI
+
+    subgraph "Auxiliary Services (Dev/Optional)"
+        AlignScore["AlignScore Server<br/>Port 5000<br/>Fact-Checking"]
+        JailbreakDetect["Jailbreak Detection Server<br/>Port 1337"]
+    end
+
+    style FastAPI fill:#4a90e2,stroke:#333,stroke-width:2px
+    style Uvicorn fill:#4a90e2,stroke:#333
+    style InputRails fill:#f5a623,stroke:#333
+    style OutputRails fill:#f5a623,stroke:#333
+    style HeaderFwd fill:#7ed321,stroke:#333
+    style OpenAI fill:#e8e8e8,stroke:#333
+    style AzureOpenAI fill:#e8e8e8,stroke:#333
+    style K8sIngress fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style AlignScore fill:#fff2cc,stroke:#d6b656
+    style JailbreakDetect fill:#fff2cc,stroke:#d6b656
+    style Client fill:#f9f9f9,stroke:#999

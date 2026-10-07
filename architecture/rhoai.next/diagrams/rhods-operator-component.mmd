@@ -1,106 +1,124 @@
 graph TB
-    subgraph "rhods-operator (RHOAI Platform Operator)"
+    subgraph RhodsOperator["rhods-operator (Platform Operator)"]
         direction TB
 
-        subgraph "Core Controllers"
-            DSCICtrl["DSCInitialization Controller<br/>Platform infrastructure setup"]
-            DSCCtrl["DataScienceCluster Controller<br/>Component lifecycle orchestration"]
+        subgraph CoreControllers["Core Controllers"]
+            Manager["manager<br/>(controller-runtime)<br/>9443/TCP webhook<br/>8080/TCP metrics<br/>8081/TCP health"]
+            DSCICtrl["DSCInitialization<br/>Controller"]
+            DSCCtrl["DataScienceCluster<br/>Controller"]
+            WebhookSrv["Webhook Server<br/>(15 webhooks)"]
         end
 
-        subgraph "Service Controllers"
-            GatewayCtrl["Gateway Controller<br/>Ingress stack: Gateway API, Envoy,<br/>kube-auth-proxy, dashboard redirects"]
-            AuthCtrl["Auth Controller<br/>RBAC group bindings<br/>(admin/allowed groups)"]
-            MonitoringCtrl["Monitoring Controller<br/>Prometheus, Tempo,<br/>OpenTelemetry, Perses"]
+        subgraph ServiceControllers["Service Controllers"]
+            GatewayCtrl["Gateway Service<br/>Controller"]
+            AuthCtrl["Auth Service<br/>Controller"]
+            MonitoringCtrl["Monitoring Service<br/>Controller"]
+            CertCtrl["CertConfigMap<br/>Generator"]
+            SetupCtrl["Setup Service<br/>Controller"]
         end
 
-        subgraph "Component Controllers (15)"
-            Dashboard["Dashboard"]
-            Workbenches["Workbenches"]
-            KServe["KServe"]
-            Kueue["Kueue"]
-            Ray["Ray"]
-            TrustyAI["TrustyAI"]
-            ModelRegistry["Model Registry"]
-            DSP["Data Science Pipelines"]
-            TrainingOp["Training Operator"]
-            Trainer["Trainer"]
-            Feast["Feast Operator"]
-            OGX["OGX"]
-            MLflow["MLflow Operator"]
-            Spark["Spark Operator"]
-            MaaS["ModelsAsService"]
-            ModelCtrl["Model Controller"]
+        subgraph ModuleSystem["Module System"]
+            ModuleCtrl["Module Controller<br/>(Helm/Kustomize)"]
         end
 
-        WebhookServer["Webhook Server<br/>12 active webhooks:<br/>validation, defaulting,<br/>HW profile injection,<br/>connection injection"]
+        CloudMgr["cloudmanager<br/>(Cloud CLI)"]
     end
 
-    subgraph "Cloud Manager (xKS only)"
-        CloudMgr["cloudmanager<br/>Dependency bootstrapper<br/>for Azure AKS, CoreWeave"]
+    %% Primary CRDs
+    DSCI["DSCInitialization CR<br/>(Cluster Singleton)"]
+    DSC["DataScienceCluster CR<br/>(Cluster Singleton)"]
+
+    %% Service CRs
+    GatewayConfig["GatewayConfig CR"]
+    AuthCR["Auth CR"]
+    MonitoringCR["Monitoring CR"]
+
+    %% Component CRs (managed by DSC Controller)
+    subgraph ComponentCRs["Component CRs (15+ components)"]
+        DashboardCR["Dashboard"]
+        KServeCR["KServe"]
+        WorkbenchesCR["Workbenches"]
+        DSPCR["DataScience<br/>Pipelines"]
+        ModelRegCR["Model<br/>Registry"]
+        ModelCtrlCR["Model<br/>Controller"]
+        TrustyAICR["TrustyAI"]
+        KueueCR["Kueue"]
+        RayCR["Ray"]
+        TrainingCR["Training<br/>Operator"]
+        TrainerCR["Trainer"]
+        FeastCR["Feast<br/>Operator"]
+        OGXCR["OGX"]
+        SparkCR["Spark<br/>Operator"]
     end
 
-    %% User interaction
-    User[User / Admin] -->|creates| DSCICR["DSCInitialization CR<br/>(cluster singleton)"]
-    User -->|creates| DSCCR["DataScienceCluster CR<br/>(cluster singleton)"]
+    %% Module CRs
+    subgraph ModuleCRs["Module CRs (out-of-tree)"]
+        AIGatewayCR["AIGateway"]
+        MLflowCR["MLflow<br/>Operator"]
+        MCPCR["MCP Lifecycle<br/>Operator"]
+        MonModCR["Monitoring<br/>Module"]
+    end
 
-    %% Controller hierarchy
-    DSCICR -->|watched by| DSCICtrl
-    DSCICtrl -->|creates singleton CRs| AuthCR["Auth CR"]
-    DSCICtrl -->|creates singleton CRs| GatewayCR["GatewayConfig CR"]
-    DSCICtrl -->|creates singleton CRs| MonitorCR["Monitoring CR"]
+    %% Gateway Infrastructure
+    subgraph GatewayInfra["Gateway Infrastructure"]
+        Gateway["data-science-gateway<br/>(Gateway API)"]
+        EnvoyFilter["EnvoyFilter<br/>(ext_authz + Lua)"]
+        KubeAuthProxy["kube-auth-proxy<br/>(OAuth2/OIDC)<br/>8443/TCP"]
+        DashRedirect["dashboard-redirect<br/>(nginx 301)"]
+    end
 
+    %% Flow: DSCI watched by controller
+    DSCI -->|watched by| DSCICtrl
+    DSCICtrl -->|creates| GatewayConfig
+    DSCICtrl -->|creates| AuthCR
+    DSCICtrl -->|creates| MonitoringCR
+
+    %% Flow: DSC watched by controller
+    DSC -->|watched by| DSCCtrl
+    DSCCtrl -->|"creates via DAG<br/>(runlevel ordering)"| ComponentCRs
+    DSCCtrl -->|creates| ModuleCRs
+
+    %% Service controllers watch service CRs
+    GatewayConfig -->|watched by| GatewayCtrl
     AuthCR -->|watched by| AuthCtrl
-    GatewayCR -->|watched by| GatewayCtrl
-    MonitorCR -->|watched by| MonitoringCtrl
+    MonitoringCR -->|watched by| MonitoringCtrl
 
-    DSCCR -->|watched by| DSCCtrl
-    DSCCtrl -->|creates per-component CRs| ComponentCRs["Component CRs<br/>(Dashboard, Kserve, Kueue, ...)"]
-    ComponentCRs -->|watched by| Dashboard
-    ComponentCRs -->|watched by| KServe
-    ComponentCRs -->|watched by| Kueue
+    %% Gateway controller deploys infrastructure
+    GatewayCtrl -->|deploys| GatewayInfra
 
-    %% Webhook interactions
-    DSCCR -->|validated by| WebhookServer
-    DSCICR -->|validated by| WebhookServer
+    %% Module controller deploys modules
+    ModuleCRs -->|processed by| ModuleCtrl
 
-    %% Gateway outputs
-    GatewayCtrl -->|creates| Gateway["Gateway API<br/>Gateway Resource"]
-    GatewayCtrl -->|deploys| AuthProxy["kube-auth-proxy<br/>OAuth2/OIDC auth"]
-    GatewayCtrl -->|creates| EnvoyFilter["EnvoyFilter<br/>ext_authz"]
-    GatewayCtrl -->|creates| DashRedirect["Dashboard Redirect<br/>nginx (301 redirects)"]
-
-    %% Monitoring outputs
-    MonitoringCtrl -->|deploys| MonStack["MonitoringStack<br/>(Prometheus)"]
-    MonitoringCtrl -->|deploys| Tempo["Tempo<br/>(Tracing)"]
-    MonitoringCtrl -->|deploys| OTEL["OpenTelemetry<br/>Collector"]
-    MonitoringCtrl -->|deploys| Perses["Perses<br/>(Visualization)"]
+    %% Webhook validates CRs
+    WebhookSrv -->|validates/defaults| DSC
+    WebhookSrv -->|validates/defaults| DSCI
 
     %% Cloud manager
-    CloudMgr -->|Helm install| CertMgr["cert-manager"]
-    CloudMgr -->|Helm install| Sail["Sail Operator (Istio)"]
-    CloudMgr -->|Helm install| LWS["LeaderWorkerSet"]
-    CloudMgr -->|Helm install| GatewayAPICRDs["Gateway API CRDs"]
+    CloudMgr -->|manages| CloudClusters["Cloud Clusters<br/>(AWS, Azure, CoreWeave)"]
 
     %% External dependencies
-    KServe -->|depends on| CertMgr
-    KServe -->|depends on| Sail
-    GatewayCtrl -->|depends on| Sail
+    K8sAPI["Kubernetes API<br/>6443/TCP"]
+    Manager -->|"watches CRDs"| K8sAPI
 
     %% Styling
-    style DSCICtrl fill:#4a90e2,color:#fff
-    style DSCCtrl fill:#4a90e2,color:#fff
-    style GatewayCtrl fill:#e67e22,color:#fff
-    style AuthCtrl fill:#e67e22,color:#fff
-    style MonitoringCtrl fill:#e67e22,color:#fff
-    style WebhookServer fill:#9b59b6,color:#fff
-    style CloudMgr fill:#2ecc71,color:#fff
-    style DSCICR fill:#f5a623
-    style DSCCR fill:#f5a623
-    style AuthCR fill:#f5a623
-    style GatewayCR fill:#f5a623
-    style MonitorCR fill:#f5a623
-    style ComponentCRs fill:#f5a623
-    style CertMgr fill:#999,color:#fff
-    style Sail fill:#999,color:#fff
-    style LWS fill:#999,color:#fff
-    style GatewayAPICRDs fill:#999,color:#fff
+    style Manager fill:#4a90e2,stroke:#333,color:#fff
+    style DSCICtrl fill:#4a90e2,stroke:#333,color:#fff
+    style DSCCtrl fill:#4a90e2,stroke:#333,color:#fff
+    style WebhookSrv fill:#4a90e2,stroke:#333,color:#fff
+    style GatewayCtrl fill:#5b9bd5,stroke:#333,color:#fff
+    style AuthCtrl fill:#5b9bd5,stroke:#333,color:#fff
+    style MonitoringCtrl fill:#5b9bd5,stroke:#333,color:#fff
+    style CertCtrl fill:#5b9bd5,stroke:#333,color:#fff
+    style SetupCtrl fill:#5b9bd5,stroke:#333,color:#fff
+    style ModuleCtrl fill:#9b59b6,stroke:#333,color:#fff
+    style CloudMgr fill:#e67e22,stroke:#333,color:#fff
+    style DSCI fill:#f5a623,stroke:#333
+    style DSC fill:#f5a623,stroke:#333
+    style GatewayConfig fill:#f5a623,stroke:#333
+    style AuthCR fill:#f5a623,stroke:#333
+    style MonitoringCR fill:#f5a623,stroke:#333
+    style Gateway fill:#27ae60,stroke:#333,color:#fff
+    style EnvoyFilter fill:#27ae60,stroke:#333,color:#fff
+    style KubeAuthProxy fill:#27ae60,stroke:#333,color:#fff
+    style DashRedirect fill:#27ae60,stroke:#333,color:#fff
+    style K8sAPI fill:#e8e8e8,stroke:#333

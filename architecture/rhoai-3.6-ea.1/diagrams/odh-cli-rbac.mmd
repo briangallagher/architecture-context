@@ -1,0 +1,72 @@
+graph TD
+    subgraph "Authentication"
+        Kubeconfig["kubeconfig Credential Chain<br/>(bearer token / client cert / OIDC)"]
+    end
+
+    subgraph "CLI Process"
+        CLI["rhai-cli Process<br/>Inherits user identity"]
+        RBACChecker["RBAC Pre-flight Checker<br/>pkg/util/kube/rbac/"]
+    end
+
+    subgraph "Authorization Mechanism"
+        SSAR["SelfSubjectAccessReview<br/>authorization.k8s.io/v1"]
+    end
+
+    subgraph "Kubernetes API Server"
+        RBAC["kube-apiserver RBAC<br/>Evaluates user permissions"]
+    end
+
+    subgraph "Resources Accessed (Subcommand-Dependent)"
+        direction TB
+        Namespaces["core/v1<br/>Namespaces"]
+        Pods["core/v1<br/>Pods"]
+        Services["core/v1<br/>Services"]
+        Events["core/v1<br/>Events"]
+        ConfigMaps["core/v1<br/>ConfigMaps"]
+        Deployments["apps/v1<br/>Deployments"]
+        CSVs["operators.coreos.com<br/>ClusterServiceVersions"]
+        Subscriptions["operators.coreos.com<br/>Subscriptions"]
+        CRDs["apiextensions.k8s.io<br/>CustomResourceDefinitions"]
+        DSC["datasciencecluster.opendatahub.io<br/>DataScienceClusters"]
+        DSCI["dscinitialization.opendatahub.io<br/>DSCInitializations"]
+        Routes["route.openshift.io<br/>Routes"]
+    end
+
+    Kubeconfig -->|credentials| CLI
+    CLI -->|before privileged ops| RBACChecker
+    RBACChecker -->|POST| SSAR
+    SSAR -->|evaluates| RBAC
+    RBAC -->|allowed/denied| RBACChecker
+    RBACChecker -->|proceed if allowed| CLI
+
+    CLI -->|get, list, watch| Namespaces
+    CLI -->|get, list, watch| Pods
+    CLI -->|get, list, watch| Services
+    CLI -->|get, list, watch| Events
+    CLI -->|get, list, watch| ConfigMaps
+    CLI -->|get, list, watch| Deployments
+    CLI -->|get, list, watch| CSVs
+    CLI -->|get, list, watch| Subscriptions
+    CLI -->|get, list, watch| CRDs
+    CLI -->|get, list, watch| DSC
+    CLI -->|get, list, watch| DSCI
+    CLI -->|get, list| Routes
+
+    style Kubeconfig fill:#f5a623,stroke:#333
+    style CLI fill:#4a90e2,stroke:#333,color:#fff
+    style RBACChecker fill:#4a90e2,stroke:#333,color:#fff
+    style SSAR fill:#e8e8e8,stroke:#333
+    style RBAC fill:#e8e8e8,stroke:#333
+
+    style Namespaces fill:#7ed321,stroke:#333
+    style Pods fill:#7ed321,stroke:#333
+    style Services fill:#7ed321,stroke:#333
+    style Events fill:#7ed321,stroke:#333
+    style ConfigMaps fill:#7ed321,stroke:#333
+    style Deployments fill:#7ed321,stroke:#333
+    style CSVs fill:#7ed321,stroke:#333
+    style Subscriptions fill:#7ed321,stroke:#333
+    style CRDs fill:#7ed321,stroke:#333
+    style DSC fill:#7ed321,stroke:#333
+    style DSCI fill:#7ed321,stroke:#333
+    style Routes fill:#7ed321,stroke:#333

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "ai-gateway-payload-processing",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "ai-gateway-payload-processing-pattern-001",
+      "claim": "The operator uses a dual-controller architecture that separates infrastructure provisioning (ExternalProvider → Service + Istio resources) from routing logic (ExternalModel → HTTPRoute), enabling independent lifecycle management of provider connectivity and model routing.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/controller/externalprovider/reconciler.go:59-65"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/controller/externalmodel/reconciler.go:86-114"
+        }
+      ],
+      "reasoning": "The ExternalProvider controller creates three Kubernetes/Istio resources per provider (Service, ServiceEntry, DestinationRule) while the ExternalModel controller creates HTTPRoutes referencing those Services. This separation means providers can be added or updated without disrupting existing model routing, and models can be remapped to different providers without modifying infrastructure resources.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "ai-gateway-payload-processing-risk-001",
+      "claim": "The operator depends on Istio CRDs (ServiceEntry, DestinationRule) that are not declared as explicit CRD dependencies, creating a hard runtime dependency on Istio/OpenShift Service Mesh being installed in the cluster.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/controller/externalprovider/reconciler.go:234-238"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/controller/externalprovider/reconciler.go:56-57"
+        }
+      ],
+      "reasoning": "The ExternalProvider reconciler uses unstructured watches for networking.istio.io/v1 ServiceEntry and DestinationRule. If these CRDs are not installed, the controller will fail to set up its watches. The RBAC markers request permissions on these resources, confirming the runtime dependency. This is an implicit platform prerequisite that platform operators need to ensure.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "ai-gateway-payload-processing-pattern-002",
+      "claim": "The controller binary can operate in two modes: full controller mode (CRD reconciliation + payload processing) or payload-processor-only mode (DISABLE_EXTERNAL_MODEL_CONTROLLER=true), enabling flexible deployment topologies.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:41-52"
+        }
+      ],
+      "reasoning": "The DISABLE_EXTERNAL_MODEL_CONTROLLER environment variable conditionally disables ExternalModel and ExternalProvider controllers, allowing the binary to run purely as a payload processing plugin host. This supports scenarios where CRD management is handled by a separate instance or is not needed.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+graph LR
+    SparkOp["Spark Operator"]
+
+    %% Runtime Framework Dependencies
+    SparkOp -->|"operator framework"| ControllerRuntime["controller-runtime 0.23.3"]
+    SparkOp -->|"K8s client"| ClientGo["k8s.io/client-go"]
+    SparkOp -->|"K8s API types"| K8sAPI["k8s.io/api"]
+    SparkOp -->|"API machinery"| APIMachinery["k8s.io/apimachinery"]
+    SparkOp -->|"API server"| APIServer["k8s.io/apiserver"]
+    SparkOp -->|"CRD support"| APIExtensions["k8s.io/apiextensions-apiserver"]
+
+    %% Build / CLI Dependencies
+    SparkOp -->|"CLI framework"| Cobra["spf13/cobra"]
+    SparkOp -->|"config mgmt"| Viper["spf13/viper"]
+    SparkOp -->|"cron scheduling"| Cron["robfig/cron/v3"]
+    SparkOp -->|"Helm charts"| Helm["helm.sh/helm/v3"]
+
+    %% Observability Dependencies
+    SparkOp -->|"metrics"| Prometheus["prometheus/client_golang"]
+    SparkOp -->|"logging"| Zap["go.uber.org/zap"]
+    SparkOp -->|"structured logging"| Logr["go-logr/logr"]
+
+    %% Scheduler Dependencies
+    SparkOp -.->|"scheduler plugins"| SchedPlugins["scheduler-plugins"]
+    SparkOp -.->|"volcano scheduling"| Volcano["volcano.sh/apis"]
+
+    %% Internal Platform Dependencies
+    SparkOp -->|"platform integration"| ODHUtils["odh-platform-utilities"]
+
+    %% Platform Services (CRD-based)
+    SparkOp -->|"TLS certs"| CertManager["cert-manager"]
+    SparkOp -->|"monitoring"| PromOperator["prometheus-operator"]
+
+    %% Platform Components
+    ODHOperator["ODH Operator"] -->|"deploys via CR"| SparkOp
+
+    %% Runtime Dependencies
+    SparkOp -->|"Go runtime"| GoRuntime["Go 1.25.7<br/>FIPS: strictfipsruntime"]
+    SparkOp -->|"Spark runtime"| PySpark["pyspark 4.0.1"]
+
+    %% Kubernetes API Server
+    SparkOp -->|"resource operations"| KubeAPIServer["Kubernetes API Server<br/>6443/TCP"]
+
+    %% Styling
+    style SparkOp fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style ControllerRuntime fill:#999,stroke:#333,color:#fff
+    style ClientGo fill:#999,stroke:#333,color:#fff
+    style K8sAPI fill:#999,stroke:#333,color:#fff
+    style APIMachinery fill:#999,stroke:#333,color:#fff
+    style APIServer fill:#999,stroke:#333,color:#fff
+    style APIExtensions fill:#999,stroke:#333,color:#fff
+    style Cobra fill:#999,stroke:#333,color:#fff
+    style Viper fill:#999,stroke:#333,color:#fff
+    style Cron fill:#999,stroke:#333,color:#fff
+    style Helm fill:#999,stroke:#333,color:#fff
+    style Prometheus fill:#b8860b,stroke:#333,color:#fff
+    style Zap fill:#b8860b,stroke:#333,color:#fff
+    style Logr fill:#b8860b,stroke:#333,color:#fff
+    style SchedPlugins fill:#999,stroke:#333,color:#fff
+    style Volcano fill:#999,stroke:#333,color:#fff
+    style ODHUtils fill:#7ed321,stroke:#333,color:#fff
+    style CertManager fill:#7ed321,stroke:#333,color:#fff
+    style PromOperator fill:#7ed321,stroke:#333,color:#fff
+    style ODHOperator fill:#7ed321,stroke:#333,color:#fff
+    style GoRuntime fill:#f5a623,stroke:#333,color:#fff
+    style PySpark fill:#f5a623,stroke:#333,color:#fff
+    style KubeAPIServer fill:#f5a623,stroke:#333,color:#fff

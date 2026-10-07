@@ -1,125 +1,112 @@
 graph TB
-    subgraph External["External Access"]
-        User[User / Browser]
+    subgraph External["External Users"]
+        User["Data Scientist / Platform Engineer<br/>(Browser)"]
     end
 
-    subgraph OpenShiftRouter["OpenShift Router (TLS Edge)"]
+    subgraph OpenShiftRoutes["OpenShift Routes (TLS Edge Termination)"]
         RouteUI["Route: planner<br/>443/TCP HTTPS"]
         RouteBackend["Route: planner-backend<br/>443/TCP HTTPS"]
     end
 
     subgraph PlannerNamespace["Namespace: planner"]
         subgraph Frontend["Streamlit UI"]
-            StreamlitApp["Streamlit App<br/>8501/TCP HTTP"]
+            UI["Streamlit UI<br/>8501/TCP HTTP<br/>Chat-based planning interface"]
         end
 
         subgraph BackendService["Backend API (FastAPI)"]
-            APIServer["FastAPI Server<br/>8000/TCP HTTP"]
+            API["FastAPI Server<br/>8000/TCP HTTP<br/>28 REST endpoints"]
 
-            subgraph Orchestration["Orchestration Layer"]
-                Workflow["RecommendationWorkflow"]
-            end
-
-            subgraph Engines["Processing Engines"]
-                IntentExtractor["Intent Extraction<br/>Engine"]
-                SpecEngine["Specification<br/>Engine"]
-                RecommendEngine["Recommendation<br/>Engine"]
-                ConfigGen["Configuration<br/>Generator (Jinja2)"]
+            subgraph CoreLibraries["Core Libraries (in-process)"]
+                Workflow["Recommendation<br/>Workflow"]
+                IntentExtractor["Intent<br/>Extractor"]
                 CapPlanner["Capacity<br/>Planner"]
                 GPURec["GPU<br/>Recommender"]
+                ConfigGen["Configuration<br/>Generator"]
+                ClusterMgr["Cluster<br/>Manager"]
+                KnowledgeBase["Knowledge<br/>Base"]
             end
 
-            subgraph ClusterMgmt["Cluster Management"]
-                ClusterMgr["Cluster Manager<br/>(kubectl subprocess)"]
-                GPUDetector["GPU Detector<br/>(K8s Python client)"]
-            end
-
-            subgraph KnowledgeBase["Knowledge Base"]
-                BenchmarkDB["Benchmark<br/>Manager"]
-                Loader["Data Loader"]
-                ModelCatClient["Model Catalog<br/>Client"]
-                ModelCatSync["Model Catalog<br/>Sync (background)"]
-                SLOTemplates["SLO Templates"]
-            end
+            API --> Workflow
+            Workflow --> IntentExtractor
+            Workflow --> KnowledgeBase
+            Workflow --> CapPlanner
+            Workflow --> GPURec
+            API --> ConfigGen
+            API --> ClusterMgr
         end
 
         subgraph DataLayer["Data Layer"]
-            PostgreSQL["PostgreSQL<br/>5432/TCP"]
-            Ollama["Ollama LLM<br/>11434/TCP"]
+            Postgres["PostgreSQL 16<br/>5432/TCP<br/>Benchmark data storage"]
+        end
+
+        subgraph LLMInference["LLM Inference"]
+            Ollama["Ollama<br/>11434/TCP HTTP<br/>Intent extraction (default)"]
+        end
+
+        subgraph DevTools["Development Tools"]
+            Simulator["vLLM Simulator<br/>8080/TCP HTTP<br/>GPU-free mock vLLM"]
         end
     end
 
     subgraph ExternalServices["External Services"]
-        HFHub["HuggingFace Hub API<br/>443/TCP HTTPS"]
+        HFHub["HuggingFace Hub<br/>443/TCP HTTPS"]
         K8sAPI["Kubernetes API<br/>6443/TCP HTTPS"]
         ModelCatalog["RHOAI Model Catalog<br/>8443/TCP HTTPS"]
-        BentoML["BentoML llm-optimizer<br/>(in-process)"]
+        VertexAI["Vertex AI<br/>443/TCP HTTPS"]
+        OpenAIAPI["OpenAI-compatible API<br/>443/TCP HTTPS"]
     end
 
-    subgraph DeployTargets["Deploy Targets (Generated)"]
-        KServe["KServe InferenceService"]
-        ServiceMonitor["Prometheus ServiceMonitor"]
-        HPA["HPA Autoscaler"]
+    subgraph TargetCluster["Target Cluster"]
+        KServe["KServe<br/>InferenceService CRD"]
+        vLLM["vLLM Runtime<br/>8000/TCP"]
+        LLMDStack["llm-d Stack<br/>Kustomize + Helm"]
     end
 
     %% User flows
     User -->|HTTPS/443| RouteUI
     User -->|HTTPS/443| RouteBackend
-    RouteUI -->|HTTP/8501| StreamlitApp
-    RouteBackend -->|HTTP/8000| APIServer
+    RouteUI -->|HTTP/8501| UI
+    RouteBackend -->|HTTP/8000| API
+    UI -->|HTTP/8000| API
 
-    %% Frontend to Backend
-    StreamlitApp -->|HTTP/8000| APIServer
-
-    %% API to Orchestration
-    APIServer --> Workflow
-
-    %% Orchestration to Engines
-    Workflow --> IntentExtractor
-    Workflow --> SpecEngine
-    Workflow --> RecommendEngine
-    Workflow --> ConfigGen
-    Workflow --> CapPlanner
-    Workflow --> GPURec
-
-    %% Engine dependencies
+    %% Backend to internal services
+    API -->|TCP/5432| Postgres
     IntentExtractor -->|HTTP/11434| Ollama
-    RecommendEngine --> BenchmarkDB
-    RecommendEngine --> GPURec
-    CapPlanner -->|HTTPS/443| HFHub
-    GPURec --> BentoML
-    ConfigGen -.->|generates| KServe
-    ConfigGen -.->|generates| ServiceMonitor
-    ConfigGen -.->|generates| HPA
 
-    %% Cluster management
-    ClusterMgr -->|HTTPS/6443<br/>SA Token| K8sAPI
-    GPUDetector -->|HTTPS/6443<br/>SA Token| K8sAPI
+    %% Backend to external services
+    API -->|HTTPS/443| HFHub
+    ClusterMgr -->|HTTPS/6443| K8sAPI
+    KnowledgeBase -->|HTTPS/8443| ModelCatalog
+    IntentExtractor -.->|HTTPS/443| VertexAI
+    IntentExtractor -.->|HTTPS/443| OpenAIAPI
 
-    %% Knowledge base
-    BenchmarkDB -->|5432/TCP<br/>Password| PostgreSQL
-    ModelCatClient -->|HTTPS/8443<br/>Bearer Token| ModelCatalog
-    ModelCatSync -->|HTTPS/8443| ModelCatalog
-    ModelCatSync -->|5432/TCP| PostgreSQL
-    Loader --> PostgreSQL
+    %% Deployment targets
+    ConfigGen -->|generates YAML| KServe
+    ConfigGen -->|generates manifests| LLMDStack
+    ClusterMgr -->|kubectl apply| K8sAPI
 
-    %% Styles
-    style APIServer fill:#4a90e2,stroke:#333,color:#fff
-    style StreamlitApp fill:#4a90e2,stroke:#333,color:#fff
-    style Workflow fill:#5b9bd5,stroke:#333,color:#fff
-    style IntentExtractor fill:#7fb3de,stroke:#333
-    style SpecEngine fill:#7fb3de,stroke:#333
-    style RecommendEngine fill:#7fb3de,stroke:#333
-    style ConfigGen fill:#7fb3de,stroke:#333
-    style CapPlanner fill:#7fb3de,stroke:#333
-    style GPURec fill:#7fb3de,stroke:#333
-    style PostgreSQL fill:#336791,stroke:#333,color:#fff
-    style Ollama fill:#333,stroke:#666,color:#fff
-    style HFHub fill:#f5a623,stroke:#333
-    style K8sAPI fill:#326ce5,stroke:#333,color:#fff
-    style ModelCatalog fill:#7ed321,stroke:#333
-    style KServe fill:#e8e8e8,stroke:#333
-    style ServiceMonitor fill:#e8e8e8,stroke:#333
-    style HPA fill:#e8e8e8,stroke:#333
-    style User fill:#f9f9f9,stroke:#333
-    style BentoML fill:#f5a623,stroke:#333
+    %% BentoML in-process
+    GPURec -->|in-process| BentoML["BentoML<br/>llm-optimizer<br/>(roofline model)"]
+
+    %% Styling
+    style API fill:#4a90e2,stroke:#333,color:#fff
+    style UI fill:#4a90e2,stroke:#333,color:#fff
+    style Simulator fill:#b8b8b8,stroke:#666
+    style Workflow fill:#7ed321,stroke:#333
+    style IntentExtractor fill:#7ed321,stroke:#333
+    style CapPlanner fill:#7ed321,stroke:#333
+    style GPURec fill:#7ed321,stroke:#333
+    style ConfigGen fill:#7ed321,stroke:#333
+    style ClusterMgr fill:#7ed321,stroke:#333
+    style KnowledgeBase fill:#7ed321,stroke:#333
+    style Postgres fill:#f5a623,stroke:#333
+    style Ollama fill:#f5a623,stroke:#333
+    style HFHub fill:#e8e8e8,stroke:#999
+    style K8sAPI fill:#e8e8e8,stroke:#999
+    style ModelCatalog fill:#e8e8e8,stroke:#999
+    style VertexAI fill:#e8e8e8,stroke:#999
+    style OpenAIAPI fill:#e8e8e8,stroke:#999
+    style KServe fill:#d4edda,stroke:#333
+    style vLLM fill:#d4edda,stroke:#333
+    style LLMDStack fill:#d4edda,stroke:#333
+    style BentoML fill:#d5c4f7,stroke:#333

@@ -1,0 +1,75 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  CLIENT ENVIRONMENT (User Workstation / Notebook Pod)                   │
+│                                                                          │
+│  [Kubeflow SDK - Python Client Library]                                  │
+│  - Package: kubeflow (with trainer, katib, spark, pipelines modules)     │
+│  - Runtime: Python >=3.10                                                │
+│  - RHAI Extensions: checkpoint mgmt, progression tracking                │
+│  - Auth: Delegated to kubernetes client and kfp library                  │
+│  - No independent network services or authentication middleware          │
+│         │                                                                │
+│         │ Kubernetes API calls                                           │
+│         │ Library: kubernetes Python client                              │
+│         │ Auth: kubeconfig file / SA token / OIDC provider               │
+│         │ Encryption: TLS (platform-configured)                          │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES CONTROL PLANE                                                │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 6443/TCP (default)                                              │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: Bearer token / client certificate / OIDC                        │
+│  - RBAC enforcement: Kubernetes native                                   │
+│         │                                                                │
+│         │ CR watch events                                                │
+│         ▼                                                                │
+│  [Kubeflow Controllers]                                                  │
+│  - Trainer Controller (TrainingJob CRs)                                  │
+│  - Katib Controller (Experiment CRs)                                     │
+│  - Spark Operator (SparkApplication CRs)                                 │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  KUBEFLOW PIPELINES API                                                  │
+│                                                                          │
+│  [KF Pipelines API Server]                                               │
+│  - SDK access via: kfp.kubeflow_client.PipelinesClient                  │
+│  - Protocol: HTTPS                                                       │
+│  - Auth: Upstream kfp authentication (platform-delegated)                │
+│  - Encryption: TLS (platform-configured)                                 │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+SDK Authentication Model:
+- The SDK does NOT implement its own authentication middleware
+- All authentication is delegated to underlying client libraries:
+  * kubernetes Python client: kubeconfig, SA tokens, OIDC
+  * kfp PipelinesClient: upstream kfp auth mechanisms
+- Transitive security dependencies (NOT directly configured by SDK):
+  * cryptography==46.0.5 (via kubernetes/kfp clients)
+  * pyjwt==2.11.0 (via kubernetes/kfp clients)
+  * requests-oauthlib==2.0.0 (via kubernetes client)
+
+RBAC Summary:
+- No ClusterRoles or RoleBindings defined by the SDK
+- SDK relies on the RBAC permissions of the authenticated user/service account
+- Kubernetes API authorization enforced at API server level
+
+Secrets:
+- No secrets provisioned or managed by the SDK
+- SDK reads credentials from:
+  * kubeconfig files (user-provided)
+  * Service account tokens (pod-mounted)
+  * Environment variables (platform-injected)
+
+FIPS Compliance:
+- Status: NOT VERIFIED
+- cryptography==46.0.5 is a transitive dependency
+- SDK neither enables nor prevents FIPS mode
+- FIPS compliance depends on host platform OpenSSL configuration
+
+Network Services:
+- The SDK does NOT expose any network services
+- It operates purely as a client library issuing outbound requests
+- No listening ports, no ingress, no service mesh integration

@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "component": "llm-d-latency-predictor",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "llm-d-latency-predictor-pattern-001",
+      "claim": "The training server uses emptyDir volumes for model storage, making trained models ephemeral and introducing a cold-start period after pod restarts where latency predictions are unavailable until sufficient data is re-accumulated and models are retrained.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "deploy/base/training/deployment.yaml:58-62"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "training/training_server.py:74-76"
+        }
+      ],
+      "reasoning": "The training server stores models in an emptyDir volume (deploy/base/training/deployment.yaml:58-62) and requires MIN_SAMPLES_FOR_RETRAIN (default 1000) samples before retraining. A restart loses all accumulated data and models, leaving prediction servers without valid models until the training server re-accumulates enough data from the llm-d gateway.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-latency-predictor-pattern-002",
+      "claim": "Neither server implements application-level authentication, relying entirely on network-level isolation for access control across all 24 HTTP endpoints including model management and training data ingestion APIs.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "prediction/prediction_server.py:28-29"
+        },
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/authentication"
+        }
+      ],
+      "reasoning": "The analyzer detected no auth middleware in the FastAPI applications, confirmed by source inspection of both server imports. The /add_training_data_bulk endpoint accepts arbitrary latency data without authentication, meaning any pod with network access to the training service could inject poisoned training data and degrade prediction quality.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-latency-predictor-pattern-003",
+      "claim": "The prediction server uses polling-based model synchronization (default 10s interval) rather than push-based notification, introducing bounded staleness in latency predictions after model retraining.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "prediction/prediction_server.py:75"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "deploy/base/prediction/configmap.yaml:7"
+        }
+      ],
+      "reasoning": "The prediction server periodically downloads models via HTTP from the training server at a configurable interval (MODEL_SYNC_INTERVAL_SEC=10). This avoids the complexity of shared volumes or event-driven model distribution but means predictions can be up to 10 seconds stale after a model retrain. The 10-replica prediction deployment multiplied by 10s polling creates steady background traffic to the single-replica training server.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

@@ -1,63 +1,60 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Agent["AI Agent<br/>(Claude Desktop/Code)"]
+        Agent["AI Agent<br/>(Claude Desktop / Code / MCP Client)"]
     end
 
-    subgraph Ingress["INGRESS (DMZ - Edge TLS)"]
-        Route["OpenShift Route<br/>443/TCP → 8000/TCP<br/>TLS edge termination<br/>No Route-level auth"]
+    subgraph Ingress["INGRESS (DMZ)"]
+        Route["OpenShift Route<br/>443/TCP → 8000/TCP<br/>TLS Edge Termination<br/>HAProxy 300s timeout"]
     end
 
-    subgraph Application["APPLICATION TIER (Cluster-Internal)"]
+    subgraph Application["APPLICATION (rhoai-mcp namespace)"]
         direction TB
 
-        subgraph NS_MCP["Namespace: rhoai-mcp"]
-            MCPServer["RHOAI MCP Server<br/>Service: rhoai-mcp (ClusterIP)<br/>Port: 8000/TCP HTTP<br/>SA: rhoai-mcp<br/>Image: UBI 9 / Python 3.12<br/>Endpoints: /health, /sse, /message"]
+        subgraph MCPPod["rhoai-mcp Pod"]
+            OIDCMw["OIDC Auth Middleware<br/>(JWT/TokenReview validation)"]
+            MCPServer["rhoai-mcp Server<br/>SA: rhoai-mcp<br/>Transport: SSE / streamable-http<br/>Endpoints: /health, /sse, /mcp"]
+            OIDCMw --> MCPServer
         end
     end
 
-    subgraph InternalServices["INTERNAL SERVICES (Cluster)"]
+    subgraph ClusterServices["CLUSTER SERVICES"]
         direction TB
 
-        K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token (SA)"]
+        K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>CRDs: InferenceService,<br/>Notebook, TrainJob, DSPA,<br/>DSC, AcceleratorProfile"]
 
-        ModelRegistry["Model Registry Service<br/>8080/TCP HTTP (no auth)<br/>8443/TCP HTTPS (OAuth)<br/>Auto-discovered via CRD"]
+        ModelReg["Model Registry /<br/>Model Catalog<br/>8080/TCP HTTP (in-cluster)<br/>443/TCP HTTPS (route)<br/>NetworkPolicy: model-catalog"]
 
-        ModelCatalog["Model Catalog API<br/>8080/TCP HTTP (no auth)<br/>8443/TCP HTTPS (OAuth)"]
-
-        NeuralNav["Neural Navigator Backend<br/>8000/TCP HTTP<br/>No auth (in-cluster)"]
+        PlannerSvc["Planner Service<br/>8000/TCP HTTP<br/>No Auth (stateless)"]
     end
 
     subgraph ExternalServices["EXTERNAL SERVICES"]
-        GitHub["GitHub<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>No auth"]
-
-        Registry["Container Image Registry<br/>5000/TCP HTTPS<br/>TLS 1.2+<br/>No auth"]
+        OIDCProvider["OIDC Provider<br/>(OpenShift OAuth / Keycloak)<br/>443/TCP HTTPS<br/>TLS 1.2+"]
     end
 
     %% Flows
-    Agent -->|"HTTPS/443<br/>TLS edge<br/>No MCP auth"| Route
-    Agent -.->|"stdio (local)<br/>No encryption<br/>kubeconfig auth"| MCPServer
+    Agent -->|"HTTPS/443<br/>TLS Edge<br/>Bearer Token (OIDC)"| Route
+    Agent -.->|"HTTP/8000 (direct)<br/>or stdio<br/>No TLS"| MCPServer
 
-    Route -->|"HTTP/8000<br/>No encryption<br/>(post-TLS termination)"| MCPServer
+    Route -->|"HTTP/8000<br/>No encryption (in-cluster)<br/>Auth passthrough"| OIDCMw
 
-    MCPServer -->|"HTTPS/6443<br/>TLS 1.2+<br/>Bearer Token (SA/kubeconfig)"| K8sAPI
+    MCPServer -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token +<br/>Impersonate-User/Group"| K8sAPI
 
-    MCPServer -->|"HTTP/8080 or HTTPS/8443<br/>None or TLS<br/>None or OAuth Bearer"| ModelRegistry
-    MCPServer -->|"HTTP/8080 or HTTPS/8443<br/>None or TLS<br/>None or OAuth Bearer"| ModelCatalog
+    MCPServer -->|"HTTP/8080 (in-cluster)<br/>or HTTPS/443 (route)<br/>OAuth / Bearer"| ModelReg
 
-    MCPServer -->|"HTTP/8000<br/>No encryption<br/>No auth"| NeuralNav
+    MCPServer -->|"HTTP/8000<br/>No encryption<br/>No auth"| PlannerSvc
 
-    MCPServer -->|"HTTPS/443<br/>TLS 1.2+<br/>No auth (git clone)"| GitHub
-    MCPServer -->|"HTTPS/5000<br/>TLS 1.2+<br/>No auth"| Registry
+    OIDCMw -->|"HTTPS/443<br/>TLS 1.2+<br/>JWKS Discovery"| OIDCProvider
+    OIDCMw -->|"HTTPS/6443<br/>TokenReview +<br/>SubjectAccessReview"| K8sAPI
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
     classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
-    classDef application fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef internal fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef application fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef clusterservice fill:#d5e8d4,stroke:#82b366,stroke-width:2px
     classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 
     class Agent external
     class Route ingress
-    class MCPServer application
-    class K8sAPI,ModelRegistry,ModelCatalog,NeuralNav internal
-    class GitHub,Registry externalservice
+    class OIDCMw,MCPServer application
+    class K8sAPI,ModelReg,PlannerSvc clusterservice
+    class OIDCProvider externalservice

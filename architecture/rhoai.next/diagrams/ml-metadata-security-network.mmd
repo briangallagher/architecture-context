@@ -1,37 +1,54 @@
 graph TB
-    subgraph InternalClients["INTERNAL CLIENTS (Cluster-Internal)"]
-        DSP["Data Science Pipelines<br/>(DSP Driver)<br/>Primary consumer"]
-        TFX["TFX / Kubeflow Pipelines<br/>Legacy integration"]
-        PipelineUI["ML Pipeline UI / Client<br/>Lineage queries"]
+    subgraph PipelineClients["PIPELINE CONSUMERS (gRPC Clients)"]
+        DSP["Data Science Pipelines<br/>Controller<br/>NS: {dspa-namespace}"]
+        KFP["Kubeflow Pipelines SDK<br/>NS: {dspa-namespace}"]
+        PipelineUI["Pipeline UI / Dashboard<br/>NS: {dspa-namespace}"]
     end
 
-    subgraph MLMDService["MLMD SERVICE (ClusterIP)"]
-        Server["metadata_store_server<br/>(odh-mlmd-grpc-server)<br/>Port: 8080/TCP gRPC/HTTP2<br/>User: 65534:65534 (non-root)<br/>Crypto: BoringSSL<br/>TLS: Optional SslServerCredentials<br/>Auth: Optional mTLS (client_verify)"]
+    subgraph MLMDService["MLMD SERVICE (ClusterIP - Internal Only)"]
+        Server["metadata_store_server<br/>Container: odh-mlmd-grpc-server<br/>Base: UBI9 | UID: 65534 (non-root)<br/>Port: 8080/TCP gRPC/HTTP2<br/>Crypto: BoringSSL<br/>TLS: Optional (SSLConfig)<br/>Auth: Optional mTLS (client_verify)"]
     end
 
-    subgraph DatabaseBackends["DATABASE BACKENDS (Persistent Storage)"]
-        MySQL["MySQL / MariaDB<br/>3306/TCP<br/>MySQL wire protocol<br/>Optional SSL<br/>Auth: Username/Password"]
-        PostgreSQL["PostgreSQL<br/>Configurable/TCP<br/>PG wire protocol<br/>Optional SSL (sslmode)<br/>Auth: Username/Password"]
-        SQLite["SQLite (Dev/Test)<br/>Embedded<br/>No network"]
+    subgraph DatabaseBackends["DATABASE BACKENDS"]
+        MySQL["MySQL / MariaDB<br/>3306/TCP<br/>MySQL protocol<br/>Optional TLS<br/>(cert, key, ca, cipher)<br/>Auth: Username/password"]
+        PostgreSQL["PostgreSQL<br/>5432/TCP<br/>PostgreSQL protocol<br/>Optional TLS<br/>(sslmode, sslcert, sslkey)<br/>Auth: Username/password"]
     end
 
-    %% Client → MLMD flows
-    DSP -->|"gRPC/HTTP2 8080/TCP<br/>Optional TLS<br/>Optional mTLS"| Server
-    TFX -->|"gRPC/HTTP2 8080/TCP<br/>Optional TLS<br/>Optional mTLS"| Server
-    PipelineUI -->|"gRPC/HTTP2 8080/TCP<br/>Optional TLS<br/>Optional mTLS"| Server
+    subgraph Secrets["SECRETS"]
+        direction LR
+        DBCreds["DB Credentials<br/>(Opaque)<br/>Provisioned by: DSP controller<br/>Auto-Rotate: No"]
+        TLSCert["TLS Server Key/Cert<br/>(kubernetes.io/tls)<br/>Provisioned by: operator/cert-manager"]
+        ClientCA["TLS Client CA<br/>(Opaque)<br/>For mTLS verification"]
+    end
 
-    %% MLMD → Database flows
-    Server -->|"MySQL wire protocol<br/>3306/TCP<br/>Optional SSL<br/>Username/Password"| MySQL
-    Server -->|"PG wire protocol<br/>Configurable/TCP<br/>Optional SSL<br/>Username/Password"| PostgreSQL
-    Server -->|"Embedded SQL<br/>No network"| SQLite
+    %% Client to MLMD flows
+    DSP -->|"gRPC/8080/TCP<br/>HTTP2<br/>Optional TLS (BoringSSL)<br/>Optional mTLS (client_verify)"| Server
+    KFP -->|"gRPC/8080/TCP<br/>HTTP2<br/>Optional TLS (BoringSSL)<br/>Optional mTLS (client_verify)"| Server
+    PipelineUI -->|"gRPC/8080/TCP<br/>HTTP2<br/>Optional TLS (BoringSSL)<br/>Optional mTLS (client_verify)"| Server
+
+    %% MLMD to Database flows
+    Server -->|"MySQL/3306/TCP<br/>Optional TLS<br/>Username/password"| MySQL
+    Server -->|"PostgreSQL/5432/TCP<br/>Optional TLS<br/>Username/password"| PostgreSQL
+
+    %% Secrets references
+    Server -.->|"uses"| DBCreds
+    Server -.->|"uses"| TLSCert
+    Server -.->|"uses"| ClientCA
+
+    %% Warning annotation
+    Warning["WARNING: No application-level AuthZ<br/>Any client reaching port 8080<br/>can read/modify ALL metadata<br/>Isolation via NetworkPolicy only"]
+
+    Server -.-> Warning
 
     %% Styling
     classDef client fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef service fill:#dae8fc,stroke:#6c8ebf,stroke-width:3px
+    classDef service fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
     classDef database fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef devonly fill:#f5f5f5,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    classDef secret fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef warning fill:#f8cecc,stroke:#b85450,stroke-width:2px
 
-    class DSP,TFX,PipelineUI client
+    class DSP,KFP,PipelineUI client
     class Server service
     class MySQL,PostgreSQL database
-    class SQLite devonly
+    class DBCreds,TLSCert,ClientCA secret
+    class Warning warning

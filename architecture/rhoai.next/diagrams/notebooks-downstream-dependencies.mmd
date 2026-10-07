@@ -1,133 +1,67 @@
 graph LR
-    Notebooks["Notebooks<br/>(Workbench Images)"]
+    NB["notebooks-downstream<br/>(Container Image Factory)"]
 
-    %% Base Images (External Dependencies)
-    subgraph BaseImages["Base Container Images"]
-        UBI9_311["UBI9 Python 3.11<br/>(latest)"]
-        UBI9_312["UBI9 Python 3.12<br/>(latest)"]
-        C9S["CentOS Stream 9<br/>Python 3.11"]
-        RHEL9["RHEL9 Python 3.11<br/>(latest)"]
-    end
+    %% External Dependencies (Software/Libraries)
+    NB -->|"GPU compute<br/>CUDA 12.6.3"| CUDA["NVIDIA CUDA Toolkit"]
+    NB -->|"DNN library<br/>cuDNN 9.5.1.17"| cuDNN["NVIDIA cuDNN"]
+    NB -->|"GPU compute<br/>ROCm 6.2.4"| ROCm["AMD ROCm"]
+    NB -->|"R IDE<br/>2024.12.1-563"| RStudioSrv["RStudio Server"]
+    NB -->|"VS Code IDE<br/>v4.98.0"| CodeSrv["code-server"]
+    NB -->|"reverse proxy<br/>1.24"| NGINX["NGINX"]
+    NB -->|"process mgmt"| Supervisord["supervisord"]
+    NB -->|"R runtime<br/>4.4.3"| RLang["R Language"]
+    NB -->|"Java runtime"| Java17["Java 17 OpenJDK"]
+    NB -->|"Python pkg install"| micropipenv["micropipenv"]
+    NB -->|"MongoDB CLI<br/>2.0.3 (FIPS)"| mongocli["MongoDB CLI"]
+    NB -->|"cluster CLI"| OC["OpenShift CLI (oc)"]
+    NB -->|"image inspect"| Skopeo["skopeo"]
 
-    Notebooks -->|"base image<br/>(Jupyter, CodeServer, Runtime)"| UBI9_311
-    Notebooks -->|"base image<br/>(Python 3.12 variants)"| UBI9_312
-    Notebooks -->|"base image<br/>(RStudio C9S)"| C9S
-    Notebooks -->|"base image<br/>(RStudio RHEL9)"| RHEL9
+    %% Internal RHOAI Dependencies
+    NotebookCtrl["odh-notebook-controller"] -->|"Pod launcher"| NB
+    RhodsOp["rhods-operator"] -->|"ImageStream mgmt"| NB
+    KubeRBAC["kube-rbac-proxy"] -->|"auth sidecar"| NB
+    KFP["Kubeflow Pipelines"] -->|"runtime execution"| NB
+    Elyra["Elyra"] -->|"runtime execution"| NB
+    OAuthOIDC["OpenShift OAuth/OIDC"] -->|"authentication"| NB
 
-    %% GPU Acceleration Libraries
-    subgraph GPULibs["GPU Acceleration"]
-        CUDA["NVIDIA CUDA 12.6.3"]
-        cuDNN["NVIDIA cuDNN 9.5.1.17"]
-        NCCL["NVIDIA NCCL 2.23.4"]
-        ROCm["AMD ROCm 6.2.4"]
-    end
-
-    Notebooks -->|"GPU accel<br/>(CUDA variants)"| CUDA
-    CUDA ---|bundled| cuDNN
-    CUDA ---|bundled| NCCL
-    Notebooks -->|"GPU accel<br/>(ROCm variants)"| ROCm
-
-    %% IDE / Server Software
-    subgraph IDESoftware["IDE / Server Software"]
-        JupyterLab["JupyterLab 4.2"]
-        CodeServerSW["code-server 4.98.0"]
-        RStudioSW["RStudio Server 2024.12.1"]
-        R["R 4.4.3"]
-        NGINX["NGINX 1.24"]
-        Supervisor["supervisor"]
-    end
-
-    Notebooks -->|"notebook IDE"| JupyterLab
-    Notebooks -->|"VS Code server"| CodeServerSW
-    Notebooks -->|"R IDE"| RStudioSW
-    RStudioSW ---|requires| R
-    CodeServerSW ---|"reverse proxy"| NGINX
-    RStudioSW ---|"reverse proxy"| NGINX
-    CodeServerSW ---|"process mgmt"| Supervisor
-    RStudioSW ---|"process mgmt"| Supervisor
-
-    %% Build/Dev Tools
-    subgraph BuildTools["Build & Document Tools"]
-        micropipenv["micropipenv"]
-        TexLive["TexLive (LaTeX)"]
-        Pandoc["Pandoc 3.7.0.2"]
-        OC_CLI["OpenShift CLI (oc)"]
-        MongoCLI["MongoDB CLI 2.0.3<br/>(FIPS)"]
-        MSSQLTools["MSSQL Tools 18"]
-        Java17["Java 17 (OpenJDK)"]
-    end
-
-    Notebooks -->|"Python deps"| micropipenv
-    Notebooks -->|"PDF export"| TexLive
-    Notebooks -->|"PDF export"| Pandoc
-    Notebooks -->|"cluster CLI"| OC_CLI
-    Notebooks -.->|"DB CLI<br/>(datascience)"| MongoCLI
-    Notebooks -.->|"DB CLI<br/>(datascience)"| MSSQLTools
-    Notebooks -.->|"TrustyAI<br/>requirement"| Java17
-
-    %% Internal ODH Platform Dependencies
-    subgraph InternalODH["Internal Platform (ODH/RHOAI)"]
-        NotebookController["odh-notebook-controller<br/>(image consumer)"]
-        RHODSOp["rhods-operator<br/>(manifest consumer)"]
-        RHOAIDash["RHOAI Dashboard<br/>(UI reference)"]
-        KFP["Kubeflow Pipelines<br/>(runtime consumer)"]
-        Elyra["Elyra<br/>(in-image library)"]
-        KubeRBACProxy["kube-rbac-proxy<br/>(injected sidecar)"]
-    end
-
-    NotebookController -->|"creates StatefulSet<br/>using image"| Notebooks
-    RHODSOp -->|"deploys<br/>ImageStreams"| Notebooks
-    RHOAIDash -->|"reads annotations<br/>for UI"| Notebooks
-    KFP -->|"uses runtime<br/>images"| Notebooks
-    Notebooks -->|"pre-installed<br/>extension"| Elyra
-    KubeRBACProxy -->|"auth sidecar<br/>8443/TCP"| Notebooks
-
-    %% CI/CD Integration
-    subgraph CICD["CI/CD"]
-        Konflux["Konflux / PaC"]
-        Quay["quay.io/opendatahub"]
-        QuayMODH["quay.io/modh"]
-    end
-
-    Konflux -->|"builds images<br/>via Tekton"| Notebooks
-    Notebooks -->|"publishes to"| Quay
-    Notebooks -->|"historical<br/>digests from"| QuayMODH
+    %% Integration Points (bidirectional / consumers)
+    Dashboard["ODH Dashboard"] -->|"UI reads ImageStreams"| NB
+    Gateway["OpenShift Gateway"] -->|"ingress routing"| NB
+    Konflux["Konflux (AppStudio)"] -->|"CI/CD builds"| NB
+    GH["GitHub PipelinesAsCode"] -->|"PR triggers"| NB
+    NB -->|"publishes images"| QuayODH["quay.io/opendatahub"]
+    NB -->|"legacy images"| QuayMODH["quay.io/modh"]
 
     %% Styling
-    style Notebooks fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style NB fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
-    style UBI9_311 fill:#999,stroke:#333,color:#fff
-    style UBI9_312 fill:#999,stroke:#333,color:#fff
-    style C9S fill:#999,stroke:#333,color:#fff
-    style RHEL9 fill:#999,stroke:#333,color:#fff
-
+    %% External software dependencies
     style CUDA fill:#76b900,stroke:#333,color:#fff
     style cuDNN fill:#76b900,stroke:#333,color:#fff
-    style NCCL fill:#76b900,stroke:#333,color:#fff
-    style ROCm fill:#e74c3c,stroke:#333,color:#fff
+    style ROCm fill:#ed1c24,stroke:#333,color:#fff
+    style RStudioSrv fill:#999,stroke:#333,color:#fff
+    style CodeSrv fill:#999,stroke:#333,color:#fff
+    style NGINX fill:#999,stroke:#333,color:#fff
+    style Supervisord fill:#999,stroke:#333,color:#fff
+    style RLang fill:#999,stroke:#333,color:#fff
+    style Java17 fill:#999,stroke:#333,color:#fff
+    style micropipenv fill:#999,stroke:#333,color:#fff
+    style mongocli fill:#999,stroke:#333,color:#fff
+    style OC fill:#999,stroke:#333,color:#fff
+    style Skopeo fill:#999,stroke:#333,color:#fff
 
-    style JupyterLab fill:#f5a623,stroke:#333,color:#fff
-    style CodeServerSW fill:#f5a623,stroke:#333,color:#fff
-    style RStudioSW fill:#f5a623,stroke:#333,color:#fff
-    style R fill:#f5a623,stroke:#333,color:#fff
-    style NGINX fill:#f5a623,stroke:#333,color:#fff
-    style Supervisor fill:#f5a623,stroke:#333,color:#fff
-
-    style micropipenv fill:#bdc3c7,stroke:#333
-    style TexLive fill:#bdc3c7,stroke:#333
-    style Pandoc fill:#bdc3c7,stroke:#333
-    style OC_CLI fill:#bdc3c7,stroke:#333
-    style MongoCLI fill:#bdc3c7,stroke:#333
-    style MSSQLTools fill:#bdc3c7,stroke:#333
-    style Java17 fill:#bdc3c7,stroke:#333
-
-    style NotebookController fill:#7ed321,stroke:#333,color:#fff
-    style RHODSOp fill:#7ed321,stroke:#333,color:#fff
-    style RHOAIDash fill:#7ed321,stroke:#333,color:#fff
+    %% Internal RHOAI components
+    style NotebookCtrl fill:#7ed321,stroke:#333,color:#fff
+    style RhodsOp fill:#7ed321,stroke:#333,color:#fff
+    style KubeRBAC fill:#7ed321,stroke:#333,color:#fff
     style KFP fill:#7ed321,stroke:#333,color:#fff
     style Elyra fill:#7ed321,stroke:#333,color:#fff
-    style KubeRBACProxy fill:#7ed321,stroke:#333,color:#fff
+    style OAuthOIDC fill:#7ed321,stroke:#333,color:#fff
+    style Dashboard fill:#7ed321,stroke:#333,color:#fff
+    style Gateway fill:#7ed321,stroke:#333,color:#fff
 
-    style Konflux fill:#e1d5e7,stroke:#9673a6,color:#333
-    style Quay fill:#e1d5e7,stroke:#9673a6,color:#333
-    style QuayMODH fill:#e1d5e7,stroke:#9673a6,color:#333
+    %% CI/CD and registries
+    style Konflux fill:#f5a623,stroke:#333,color:#fff
+    style GH fill:#f5a623,stroke:#333,color:#fff
+    style QuayODH fill:#f5a623,stroke:#333,color:#fff
+    style QuayMODH fill:#f5a623,stroke:#333,color:#fff

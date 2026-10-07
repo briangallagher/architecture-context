@@ -1,152 +1,122 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA_KServe["kserve-controller-manager<br/>(kserve namespace)"]
-        SA_LLMISVC["llmisvc-controller-manager<br/>(kserve namespace)"]
-        SA_EPP["&#123;llmisvc&#125;-epp-sa<br/>(dynamic, per LLMInferenceService)"]
-        SA_Metrics["kserve-metrics-reader-sa<br/>(dynamic, per namespace)"]
+        SA_KServe["kserve-controller-manager<br/>(ns: opendatahub)"]
+        SA_EPP["{name}-epp-sa<br/>(ns: per-LLMInferenceService)"]
     end
 
-    subgraph ClusterRoleBindings["ClusterRole Bindings"]
-        CRB_KServe["kserve-manager-rolebinding<br/>(cluster-scoped)"]
-        CRB_LLMISVC["llmisvc-manager-rolebinding<br/>(cluster-scoped)"]
-        CRB_EPP["&#123;llmisvc&#125;-epp-auth-rb<br/>(cluster-scoped)"]
-        CRB_Metrics["kserve-metrics-reader-role-binding-&#123;ns&#125;<br/>(cluster-scoped)"]
+    subgraph ClusterRoleBindings["Cluster Role Bindings"]
+        CRB_KServe["kserve-manager-rolebinding<br/>(cluster-wide)"]
+        CRB_LLM["llmisvc-manager-rolebinding<br/>(cluster-wide)"]
+        CRB_EPP_Auth["{namespace}-{name}-epp-auth-rb<br/>(cluster-wide)"]
     end
 
-    subgraph RoleBindings["Role Bindings (kserve namespace)"]
-        RB_KServeLease["kserve-leader-election-rolebinding"]
-        RB_LLMISVCLease["llmisvc-leader-election-rolebinding"]
+    subgraph RoleBindings["Role Bindings"]
+        RB_Leader["kserve-leader-election-rolebinding<br/>(ns: opendatahub)"]
+        RB_EPP["{name}-epp-rb<br/>(ns: per-LLMInferenceService)"]
     end
 
-    subgraph ClusterRoles["ClusterRoles"]
+    subgraph ClusterRoles["Cluster Roles"]
         CR_KServe["kserve-manager-role"]
-        CR_LLMISVC["llmisvc-manager-role"]
+        CR_LLM["llmisvc-manager-role"]
         CR_AuthDelegator["system:auth-delegator"]
-        CR_MetricsReader["kserve-metrics-reader-cluster-role"]
     end
 
-    subgraph Roles["Roles (kserve namespace)"]
-        R_KServeLease["kserve-leader-election-role"]
-        R_LLMISVCLease["llmisvc-leader-election-role"]
+    subgraph Roles["Namespace Roles"]
+        R_Leader["kserve-leader-election-role"]
+        R_EPP["{name}-epp-role"]
     end
 
-    %% Bindings
+    subgraph KServeResources["kserve-manager-role Resources"]
+        KR_ISVC["serving.kserve.io<br/>inferenceservices<br/>inferenceservices/status<br/>inferenceservices/finalizers"]
+        KR_SR["serving.kserve.io<br/>servingruntimes<br/>clusterservingruntimes<br/>clusterstoragecontainers"]
+        KR_Apps["apps<br/>deployments"]
+        KR_Gateway["gateway.networking.k8s.io<br/>httproutes"]
+        KR_HPA["autoscaling<br/>horizontalpodautoscalers"]
+        KR_Core["core<br/>services, serviceaccounts<br/>configmaps, secrets<br/>events, pods, namespaces"]
+        KR_Knative["serving.knative.dev<br/>services<br/>services/finalizers"]
+        KR_Istio["networking.istio.io<br/>virtualservices<br/>virtualservices/finalizers"]
+        KR_Admission["admissionregistration.k8s.io<br/>mutatingwebhookconfigurations<br/>validatingwebhookconfigurations"]
+    end
+
+    subgraph LLMISVCResources["llmisvc-manager-role Resources"]
+        LR_LLMISVC["serving.kserve.io<br/>llminferenceservices<br/>llminferenceserviceconfigs"]
+        LR_LWS["leaderworkerset.x-k8s.io<br/>leaderworkersets"]
+        LR_GW["gateway.networking.k8s.io<br/>httproutes, gateways<br/>gatewayclasses"]
+        LR_GIE["inference.networking.k8s.io<br/>+ inference.networking.x-k8s.io<br/>inferencepools<br/>inferencemodels"]
+        LR_DRA["resource.k8s.io<br/>resourceclaims<br/>resourceclaimtemplates"]
+        LR_WVA["llm-d.ai<br/>variantautoscalings"]
+        LR_KEDA["keda.sh<br/>scaledobjects"]
+        LR_Mon["monitoring.coreos.com<br/>podmonitors<br/>servicemonitors"]
+        LR_Istio["networking.istio.io<br/>destinationrules<br/>(distro only)"]
+        LR_SCC["security.openshift.io<br/>securitycontextconstraints<br/>(use verb, distro only)"]
+    end
+
+    %% SA → Bindings
     SA_KServe -->|bound via| CRB_KServe
-    SA_LLMISVC -->|bound via| CRB_LLMISVC
-    SA_EPP -->|bound via| CRB_EPP
-    SA_Metrics -->|bound via| CRB_Metrics
+    SA_KServe -->|bound via| CRB_LLM
+    SA_KServe -->|bound via| RB_Leader
+    SA_EPP -->|bound via| RB_EPP
+    SA_EPP -->|bound via| CRB_EPP_Auth
 
-    SA_KServe -->|bound via| RB_KServeLease
-    SA_LLMISVC -->|bound via| RB_LLMISVCLease
-
+    %% Bindings → Roles
     CRB_KServe -->|grants| CR_KServe
-    CRB_LLMISVC -->|grants| CR_LLMISVC
-    CRB_EPP -->|grants| CR_AuthDelegator
-    CRB_Metrics -->|grants| CR_MetricsReader
+    CRB_LLM -->|grants| CR_LLM
+    CRB_EPP_Auth -->|grants| CR_AuthDelegator
+    RB_Leader -->|grants| R_Leader
+    RB_EPP -->|grants| R_EPP
 
-    RB_KServeLease -->|grants| R_KServeLease
-    RB_LLMISVCLease -->|grants| R_LLMISVCLease
-
-    %% kserve-manager-role permissions
-    subgraph KServeResources["kserve-manager-role Permissions"]
-        KR_ISVC["serving.kserve.io<br/>inferenceservices<br/><i>get,list,watch,create,<br/>update,patch,delete</i>"]
-        KR_SR["serving.kserve.io<br/>servingruntimes<br/>clusterservingruntimes<br/><i>full CRUD</i>"]
-        KR_LMC["serving.kserve.io<br/>localmodelcaches<br/>localmodelnamespacecaches<br/><i>get,list,watch</i>"]
-        KR_Deploy["apps<br/>deployments<br/><i>full CRUD</i>"]
-        KR_Core["core<br/>services, configmaps,<br/>secrets, events, pods,<br/>namespaces, serviceaccounts<br/><i>full CRUD (varies)</i>"]
-        KR_Knative["serving.knative.dev<br/>services<br/><i>full CRUD</i>"]
-        KR_Istio["networking.istio.io<br/>virtualservices<br/><i>full CRUD</i>"]
-        KR_GW["gateway.networking.k8s.io<br/>httproutes<br/><i>full CRUD</i>"]
-        KR_HPA["autoscaling<br/>horizontalpodautoscalers<br/><i>full CRUD</i>"]
-        KR_KEDA["keda.sh<br/>scaledobjects<br/><i>full CRUD</i>"]
-        KR_OTEL["opentelemetry.io<br/>opentelemetrycollectors<br/><i>full CRUD</i>"]
-        KR_Route["route.openshift.io<br/>routes<br/><i>get,list,watch</i>"]
-        KR_Ingress["networking.k8s.io<br/>ingresses<br/><i>full CRUD</i>"]
-        KR_Webhook["admissionregistration.k8s.io<br/>webhookconfigurations<br/><i>full CRUD</i>"]
-    end
-
-    CR_KServe -->|"full CRUD"| KR_ISVC
-    CR_KServe -->|"full CRUD"| KR_SR
-    CR_KServe -->|"read only"| KR_LMC
-    CR_KServe -->|"full CRUD"| KR_Deploy
-    CR_KServe -->|"varies"| KR_Core
+    %% kserve-manager-role → Resources
+    CR_KServe -->|"get,list,watch<br/>create,update<br/>patch,delete"| KR_ISVC
+    CR_KServe -->|"get,list,watch<br/>create,update<br/>patch,delete"| KR_SR
+    CR_KServe -->|"get,list,watch<br/>create,update<br/>patch,delete"| KR_Apps
+    CR_KServe -->|"get,list,watch<br/>create,update<br/>patch,delete"| KR_Gateway
+    CR_KServe -->|"get,list,watch<br/>create,update<br/>patch,delete"| KR_HPA
+    CR_KServe -->|"full CRUD"| KR_Core
     CR_KServe -->|"full CRUD"| KR_Knative
     CR_KServe -->|"full CRUD"| KR_Istio
-    CR_KServe -->|"full CRUD"| KR_GW
-    CR_KServe -->|"full CRUD"| KR_HPA
-    CR_KServe -->|"full CRUD"| KR_KEDA
-    CR_KServe -->|"full CRUD"| KR_OTEL
-    CR_KServe -->|"read only"| KR_Route
-    CR_KServe -->|"full CRUD"| KR_Ingress
-    CR_KServe -->|"full CRUD"| KR_Webhook
+    CR_KServe -->|"full CRUD"| KR_Admission
 
-    %% llmisvc-manager-role permissions
-    subgraph LLMISVCResources["llmisvc-manager-role Permissions"]
-        LR_LLMISVC["serving.kserve.io<br/>llminferenceservices<br/>llminferenceserviceconfigs<br/><i>full CRUD</i>"]
-        LR_GW["gateway.networking.k8s.io<br/>httproutes, gateways,<br/>gatewayclasses<br/><i>full CRUD</i>"]
-        LR_InfPool["inference.networking.x-k8s.io<br/>inferencepools, objectives,<br/>models, rewrites, imports<br/><i>full CRUD</i>"]
-        LR_LWS["leaderworkerset.x-k8s.io<br/>leaderworkersets<br/><i>full CRUD</i>"]
-        LR_WVA["llmd.ai<br/>variantautoscalings<br/><i>full CRUD</i>"]
-        LR_Mon["monitoring.coreos.com<br/>podmonitors, servicemonitors<br/><i>full CRUD</i>"]
-        LR_IstioOCP["networking.istio.io<br/>destinationrules<br/><i>full CRUD (OCP only)</i>"]
-        LR_SCC["security.openshift.io<br/>securitycontextconstraints<br/><i>use (OCP only)</i>"]
-        LR_RBAC["rbac.authorization.k8s.io<br/>roles, rolebindings,<br/>clusterrolebindings<br/><i>full CRUD</i>"]
-        LR_Lease["coordination.k8s.io<br/>leases<br/><i>full CRUD</i>"]
-    end
-
-    CR_LLMISVC -->|"full CRUD"| LR_LLMISVC
-    CR_LLMISVC -->|"full CRUD"| LR_GW
-    CR_LLMISVC -->|"full CRUD"| LR_InfPool
-    CR_LLMISVC -->|"full CRUD"| LR_LWS
-    CR_LLMISVC -->|"full CRUD"| LR_WVA
-    CR_LLMISVC -->|"full CRUD"| LR_Mon
-    CR_LLMISVC -->|"full CRUD (OCP)"| LR_IstioOCP
-    CR_LLMISVC -->|"use (OCP)"| LR_SCC
-    CR_LLMISVC -->|"full CRUD"| LR_RBAC
-    CR_LLMISVC -->|"full CRUD"| LR_Lease
+    %% llmisvc-manager-role → Resources
+    CR_LLM -->|"get,list,watch<br/>create,update<br/>patch,delete"| LR_LLMISVC
+    CR_LLM -->|"full CRUD"| LR_LWS
+    CR_LLM -->|"full CRUD"| LR_GW
+    CR_LLM -->|"full CRUD"| LR_GIE
+    CR_LLM -->|"full CRUD"| LR_DRA
+    CR_LLM -->|"full CRUD"| LR_WVA
+    CR_LLM -->|"full CRUD"| LR_KEDA
+    CR_LLM -->|"full CRUD"| LR_Mon
+    CR_LLM -->|"full CRUD"| LR_Istio
+    CR_LLM -->|"use"| LR_SCC
 
     %% Styling
     style SA_KServe fill:#4a90e2,stroke:#333,color:#fff
-    style SA_LLMISVC fill:#4a90e2,stroke:#333,color:#fff
     style SA_EPP fill:#4a90e2,stroke:#333,color:#fff
-    style SA_Metrics fill:#4a90e2,stroke:#333,color:#fff
-
     style CR_KServe fill:#f5a623,stroke:#333,color:#fff
-    style CR_LLMISVC fill:#f5a623,stroke:#333,color:#fff
+    style CR_LLM fill:#f5a623,stroke:#333,color:#fff
     style CR_AuthDelegator fill:#f5a623,stroke:#333,color:#fff
-    style CR_MetricsReader fill:#f5a623,stroke:#333,color:#fff
-    style R_KServeLease fill:#e8a838,stroke:#333
-    style R_LLMISVCLease fill:#e8a838,stroke:#333
-
-    style CRB_KServe fill:#ddd,stroke:#333
-    style CRB_LLMISVC fill:#ddd,stroke:#333
-    style CRB_EPP fill:#ddd,stroke:#333
-    style CRB_Metrics fill:#ddd,stroke:#333
-    style RB_KServeLease fill:#ddd,stroke:#333
-    style RB_LLMISVCLease fill:#ddd,stroke:#333
-
+    style R_Leader fill:#e8a317,stroke:#333,color:#fff
+    style R_EPP fill:#e8a317,stroke:#333,color:#fff
+    style CRB_KServe fill:#9b59b6,stroke:#333,color:#fff
+    style CRB_LLM fill:#9b59b6,stroke:#333,color:#fff
+    style CRB_EPP_Auth fill:#9b59b6,stroke:#333,color:#fff
+    style RB_Leader fill:#8e44ad,stroke:#333,color:#fff
+    style RB_EPP fill:#8e44ad,stroke:#333,color:#fff
     style KR_ISVC fill:#7ed321,stroke:#333
     style KR_SR fill:#7ed321,stroke:#333
-    style KR_LMC fill:#7ed321,stroke:#333
-    style KR_Deploy fill:#7ed321,stroke:#333
+    style KR_Apps fill:#7ed321,stroke:#333
+    style KR_Gateway fill:#7ed321,stroke:#333
+    style KR_HPA fill:#7ed321,stroke:#333
     style KR_Core fill:#7ed321,stroke:#333
     style KR_Knative fill:#7ed321,stroke:#333
     style KR_Istio fill:#7ed321,stroke:#333
-    style KR_GW fill:#7ed321,stroke:#333
-    style KR_HPA fill:#7ed321,stroke:#333
-    style KR_KEDA fill:#7ed321,stroke:#333
-    style KR_OTEL fill:#7ed321,stroke:#333
-    style KR_Route fill:#7ed321,stroke:#333
-    style KR_Ingress fill:#7ed321,stroke:#333
-    style KR_Webhook fill:#7ed321,stroke:#333
-
-    style LR_LLMISVC fill:#50c878,stroke:#333
-    style LR_GW fill:#50c878,stroke:#333
-    style LR_InfPool fill:#50c878,stroke:#333
-    style LR_LWS fill:#50c878,stroke:#333
-    style LR_WVA fill:#50c878,stroke:#333
-    style LR_Mon fill:#50c878,stroke:#333
-    style LR_IstioOCP fill:#50c878,stroke:#333
-    style LR_SCC fill:#50c878,stroke:#333
-    style LR_RBAC fill:#50c878,stroke:#333
-    style LR_Lease fill:#50c878,stroke:#333
+    style KR_Admission fill:#7ed321,stroke:#333
+    style LR_LLMISVC fill:#7ed321,stroke:#333
+    style LR_LWS fill:#7ed321,stroke:#333
+    style LR_GW fill:#7ed321,stroke:#333
+    style LR_GIE fill:#7ed321,stroke:#333
+    style LR_DRA fill:#7ed321,stroke:#333
+    style LR_WVA fill:#7ed321,stroke:#333
+    style LR_KEDA fill:#7ed321,stroke:#333
+    style LR_Mon fill:#7ed321,stroke:#333
+    style LR_Istio fill:#e74c3c,stroke:#333,color:#fff
+    style LR_SCC fill:#e74c3c,stroke:#333,color:#fff

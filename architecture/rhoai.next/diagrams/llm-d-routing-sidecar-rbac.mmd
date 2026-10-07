@@ -1,53 +1,45 @@
 graph TD
-    subgraph ServiceAccounts["Service Accounts"]
-        SA_Placeholder["SA: placeholder<br/>(template variable)<br/>Namespace: ${NAMESPACE}"]
-        Group_Auth["Group: system:authenticated<br/>(all authenticated users)"]
+    subgraph "Service Accounts & Subjects"
+        SA_Auth["system:authenticated<br/>(Group)"]
+        SA_Placeholder["placeholder<br/>(ServiceAccount)"]
     end
 
-    subgraph RoleBindings["Role Bindings (Namespace-scoped)"]
+    subgraph "Role Bindings"
         RB_Exec["${PROJECT_NAME}-exec-rolebinding<br/>Namespace: ${NAMESPACE}"]
-        RB_SSRF["ssrf-allowlist-rolebinding<br/>Namespace: ${NAMESPACE}"]
+        RB_SSRF["ssrf-allowlist-rolebinding<br/>Namespace: cluster-scoped"]
     end
 
-    subgraph Roles["Roles (Namespace-scoped)"]
-        Role_Exec["${PROJECT_NAME}-exec-role"]
-        Role_SSRF["ssrf-allowlist-role"]
+    subgraph "Roles"
+        Role_Exec["${PROJECT_NAME}-exec-role<br/>(Role)"]
+        Role_SSRF["ssrf-allowlist-role<br/>(ClusterRole)"]
     end
 
-    subgraph APIResources_Exec["API Resources (Exec)"]
-        PodsExec["Core API ('')<br/>pods/exec"]
-    end
-
-    subgraph APIResources_SSRF["API Resources (SSRF Protection)"]
-        Pods["Core API ('')<br/>pods"]
+    subgraph "API Resources"
+        PodsExec["Core API<br/>pods/exec"]
+        Pods["Core API<br/>pods"]
         InferencePools["inference.networking.x-k8s.io<br/>inferencepools"]
     end
 
-    %% Exec RBAC chain
-    Group_Auth -->|"bound via"| RB_Exec
+    %% Bindings
+    SA_Auth -->|"bound via"| RB_Exec
     RB_Exec -->|"grants"| Role_Exec
-    Role_Exec -->|"create"| PodsExec
 
-    %% SSRF RBAC chain
     SA_Placeholder -->|"bound via"| RB_SSRF
     RB_SSRF -->|"grants"| Role_SSRF
+
+    %% Permissions
+    Role_Exec -->|"create"| PodsExec
+
     Role_SSRF -->|"get, watch, list"| Pods
     Role_SSRF -->|"get, watch, list"| InferencePools
 
-    %% Purpose annotations
-    PodsExec -.-|"Purpose: Debug access<br/>to sidecar pod"| Note_Exec["Allows exec into<br/>sidecar pod for<br/>debugging/troubleshooting"]
-    Pods -.-|"Purpose: Build IP<br/>allowlist from pod IPs"| Note_SSRF1["Watches pods matching<br/>InferencePool selector<br/>for SSRF allowlist"]
-    InferencePools -.-|"Purpose: Get pod<br/>label selectors"| Note_SSRF2["Watches InferencePool<br/>to extract label selectors<br/>for pod filtering"]
-
-    style SA_Placeholder fill:#4a90e2,stroke:#333,color:#fff
-    style Group_Auth fill:#4a90e2,stroke:#333,color:#fff
-    style RB_Exec fill:#f5a623,stroke:#333
-    style RB_SSRF fill:#f5a623,stroke:#333
-    style Role_Exec fill:#e8594f,stroke:#333,color:#fff
-    style Role_SSRF fill:#e8594f,stroke:#333,color:#fff
-    style PodsExec fill:#7ed321,stroke:#333
-    style Pods fill:#7ed321,stroke:#333
-    style InferencePools fill:#7ed321,stroke:#333
-    style Note_Exec fill:#f9f9f9,stroke:#ccc,stroke-dasharray: 5 5
-    style Note_SSRF1 fill:#f9f9f9,stroke:#ccc,stroke-dasharray: 5 5
-    style Note_SSRF2 fill:#f9f9f9,stroke:#ccc,stroke-dasharray: 5 5
+    %% Styling
+    style SA_Auth fill:#4a90e2,color:#fff
+    style SA_Placeholder fill:#4a90e2,color:#fff
+    style RB_Exec fill:#b8d4f0,stroke:#4a90e2
+    style RB_SSRF fill:#b8d4f0,stroke:#4a90e2
+    style Role_Exec fill:#f5a623,color:#fff
+    style Role_SSRF fill:#f5a623,color:#fff
+    style PodsExec fill:#7ed321,color:#fff
+    style Pods fill:#7ed321,color:#fff
+    style InferencePools fill:#7ed321,color:#fff

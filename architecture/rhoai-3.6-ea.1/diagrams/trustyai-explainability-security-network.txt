@@ -1,0 +1,145 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [External Client]                                                       │
+│         │                                                                │
+│         │ Port: (default HTTP)                                           │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: NONE (tls: null on Route)                          │
+│         │ Auth: None (platform-delegated)                                │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (OpenShift Route)                                              │
+│                                                                          │
+│  [OpenShift Route: trustyai]                                             │
+│  - Type: Route                                                           │
+│  - TLS: null (no TLS termination configured)                             │
+│  - Auth: None at Route level                                             │
+│  - Exposure: External                                                    │
+│         │                                                                │
+│         │ Port: 80/TCP → 8080/TCP                                       │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: None                                               │
+│         │ Auth: None                                                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL (Service)                                             │
+│                                                                          │
+│  [Service: trustyai-service]                                             │
+│  - Type: ClusterIP                                                       │
+│  - Port: 80/TCP → 8080/TCP                                              │
+│  - Exposure: Internal                                                    │
+│         │                                                                │
+│         │ Port: 8080/TCP                                                 │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: None (plaintext)                                   │
+│         ▼                                                                │
+│  [Deployment: trustyai-service]                                          │
+│  - Namespace: {user-namespace}                                           │
+│  - ServiceAccount: trustyai-serviceaccount                               │
+│  - Image: trustyai-explainability-service                                │
+│  - Ports:                                                                │
+│    - 8080/TCP (HTTP - primary, exposed via Service/Route)                │
+│    - 4443/TCP (HTTPS - internal TLS, NOT exposed)                        │
+│      - Cert: /etc/tls/internal/tls.crt                                   │
+│      - Key: /etc/tls/internal/tls.key                                    │
+│      - Used for: internal mTLS when service mesh active                  │
+│                                                                          │
+│  HTTP Endpoints on port 8080:                                            │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  /q/health/live         GET   - Liveness probe (no auth)       │    │
+│  │  /q/health/ready        GET   - Readiness probe (no auth)      │    │
+│  │  /consumer/kserve/v2    POST  - Payload ingestion (no auth)    │    │
+│  │  /info                  GET   - Service metadata (no auth)     │    │
+│  │  /metrics/group/        POST  - Fairness metrics (no auth)     │    │
+│  │    fairness/spd                                                │    │
+│  │  /metrics/group/        POST  - Fairness metrics (no auth)     │    │
+│  │    fairness/dir                                                │    │
+│  │  /metrics/all/requests  GET   - List metrics (no auth)         │    │
+│  │  /q/metrics             GET   - Prometheus metrics (no auth)   │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│         │                                                                │
+│         │ Reads/Writes                                                   │
+│         ▼                                                                │
+│  [PVC: trustyai-service-pvc]                                             │
+│  - Mount: /inputs                                                        │
+│  - Purpose: Inference data storage                                       │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INBOUND (Same Namespace)                                               │
+│                                                                          │
+│  [KServe/ModelMesh]                                                      │
+│  - Direction: Inbound                                                    │
+│  - Port: 8080/TCP                                                        │
+│  - Protocol: HTTP                                                        │
+│  - Encryption: Unknown (namespace-internal)                              │
+│  - Auth: None                                                            │
+│  - Purpose: Forwards inference input/output payloads                     │
+│  - Integration: Init container creates model-serving-config ConfigMap    │
+│                 to configure payload forwarding                          │
+│                                                                          │
+│  [Prometheus]                                                            │
+│  - Direction: Inbound scrape                                             │
+│  - Port: 8080/TCP                                                        │
+│  - Protocol: HTTP                                                        │
+│  - Encryption: Unknown                                                   │
+│  - Auth: None                                                            │
+│  - Purpose: Scrapes /q/metrics endpoint                                  │
+│  - Config: prometheus.io/scrape annotation                               │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  OUTBOUND (Optional)                                                    │
+│                                                                          │
+│  [MariaDB/MySQL] (disabled by default)                                   │
+│  - Direction: Outbound                                                   │
+│  - Protocol: JDBC                                                        │
+│  - Encryption: Unknown                                                   │
+│  - Auth: JDBC credentials                                                │
+│  - Purpose: Optional database persistence                                │
+│  - Enabled when: QUARKUS_HIBERNATE_ORM_ACTIVE=true                      │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- ClusterRole: trustyai-role
+  - API Groups: "" (core)
+  - Resources: configmaps
+  - Verbs: create, delete, get, list, patch, update, watch
+
+- ClusterRoleBinding: trustyai-clusterrolebinding
+  - Scope: Cluster-scoped
+  - Role: trustyai-role (ClusterRole)
+  - ServiceAccount: trustyai-serviceaccount
+
+Authentication & Authorization:
+- Application-level auth: NONE
+  - No OIDC, no RBAC interceptor, no token validation
+  - All endpoints are unauthenticated at the application layer
+- Route TLS: null (no TLS termination)
+- Security relies entirely on platform-level enforcement:
+  - Network policies
+  - OpenShift Service Mesh (if deployed)
+  - External gateway
+
+TLS Configuration:
+- Port 8080: Plaintext HTTP (primary, exposed)
+- Port 4443: HTTPS with certificate files (internal only, NOT exposed via Service/Route)
+  - Certificate: /etc/tls/internal/tls.crt
+  - Key: /etc/tls/internal/tls.key
+  - Purpose: Internal mTLS when platform service mesh is active
+
+FIPS Compliance:
+- Runtime: Java/Quarkus on UBI9 OpenJDK 17
+- FIPS mode: Inherited from host OS (JDK uses system FIPS crypto providers)
+- No explicit FIPS build flags or annotations
+- Crypto: Java standard library via OpenJDK 17
+
+Secrets:
+- No secrets defined in manifests
+
+SECURITY CONCERNS:
+1. OpenShift Route has tls: null - external traffic is unencrypted
+2. No application-level authentication on any endpoint
+3. ClusterRole grants broad ConfigMap permissions at cluster scope
+4. /consumer/kserve/v2 accepts unauthenticated POST requests (inference data)
+5. Port 4443 TLS listener exists but is not exposed through Service/Route

@@ -1,0 +1,54 @@
+sequenceDiagram
+    participant Client as Client / SDK
+    participant MLPipeline as ml-pipeline API Server<br/>8443/8887/8888 TCP
+    participant TokenReview as Kubernetes TokenReview<br/>authentication/v1
+    participant SAR as Kubernetes SubjectAccessReview<br/>authorization/v1
+    participant MySQL as MySQL<br/>3306/TCP
+    participant S3 as S3-Compatible Storage<br/>(SeaweedFS/MinIO)
+    participant ArgoWF as Argo Workflow Controller
+    participant PersistAgent as Persistence Agent
+    participant MetaWriter as Metadata Writer
+    participant MetaEnvoy as Metadata Envoy<br/>9090/TCP
+    participant MetaGRPC as Metadata gRPC Store<br/>8080/TCP
+    participant CacheWH as Cache Server<br/>Mutating Webhook<br/>443/TCP
+
+    Note over Client, MLPipeline: API Request Flow
+
+    Client->>MLPipeline: gRPC/REST Request<br/>Bearer Token in header
+    MLPipeline->>TokenReview: POST TokenReview<br/>Validate bearer token
+    TokenReview-->>MLPipeline: TokenReview Response<br/>(authenticated user info)
+    MLPipeline->>SAR: POST SubjectAccessReview<br/>Check resource permissions
+    SAR-->>MLPipeline: SAR Response<br/>(allowed/denied)
+    MLPipeline->>MySQL: Query pipeline metadata<br/>3306/TCP
+    MySQL-->>MLPipeline: Query results
+    MLPipeline-->>Client: API Response
+
+    Note over Client, S3: Pipeline Upload Flow
+
+    Client->>MLPipeline: POST /apis/v2beta1/pipelines/upload<br/>Pipeline YAML/IR
+    MLPipeline->>TokenReview: Validate token
+    TokenReview-->>MLPipeline: Authenticated
+    MLPipeline->>SAR: Check create permission
+    SAR-->>MLPipeline: Allowed
+    MLPipeline->>S3: Store pipeline artifact<br/>AWS SDK v2 (path-style)
+    S3-->>MLPipeline: Upload confirmed
+    MLPipeline->>MySQL: Store pipeline record
+    MySQL-->>MLPipeline: Stored
+    MLPipeline-->>Client: Pipeline created
+
+    Note over ArgoWF, MetaGRPC: Pipeline Execution Flow
+
+    ArgoWF->>ArgoWF: Execute workflow steps
+    ArgoWF->>CacheWH: Pod creation intercepted<br/>Mutating admission webhook
+    CacheWH-->>ArgoWF: Cache hit: skip step<br/>Cache miss: proceed
+
+    PersistAgent->>ArgoWF: Watch workflow status
+    ArgoWF-->>PersistAgent: Workflow state updates
+    PersistAgent->>MLPipeline: Sync run status<br/>(report API)
+
+    MetaWriter->>ArgoWF: Watch workflow resources
+    ArgoWF-->>MetaWriter: Execution artifacts
+    MetaWriter->>MetaEnvoy: Write execution metadata<br/>9090/TCP
+    MetaEnvoy->>MetaGRPC: Proxy gRPC request<br/>8080/TCP
+    MetaGRPC-->>MetaEnvoy: Stored
+    MetaEnvoy-->>MetaWriter: Confirmed

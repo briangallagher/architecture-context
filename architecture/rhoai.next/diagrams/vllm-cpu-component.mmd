@@ -1,58 +1,87 @@
 graph TB
-    subgraph vllmcpu["vllm-cpu (odh-vllm-cpu-rhel9)"]
+    subgraph "vllm-cpu Inference Server"
         direction TB
 
-        subgraph APILayer["API Layer"]
-            OpenAIServer["OpenAI API Server<br/>(FastAPI)<br/>Port 8000/TCP"]
-            GRPCServer["gRPC Server<br/>Port 50051/TCP"]
+        subgraph "Frontend Layer"
+            APIServer["OpenAI API Server<br/>FastAPI/Uvicorn<br/>Port 8000/TCP"]
+            GRPCServer["gRPC Server<br/>grpc.aio<br/>Port 50051/TCP"]
+            CLI["CLI<br/>serve / benchmark / batch"]
         end
 
-        subgraph Engine["Inference Engine"]
-            AsyncLLM["V1 Async Engine<br/>(AsyncLLM)<br/>VLLM_USE_V1=1"]
-            CPUKernels["CPU Kernels<br/>(C++ Extensions)<br/>x86_64 / ppc64le / s390x"]
+        subgraph "Rust Frontend (PyO3)"
+            RustTokenizer["Tokenizer"]
+            RustChat["Chat Renderer"]
+            RustToolParser["Tool Parser"]
+            RustReasoning["Reasoning Parser"]
         end
 
-        subgraph Observability["Observability"]
-            Prometheus["Prometheus<br/>Instrumentator<br/>/metrics"]
-            OTel["OpenTelemetry<br/>Tracing<br/>OTLP Export"]
+        subgraph "V1 Engine Core"
+            InputProc["Input Processor"]
+            ZMQ_In["ZMQ PUSH"]
+            Scheduler["Scheduler"]
+            ZMQ_Out["ZMQ PUB"]
+            OutputProc["Output Processor"]
         end
 
-        OpenAIServer -->|"Python call"| AsyncLLM
-        GRPCServer -->|"Python call"| AsyncLLM
-        AsyncLLM -->|"Python/C++"| CPUKernels
+        subgraph "Model Executor"
+            ModelLoader["Model Loader<br/>15+ format plugins"]
+            WeightMgr["Weight Manager"]
+            Executor["CPU Executor<br/>UniProcExecutor"]
+        end
+
+        subgraph "CPU Platform"
+            NUMA["NUMA-aware Memory"]
+            OpenMP["OpenMP Threading"]
+            DType["Arch-specific DType<br/>bf16/fp16/fp32"]
+        end
     end
 
-    %% External Clients
-    Client["External Client"] -->|"POST /v1/chat/completions<br/>HTTP 8000/TCP<br/>API Key (optional)"| OpenAIServer
-    GRPCClient["gRPC Client"] -->|"gRPC 50051/TCP<br/>Insecure"| GRPCServer
+    %% Frontend connections
+    APIServer -->|"request parsing"| RustTokenizer
+    APIServer -->|"chat template"| RustChat
+    APIServer -->|"tool calls"| RustToolParser
 
-    %% Platform Integration
-    KServe["KServe<br/>InferenceService"] -->|"manages as<br/>runtime container"| vllmcpu
+    %% API to Engine flow
+    APIServer -->|"processed request"| InputProc
+    GRPCServer -->|"processed request"| InputProc
+    InputProc --> ZMQ_In
+    ZMQ_In --> Scheduler
+    Scheduler -->|"schedule batch"| Executor
+    Executor --> ZMQ_Out
+    ZMQ_Out --> OutputProc
+    OutputProc -->|"response"| APIServer
+    OutputProc -->|"response"| GRPCServer
 
-    %% External Dependencies
-    AsyncLLM -->|"model loading"| PyTorch["PyTorch CPU<br/>(torch 2.10.0)"]
-    PyTorch -->|"native ops"| CPUKernels
+    %% Model loading
+    ModelLoader -->|"load weights"| WeightMgr
+    WeightMgr -->|"memory map"| NUMA
+    Executor -->|"inference"| DType
+    Executor -->|"threading"| OpenMP
 
-    %% Model Sources
-    AsyncLLM -->|"HTTPS 443<br/>HF_TOKEN"| HFHub["Hugging Face Hub"]
-    AsyncLLM -->|"HTTPS 443<br/>AWS IAM"| S3["S3-compatible<br/>Storage"]
-
-    %% Observability Exports
-    Prometheus -->|"scrape /metrics"| PromServer["Prometheus Server"]
-    OTel -->|"OTLP export<br/>HTTPS/gRPC"| OTelCollector["OpenTelemetry<br/>Collector"]
+    %% External dependencies
+    KServe["KServe<br/>InferenceService"] -->|"routes traffic to"| APIServer
+    HFHub["HuggingFace Hub<br/>443/TCP HTTPS"] -.->|"model download"| ModelLoader
+    Prometheus["Prometheus"] -.->|"scrape metrics"| APIServer
 
     %% Styling
-    style OpenAIServer fill:#4a90e2,stroke:#333,color:#fff
+    style APIServer fill:#4a90e2,stroke:#333,color:#fff
     style GRPCServer fill:#4a90e2,stroke:#333,color:#fff
-    style AsyncLLM fill:#4a90e2,stroke:#333,color:#fff
-    style CPUKernels fill:#4a90e2,stroke:#333,color:#fff
-    style Prometheus fill:#4a90e2,stroke:#333,color:#fff
-    style OTel fill:#4a90e2,stroke:#333,color:#fff
-    style KServe fill:#7ed321,stroke:#333,color:#fff
-    style HFHub fill:#f5a623,stroke:#333,color:#fff
-    style S3 fill:#f5a623,stroke:#333,color:#fff
-    style PyTorch fill:#e8e8e8,stroke:#333
-    style PromServer fill:#e8e8e8,stroke:#333
-    style OTelCollector fill:#e8e8e8,stroke:#333
-    style Client fill:#f9f9f9,stroke:#999
-    style GRPCClient fill:#f9f9f9,stroke:#999
+    style CLI fill:#4a90e2,stroke:#333,color:#fff
+    style RustTokenizer fill:#e06c37,stroke:#333,color:#fff
+    style RustChat fill:#e06c37,stroke:#333,color:#fff
+    style RustToolParser fill:#e06c37,stroke:#333,color:#fff
+    style RustReasoning fill:#e06c37,stroke:#333,color:#fff
+    style InputProc fill:#7ed321,stroke:#333
+    style Scheduler fill:#7ed321,stroke:#333
+    style OutputProc fill:#7ed321,stroke:#333
+    style ZMQ_In fill:#a8d08d,stroke:#333
+    style ZMQ_Out fill:#a8d08d,stroke:#333
+    style ModelLoader fill:#f5a623,stroke:#333
+    style WeightMgr fill:#f5a623,stroke:#333
+    style Executor fill:#f5a623,stroke:#333
+    style NUMA fill:#9b59b6,stroke:#333,color:#fff
+    style OpenMP fill:#9b59b6,stroke:#333,color:#fff
+    style DType fill:#9b59b6,stroke:#333,color:#fff
+    style KServe fill:#e8e8e8,stroke:#333
+    style HFHub fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333

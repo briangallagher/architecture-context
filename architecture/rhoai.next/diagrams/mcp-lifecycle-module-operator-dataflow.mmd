@@ -1,0 +1,37 @@
+sequenceDiagram
+    participant PlatformOp as ODH Platform Operator
+    participant K8sAPI as Kubernetes API Server<br/>443/TCP HTTPS TLS 1.2+
+    participant ModuleOp as MCP Lifecycle<br/>Module Operator
+    participant OSAPIServer as OpenShift APIServer CR<br/>config.openshift.io/v1
+    participant ConfigMap as Platform ConfigMap<br/>odh-mcplifecycleoperator-config
+
+    Note over PlatformOp,ConfigMap: Flow 1: Deploy Operand (managementState=Managed)
+
+    PlatformOp->>K8sAPI: Create MCPLifecycleOperator CR<br/>Auth: SA Token
+    K8sAPI-->>ModuleOp: Watch event: MCPLifecycleOperator created
+    ModuleOp->>K8sAPI: GET OpenShift APIServer CR<br/>Auth: SA Token
+    K8sAPI-->>ModuleOp: TLS Profile (Intermediate)<br/>MinVersion: TLS 1.2, CipherSuites
+    ModuleOp->>ModuleOp: Render embedded manifests<br/>+ namespace injection<br/>+ image replacement (RELATED_IMAGE_*)<br/>+ label injection<br/>+ TLS env var injection
+    ModuleOp->>K8sAPI: SSA Apply operand resources<br/>(Deployment, SA, RBAC, CRD,<br/>Service, NetworkPolicy)<br/>Auth: SA Token
+    K8sAPI-->>ModuleOp: Applied successfully
+    ModuleOp->>K8sAPI: Read Platform ConfigMap<br/>Auth: SA Token
+    ConfigMap-->>ModuleOp: Platform version
+    ModuleOp->>K8sAPI: Patch CR status<br/>(conditions, phase, version)<br/>Auth: SA Token
+    K8sAPI-->>ModuleOp: Status updated
+
+    Note over PlatformOp,ConfigMap: Flow 2: Remove Operand (managementState=Removed)
+
+    PlatformOp->>K8sAPI: Patch CR managementState=Removed<br/>Auth: SA Token
+    K8sAPI-->>ModuleOp: Watch event: CR updated
+    ModuleOp->>K8sAPI: List resources with label<br/>platform.opendatahub.io/part-of:<br/>mcplifecycleoperator<br/>Auth: SA Token
+    K8sAPI-->>ModuleOp: Resource list
+    ModuleOp->>K8sAPI: Delete labeled resources<br/>(garbage collection)<br/>Auth: SA Token
+    K8sAPI-->>ModuleOp: Resources deleted
+    ModuleOp->>K8sAPI: Patch CR status<br/>(phase=Removed)<br/>Auth: SA Token
+    K8sAPI-->>ModuleOp: Status updated
+
+    Note over PlatformOp,ConfigMap: Drift Detection (continuous)
+
+    K8sAPI-->>ModuleOp: Watch event: owned resource modified<br/>(Deployment, Service, RBAC, etc.)
+    ModuleOp->>ModuleOp: Re-render desired state
+    ModuleOp->>K8sAPI: SSA Apply to restore desired state<br/>Auth: SA Token

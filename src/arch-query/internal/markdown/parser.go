@@ -77,6 +77,22 @@ func ParseComponentDoc(fsys fs.FS, path string) (*types.ComponentDoc, error) {
 	return doc, nil
 }
 
+// ReadRawSections reads only the rendered Markdown section bodies. Accepted
+// document callers use this for grep compatibility without treating the
+// derivative Markdown as an authority for typed facts.
+func ReadRawSections(fsys fs.FS, path string) (map[string]string, error) {
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return nil, err
+	}
+	sections := splitSections(strings.Split(string(data), "\n"))
+	raw := make(map[string]string, len(sections))
+	for _, section := range sections {
+		raw[section.name] = strings.Join(section.lines, "\n")
+	}
+	return raw, nil
+}
+
 type section struct {
 	name  string
 	lines []string
@@ -310,14 +326,19 @@ func parseRBACRoles(lines []string) []types.RBACRole {
 	rows := ParseTableSkipHeader(subsection)
 	var result []types.RBACRole
 	for _, row := range rows {
-		if len(row) >= 4 {
-			result = append(result, types.RBACRole{
-				RoleName:  row[0],
-				APIGroup:  row[1],
-				Resources: row[2],
-				Verbs:     row[3],
-			})
+		if len(row) < 4 {
+			continue
 		}
+		role := types.RBACRole{
+			RoleName: row[0], APIGroup: row[1], Resources: row[2],
+		}
+		if len(row) >= 5 {
+			role.NonResourceURLs = row[3]
+			role.Verbs = row[4]
+		} else {
+			role.Verbs = row[3]
+		}
+		result = append(result, role)
 	}
 	return result
 }

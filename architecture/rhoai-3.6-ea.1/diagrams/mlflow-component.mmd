@@ -1,0 +1,89 @@
+graph TB
+    subgraph External["External Clients"]
+        Client[ML Client / SDK]
+        UI[MLflow UI User]
+    end
+
+    subgraph MLflowServer["MLflow Tracking Server (Port 5000)"]
+        direction TB
+
+        subgraph Entrypoint["Container Entrypoint"]
+            CMD["python3.12 -m mlflow server<br/>--host 0.0.0.0 --port 5000<br/>--app-name kubernetes-auth<br/>--enable-workspaces<br/>--workspace-store-uri kubernetes://<br/>--serve-artifacts"]
+        end
+
+        subgraph ServerLayer["ASGI/WSGI Layer"]
+            Gunicorn[Gunicorn<br/>WSGI Server]
+            Uvicorn[Uvicorn<br/>ASGI Server]
+        end
+
+        subgraph AuthLayer["Authentication & Authorization"]
+            KubeAuth["kubernetes-auth Plugin<br/>(mlflow-kubernetes-plugins v1.5.0)"]
+            RBAC["RBAC Module<br/>mlflow/server/auth"]
+            WorkspaceStore["Workspace Store<br/>kubernetes://"]
+        end
+
+        subgraph AppLayer["Application Services"]
+            TrackingAPI["Tracking API<br/>/ajax-api/3.0/mlflow/*"]
+            ModelRegistry["Model Registry API<br/>/{name}/versions/*"]
+            ArtifactProxy["Artifact Proxy<br/>--serve-artifacts"]
+            HealthEndpoint["/health, /version"]
+        end
+
+        subgraph DisabledFeatures["Disabled in RHOAI"]
+            Gateway["AI Gateway<br/>MLFLOW_ENABLE_AI_GATEWAY=false"]
+            Assistant["Assistant<br/>MLFLOW_ENABLE_ASSISTANT=false"]
+            JobExec["Job Execution<br/>MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false"]
+        end
+
+        subgraph SDKLayer["Client SDK"]
+            MLflowSkinny["mlflow-skinny<br/>Minimal dependency client"]
+            MLflowTracing["mlflow-tracing<br/>Instrumentation SDK"]
+        end
+    end
+
+    subgraph ExternalDeps["External Services"]
+        K8sAPI["Kubernetes API<br/>SA Token Auth"]
+        S3["S3-Compatible Storage<br/>(boto3)"]
+        GCS["Google Cloud Storage"]
+        SQLBackend["SQL Backend<br/>(PostgreSQL / SQLite)"]
+    end
+
+    %% Client flows
+    Client -->|"REST API<br/>Bearer Token"| KubeAuth
+    UI -->|"HTTP/HTTPS<br/>Browser"| KubeAuth
+
+    %% Internal flows
+    CMD --> Gunicorn
+    CMD --> Uvicorn
+    Gunicorn --> KubeAuth
+    Uvicorn --> KubeAuth
+    KubeAuth -->|validates token| K8sAPI
+    KubeAuth -->|authorized| RBAC
+    RBAC --> TrackingAPI
+    RBAC --> ModelRegistry
+    RBAC --> ArtifactProxy
+    RBAC --> HealthEndpoint
+    KubeAuth -->|"X-MLFLOW-WORKSPACE header"| WorkspaceStore
+    WorkspaceStore -->|namespace lookup| K8sAPI
+
+    %% External integrations
+    TrackingAPI -->|experiment metadata| SQLBackend
+    ArtifactProxy -->|model artifacts| S3
+    ArtifactProxy -->|model artifacts| GCS
+
+    %% Styling
+    style CMD fill:#4a90e2,color:#fff
+    style KubeAuth fill:#e74c3c,color:#fff
+    style RBAC fill:#e74c3c,color:#fff
+    style TrackingAPI fill:#4a90e2,color:#fff
+    style ModelRegistry fill:#4a90e2,color:#fff
+    style ArtifactProxy fill:#4a90e2,color:#fff
+    style Gateway fill:#999,stroke-dasharray: 5 5
+    style Assistant fill:#999,stroke-dasharray: 5 5
+    style JobExec fill:#999,stroke-dasharray: 5 5
+    style K8sAPI fill:#f5a623
+    style S3 fill:#f5a623
+    style GCS fill:#f5a623
+    style SQLBackend fill:#f5a623
+    style MLflowSkinny fill:#7ed321,color:#fff
+    style MLflowTracing fill:#7ed321,color:#fff

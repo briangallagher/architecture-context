@@ -1,40 +1,65 @@
 graph TB
-    subgraph "vLLM CUDA Runtime"
-        direction TB
-        TGISAdapter["vllm_tgis_adapter<br/>(Python Entrypoint)"]
-        VLLMEngine["vLLM Serving Engine<br/>PagedAttention / Continuous Batching"]
-        OpenAIAPI["OpenAI-Compatible HTTP API<br/>Port 8000/TCP"]
-        TGISGRPC["TGIS gRPC Service<br/>Port 8033/TCP"]
-
-        TGISAdapter --> VLLMEngine
-        TGISAdapter --> OpenAIAPI
-        TGISAdapter --> TGISGRPC
-        VLLMEngine --> GPU["NVIDIA CUDA<br/>GPU Compute"]
+    subgraph External["External Clients"]
+        Client[Client / Application]
     end
 
-    subgraph "Container Image Layers"
-        direction TB
-        BaseImage["rhaiis/vllm-cuda-rhel9:3.2.2<br/>(RHAIIS Base Image)<br/>Python, CUDA, vLLM, TGIS Adapter"]
-        ConfigLayer["odh-vllm-cuda-rhel9<br/>(Config Layer)<br/>ENV, USER 2000, ENTRYPOINT"]
-        BaseImage --> ConfigLayer
+    subgraph ServingInfra["RHOAI Serving Infrastructure"]
+        Gateway["Gateway API<br/>(Envoy)"]
+        KubeRBAC["kube-rbac-proxy<br/>Sidecar<br/>8443/TCP TLS"]
     end
 
-    Client["External Client"] -->|"HTTPS/443<br/>Bearer Token"| Gateway
-    Gateway["RHOAI Gateway<br/>kube-rbac-proxy / Gateway API"] -->|"HTTP/8000"| OpenAIAPI
-    InternalSvc["Internal Service"] -->|"gRPC/8033"| TGISGRPC
+    subgraph VLLMPod["vLLM Serving Pod (UID 2000)"]
+        subgraph VLLMContainer["vllm-cuda Container"]
+            TGISAdapter["vllm_tgis_adapter<br/>Entrypoint Module"]
+            VLLMEngine["vLLM Inference Engine<br/>(from RHAIIS base)"]
+            OpenAIAPI["OpenAI-Compatible<br/>HTTP Server<br/>Port 8000/TCP"]
+            TGISGRPC["TGIS gRPC Server<br/>Port 8033/TCP"]
 
-    KServe["KServe Operator"] -->|"manages via<br/>ServingRuntime CR"| TGISAdapter
-    ModelStorage["Model Storage<br/>(S3 / HuggingFace / PVC)"] -.->|"HTTPS/443<br/>Model Weights"| VLLMEngine
+            TGISAdapter -->|launches| OpenAIAPI
+            TGISAdapter -->|launches| TGISGRPC
+            OpenAIAPI -->|inference| VLLMEngine
+            TGISGRPC -->|inference| VLLMEngine
+        end
+    end
 
-    style TGISAdapter fill:#4a90e2,stroke:#333,color:#fff
-    style VLLMEngine fill:#4a90e2,stroke:#333,color:#fff
-    style OpenAIAPI fill:#50c878,stroke:#333,color:#fff
-    style TGISGRPC fill:#50c878,stroke:#333,color:#fff
-    style GPU fill:#f5a623,stroke:#333,color:#fff
-    style BaseImage fill:#9b59b6,stroke:#333,color:#fff
-    style ConfigLayer fill:#9b59b6,stroke:#333,color:#fff
-    style Gateway fill:#e8e8e8,stroke:#333
-    style KServe fill:#e8e8e8,stroke:#333
-    style ModelStorage fill:#e8e8e8,stroke:#333
-    style Client fill:#f9f9f9,stroke:#999
-    style InternalSvc fill:#f9f9f9,stroke:#999
+    subgraph GPU["NVIDIA GPU"]
+        CUDARuntime["CUDA Runtime<br/>(cuDNN, cuBLAS, NCCL)"]
+    end
+
+    subgraph ModelStorage["Model Storage"]
+        S3["S3 Storage<br/>443/TCP HTTPS"]
+        PVC["Persistent Volume<br/>Filesystem"]
+        HFHub["Hugging Face Hub<br/>443/TCP HTTPS"]
+    end
+
+    subgraph Platform["RHOAI Platform"]
+        KServe["KServe Controller"]
+        InferenceServiceCR["InferenceService CR"]
+    end
+
+    Client -->|HTTPS/443| Gateway
+    Gateway -->|TLS/8443| KubeRBAC
+    KubeRBAC -->|HTTP/8000| OpenAIAPI
+    KubeRBAC -->|gRPC/8033| TGISGRPC
+
+    VLLMEngine -->|CUDA calls| CUDARuntime
+
+    VLLMEngine -->|model loading| S3
+    VLLMEngine -->|model loading| PVC
+    VLLMEngine -->|model loading| HFHub
+
+    KServe -->|deploys| VLLMPod
+    InferenceServiceCR -->|watched by| KServe
+
+    style TGISAdapter fill:#4a90e2,stroke:#333
+    style VLLMEngine fill:#4a90e2,stroke:#333
+    style OpenAIAPI fill:#4a90e2,stroke:#333
+    style TGISGRPC fill:#4a90e2,stroke:#333
+    style KubeRBAC fill:#f5a623,stroke:#333
+    style Gateway fill:#f5a623,stroke:#333
+    style KServe fill:#7ed321,stroke:#333
+    style InferenceServiceCR fill:#f5a623,stroke:#333
+    style CUDARuntime fill:#e8e8e8,stroke:#333
+    style S3 fill:#e8e8e8,stroke:#333
+    style PVC fill:#e8e8e8,stroke:#333
+    style HFHub fill:#e8e8e8,stroke:#333

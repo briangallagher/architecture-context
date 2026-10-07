@@ -1,0 +1,94 @@
+graph TB
+    subgraph OperatorPod["model-registry-operator-controller-manager"]
+        Manager["Manager Process<br/>/manager"]
+        MRReconciler["ModelRegistryReconciler"]
+        MCReconciler["ModelCatalogReconciler"]
+        WebhookServer["Webhook Server"]
+        Manager --> MRReconciler
+        Manager --> MCReconciler
+        Manager --> WebhookServer
+    end
+
+    subgraph CRDs["Custom Resource Definitions"]
+        ModelRegistryCR["ModelRegistry CR<br/>modelregistry.opendatahub.io<br/>v1alpha1 / v1beta1"]
+        CatalogCR["Catalog CR<br/>aihub.opendatahub.io/v1alpha1"]
+        AIHubCR["AIHub CR<br/>components.platform.opendatahub.io/v1alpha1"]
+    end
+
+    subgraph ManagedRegistry["Managed Registry Instance"]
+        RestContainer["rest-container<br/>:8080/TCP HTTP"]
+        KubeRBACProxy["kube-rbac-proxy<br/>:8443/TCP HTTPS"]
+        KubeRBACProxy -->|proxy to 127.0.0.1| RestContainer
+    end
+
+    subgraph ManagedRegistryDB["Registry Database"]
+        RegistryPostgres["PostgreSQL<br/>:5432/TCP"]
+    end
+
+    subgraph ManagedCatalog["Managed Catalog Instance"]
+        CatalogService["catalog<br/>:8080/TCP HTTP"]
+        CatalogProxy["kube-rbac-proxy<br/>:8443/TCP HTTPS"]
+        CatalogProxy -->|proxy to 127.0.0.1| CatalogService
+    end
+
+    subgraph ManagedCatalogDB["Catalog Database"]
+        CatalogPostgres["PostgreSQL<br/>:5432/TCP"]
+    end
+
+    subgraph Webhooks["Admission Webhooks"]
+        ConvertWH["/convert<br/>Conversion"]
+        MutateWH["/mutate-...<br/>Mutating"]
+        ValidateWH["/validate-...<br/>Validating"]
+    end
+
+    %% CR watches
+    ModelRegistryCR -->|watched by| MRReconciler
+    CatalogCR -->|watched by| MCReconciler
+    AIHubCR -->|watched by| MCReconciler
+
+    %% Reconciler creates
+    MRReconciler -->|creates/manages| ManagedRegistry
+    MRReconciler -->|creates/manages| ManagedRegistryDB
+    MCReconciler -->|creates/manages| ManagedCatalog
+    MCReconciler -->|creates/manages| ManagedCatalogDB
+
+    %% Webhook connections
+    WebhookServer --> ConvertWH
+    WebhookServer --> MutateWH
+    WebhookServer --> ValidateWH
+
+    %% Database connections
+    RestContainer -->|SQL| RegistryPostgres
+    CatalogService -->|SQL| CatalogPostgres
+
+    %% Ingress
+    HTTPRoute["HTTPRoute<br/>Gateway API"]
+    OSRoute["OpenShift Route<br/>TLS"]
+    HTTPRoute -->|path prefix routing| KubeRBACProxy
+    OSRoute -->|TLS terminated| KubeRBACProxy
+
+    %% External
+    K8sAPI["Kubernetes API<br/>:6443 HTTPS"]
+    Manager -->|watches/reconciles| K8sAPI
+
+    %% Cluster capabilities
+    ClusterCaps["Cluster Capability Detection<br/>OpenShift / BYOIDC / K8s"]
+    Manager -.->|probes at startup| ClusterCaps
+
+    %% Styling
+    style Manager fill:#4a90e2,stroke:#333,color:#fff
+    style MRReconciler fill:#4a90e2,stroke:#333,color:#fff
+    style MCReconciler fill:#4a90e2,stroke:#333,color:#fff
+    style WebhookServer fill:#4a90e2,stroke:#333,color:#fff
+    style ModelRegistryCR fill:#f5a623,stroke:#333,color:#fff
+    style CatalogCR fill:#f5a623,stroke:#333,color:#fff
+    style AIHubCR fill:#f5a623,stroke:#333,color:#fff
+    style RestContainer fill:#7ed321,stroke:#333,color:#fff
+    style KubeRBACProxy fill:#d0021b,stroke:#333,color:#fff
+    style CatalogService fill:#7ed321,stroke:#333,color:#fff
+    style CatalogProxy fill:#d0021b,stroke:#333,color:#fff
+    style RegistryPostgres fill:#9013fe,stroke:#333,color:#fff
+    style CatalogPostgres fill:#9013fe,stroke:#333,color:#fff
+    style HTTPRoute fill:#e8e8e8,stroke:#333
+    style OSRoute fill:#e8e8e8,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333

@@ -1,63 +1,71 @@
 workspace {
     model {
-        client = person "API Client" "Application or user sending OpenAI-compatible chat completion requests"
-        platformOp = person "Platform Operator" "Configures routes, detectors, and TLS settings via YAML config and volume mounts"
+        user = person "API Client" "Application or user sending chat completion requests to an LLM with guardrails"
 
-        gateway = softwareSystem "vLLM Orchestrator Gateway" "Rust HTTP gateway that proxies OpenAI-compatible chat completion requests with per-route detector injection and fallback message handling" {
-            routeHandler = container "Route Handler" "Receives POST requests on /{route_name}/v1/chat/completions and matches to configured routes" "Rust / axum"
-            detectorInjector = container "Detector Injector" "Injects route-specific input/output detector maps into request payload before forwarding" "Rust"
-            streamHandler = container "SSE Stream Handler" "Handles streaming responses; parses SSE chunks, checks detections, applies fallback" "Rust / futures"
-            nonStreamHandler = container "Non-Stream Handler" "Handles non-streaming responses; deserializes JSON, checks detections, applies fallback" "Rust / reqwest"
-            tlsConfig = container "TLS/mTLS Config" "Constructs PKCS#12 identity from PEM certs; configures custom CA trust; enables mTLS client auth" "Rust / openssl + native-tls"
-            configLoader = container "Config Loader" "Parses YAML config defining orchestrator connection, detector definitions, and route mappings" "Rust / serde_yml"
+        gatewaySystem = softwareSystem "vllm-orchestrator-gateway" "Rust HTTP reverse proxy that routes OpenAI-compatible chat completion requests through configurable detector pipelines" {
+            gateway = container "vllm-orchestrator-gateway" "Stateless HTTP proxy with config-driven route generation, detector injection, and fallback message handling" "Rust/axum" {
+                router = component "axum Router" "Dynamically generates /{route}/v1/chat/completions endpoints from config.yaml"
+                configLoader = component "Config Loader" "Parses config.yaml to build route-to-detector mappings" "serde_yml"
+                detectorInjector = component "Detector Injector" "Injects input/output detector configuration into request payload before forwarding"
+                fallbackHandler = component "Fallback Handler" "Replaces response content with fallback_message when detections are found"
+                streamHandler = component "SSE Stream Handler" "Processes chunked SSE responses, checking each chunk for detections" "futures/tokio"
+                tlsClient = component "mTLS Client" "Builds PKCS12 identity from OpenShift service-serving certs for outbound mTLS" "openssl/native-tls"
+            }
         }
 
-        orchestrator = softwareSystem "FMS Guardrails Orchestrator" "Backend service that performs chat completions with detector-based content analysis" "Internal"
-        detectors = softwareSystem "Guardrails Detectors" "Content detection services (e.g., regex-detector, PII detector) invoked by the orchestrator" "Internal"
-        llmServer = softwareSystem "vLLM / LLM Inference Server" "Language model serving engine for text generation" "Internal"
-        certManager = softwareSystem "cert-manager / service-ca-operator" "Provisions TLS certificates and CA bundles via Kubernetes volume mounts" "External"
-        k8sSecrets = softwareSystem "Kubernetes Secrets" "Volume-mounted TLS certificates and keys at well-known paths" "External"
+        orchestrator = softwareSystem "FMS Guardrails Orchestrator" "Performs LLM inference with detector-based content filtering" "Internal TrustyAI"
+        detectors = softwareSystem "Detector Services" "Content detection services (PII, regex-based filters) called by orchestrator" "Internal TrustyAI"
+        vllm = softwareSystem "vLLM Inference Server" "LLM serving backend for chat completions" "Internal"
+        certSigner = softwareSystem "OpenShift service-serving-cert-signer" "Provisions TLS client certificates at /etc/tls/private/" "OpenShift Infrastructure"
+        caOperator = softwareSystem "OpenShift service-ca-operator" "Provisions CA certificate at /etc/tls/ca/service-ca.crt" "OpenShift Infrastructure"
 
-        client -> gateway "POST /{route}/v1/chat/completions" "HTTP/8090, plaintext, Authorization pass-through"
-        platformOp -> gateway "Configures routes, detectors, TLS" "YAML config file + volume mounts"
-        gateway -> orchestrator "POST /api/v2/chat/completions-detection" "HTTP or HTTPS/8085, optional mTLS, forwarded auth"
-        orchestrator -> detectors "Invokes content detectors" "Internal"
-        orchestrator -> llmServer "Dispatches generation requests" "Internal"
-        certManager -> k8sSecrets "Provisions certificates" "X.509 PEM"
-        k8sSecrets -> gateway "Volume mounts TLS certs/keys" "/etc/tls/private/, /etc/tls/ca/"
+        user -> gatewaySystem "POST /{route}/v1/chat/completions" "HTTP/8090, Authorization header pass-through"
+        gatewaySystem -> orchestrator "POST /api/v2/chat/completions-detection" "HTTP or HTTPS/8085, optional mTLS"
+        orchestrator -> detectors "Dispatches detection requests" "Internal"
+        orchestrator -> vllm "Chat completion inference" "Internal"
+        certSigner -> gatewaySystem "Provisions TLS client cert/key" "kubernetes.io/tls secret"
+        caOperator -> gatewaySystem "Provisions CA certificate" "ConfigMap projection"
     }
 
     views {
-        systemContext gateway "SystemContext" {
+        systemContext gatewaySystem "SystemContext" {
             include *
             autoLayout
+            description "System context showing vllm-orchestrator-gateway in the TrustyAI ecosystem"
         }
 
-        container gateway "Containers" {
+        container gatewaySystem "Containers" {
             include *
             autoLayout
+            description "Container view of the gateway service"
+        }
+
+        component gateway "Components" {
+            include *
+            autoLayout
+            description "Internal components of the vllm-orchestrator-gateway"
         }
 
         styles {
-            element "External" {
-                background #999999
-                color #ffffff
-            }
-            element "Internal" {
+            element "Internal TrustyAI" {
                 background #7ed321
                 color #ffffff
             }
+            element "Internal" {
+                background #82b366
+                color #ffffff
+            }
+            element "OpenShift Infrastructure" {
+                background #999999
+                color #ffffff
+            }
             element "Person" {
-                shape Person
+                shape person
                 background #4a90e2
                 color #ffffff
             }
             element "Software System" {
                 background #4a90e2
-                color #ffffff
-            }
-            element "Container" {
-                background #438dd5
                 color #ffffff
             }
         }

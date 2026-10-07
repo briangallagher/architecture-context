@@ -1,0 +1,57 @@
+graph TB
+    subgraph "guardrails-detectors"
+        subgraph "Built-in Detector"
+            BuiltInApp["FastAPI App<br/>Port 8080"]
+            RegexEngine["Regex Engine<br/>Pattern Matching"]
+            FileTypeValidator["File-Type Validator"]
+            CustomRegistry["Custom Detector Registry<br/>Plugin System"]
+            BuiltInApp --> RegexEngine
+            BuiltInApp --> FileTypeValidator
+            BuiltInApp --> CustomRegistry
+        end
+
+        subgraph "HuggingFace Detector"
+            HFApp["FastAPI App<br/>Port 8000<br/>uvicorn workers=1"]
+            TransformerModel["Transformer Model<br/>AutoModelForSequenceClassification<br/>GraniteForCausalLM"]
+            HFApp --> TransformerModel
+        end
+
+        subgraph "LLM Judge Detector"
+            JudgeApp["FastAPI App<br/>Port 8000<br/>uvicorn workers=4"]
+            VLLMJudgeLib["vllm-judge Library"]
+            JudgeApp --> VLLMJudgeLib
+        end
+
+        subgraph "Observability"
+            PromMetrics["Prometheus Metrics<br/>prometheus-client<br/>prometheus-fastapi-instrumentator"]
+        end
+
+        BuiltInApp -.-> PromMetrics
+        HFApp -.-> PromMetrics
+        JudgeApp -.-> PromMetrics
+    end
+
+    Orchestrator["FMS Guardrails<br/>Orchestrator"] -->|"POST /api/v1/text/contents"| BuiltInApp
+    Orchestrator -->|"POST /api/v1/text/contents<br/>POST /api/v1/text/generation"| JudgeApp
+    Orchestrator -->|"POST /api/v1/text/contents"| HFApp
+
+    VLLMJudgeLib -->|"HTTP/8080<br/>VLLM_BASE_URL"| VLLMServer["vLLM Inference Server<br/>e.g. qwen2-predictor:8080"]
+
+    TransformerModel -->|"S3 model load<br/>at startup"| MinIO["MinIO Storage<br/>ClusterIP 9000/TCP"]
+
+    KServe["KServe<br/>serving.kserve.io"] -.->|"manages as<br/>ServingRuntime"| HFApp
+    KServe -.->|"manages as<br/>ServingRuntime"| JudgeApp
+
+    style BuiltInApp fill:#4a90e2,color:#fff
+    style HFApp fill:#4a90e2,color:#fff
+    style JudgeApp fill:#4a90e2,color:#fff
+    style RegexEngine fill:#6cb4ee,color:#fff
+    style FileTypeValidator fill:#6cb4ee,color:#fff
+    style CustomRegistry fill:#6cb4ee,color:#fff
+    style TransformerModel fill:#6cb4ee,color:#fff
+    style VLLMJudgeLib fill:#6cb4ee,color:#fff
+    style PromMetrics fill:#9b59b6,color:#fff
+    style Orchestrator fill:#27ae60,color:#fff
+    style VLLMServer fill:#e8e8e8,stroke:#333
+    style MinIO fill:#f5a623,color:#fff
+    style KServe fill:#e8e8e8,stroke:#333

@@ -1,58 +1,79 @@
 workspace {
     model {
-        dataScientist = person "Data Scientist / ML Engineer" "Writes training scripts using training-hub to fine-tune LLMs"
+        dataScientist = person "Data Scientist" "Creates and runs LLM training workflows"
+        mlEngineer = person "ML Engineer" "Builds training pipelines using Training Hub API"
+        codingAgent = person "AI Coding Agent" "Claude Code / Codex CLI invoking training via plugin"
 
-        trainingHub = softwareSystem "training-hub" "Algorithm-focused Python SDK providing unified interface for LLM fine-tuning (SFT, OSFT, LoRA, GRPO)" {
-            algorithmFramework = container "Algorithm Framework" "Abstract Algorithm/Backend/Registry pattern for pluggable algorithm-backend composition" "Python ABC"
-            sftAlgorithm = container "SFT Algorithm" "Supervised Fine-Tuning via instructlab-training backend" "Python Module"
-            osftAlgorithm = container "OSFT Algorithm" "Orthogonal Subspace Fine-Tuning via mini-trainer backend" "Python Module"
-            loraSftAlgorithm = container "LoRA+SFT Algorithm" "Parameter-efficient SFT via Unsloth backend (QLoRA, DoRA, RSLoRA)" "Python Module"
-            loraGrpoAlgorithm = container "LoRA+GRPO Algorithm" "Reinforcement learning from verifiable rewards via ART or verl backends" "Python Module"
-            grpoAlgorithm = container "GRPO Algorithm" "Full fine-tuning GRPO via verl backend" "Python Module"
-            peftExtender = container "PEFT Extender" "Composable parameter-efficient fine-tuning parameter definitions" "Python ABC"
-            profilingModule = container "Profiling Module" "GPU memory estimation (Basic, OSFT, LoRA, QLoRA estimators) and timing estimation" "Python Module"
-            visualizationModule = container "Visualization Module" "Training loss curve plotting with EMA smoothing and multi-run comparison" "Python Module"
-            rewardFunctions = container "Reward Functions" "tool_call_reward and binary_reward for GRPO training" "Python Module"
+        trainingHub = softwareSystem "Training Hub" "Unified Algorithm + Backend abstraction for LLM fine-tuning, RL, and prompt optimization" {
+            algorithmFramework = container "Algorithm + Backend Framework" "Core abstraction with AlgorithmRegistry, Algorithm ABC, Backend ABC" "Python Library"
+            sftAlgorithm = container "SFT Algorithm" "Supervised Fine-Tuning via InstructLab Training" "Python Module"
+            osftAlgorithm = container "OSFT Algorithm" "Orthogonal Subspace Fine-Tuning via Mini-Trainer" "Python Module"
+            loraSftAlgorithm = container "LoRA + SFT Algorithm" "Parameter-efficient LoRA/QLoRA via Unsloth" "Python Module"
+            loraGrpoAlgorithm = container "LoRA + GRPO Algorithm" "RL fine-tuning via ART (single-GPU) or verl (multi-GPU)" "Python Module"
+            gepaAlgorithm = container "GEPA Algorithm" "Gradient-free evolutionary prompt optimization" "Python Module"
+            memoryEstimator = container "Memory Estimator" "GPU memory profiling for training configurations" "Python Module"
+            visualization = container "Visualization" "Training loss curve plotting" "Python Module"
+            rewardFunctions = container "Reward Functions" "Tool-call verification and binary rewards for GRPO" "Python Module"
+            itsRollout = container "ITS Rollout Adapter" "BestOfN, BeamSearch sampling strategies for GRPO" "Python Module"
         }
 
-        instructlabTraining = softwareSystem "instructlab-training" "SFT backend: torchrun-based distributed training and data preprocessing" "Internal"
-        miniTrainer = softwareSystem "rhai-innovation-mini-trainer" "OSFT backend: orthogonal subspace training engine with SVD decomposition" "Internal"
-        unsloth = softwareSystem "Unsloth" "Optimized LoRA backend: FastModel/FastLanguageModel with VLM support" "External"
-        openPipeART = softwareSystem "OpenPipe ART" "Single-GPU GRPO backend: co-located vLLM inference + LoRA training" "External"
-        verl = softwareSystem "verl" "Multi-GPU distributed GRPO backend: FSDP + vLLM rollout workers" "External"
-        pytorch = softwareSystem "PyTorch" "Deep learning framework: DDP/FSDP distributed training, NCCL" "External"
-        huggingfaceHub = softwareSystem "HuggingFace Hub" "Pre-trained model weights and tokenizer repository" "External"
-        wandb = softwareSystem "WandB" "Experiment tracking and metrics visualization" "External"
-        mlflow = softwareSystem "MLflow" "Experiment tracking and model registry" "External"
-        gpuCluster = softwareSystem "GPU Cluster" "NVIDIA GPU infrastructure for model training (NCCL communication)" "Infrastructure"
+        # External training framework dependencies
+        instructlabTraining = softwareSystem "InstructLab Training" "Training framework for SFT with torchrun support" "External Library"
+        miniTrainer = softwareSystem "Mini-Trainer" "Training framework for OSFT with subspace unfreezing" "External Library"
+        unsloth = softwareSystem "Unsloth" "Optimized LoRA/QLoRA training with FastModel" "External Library"
+        openpipeArt = softwareSystem "OpenPipe ART" "Single-GPU GRPO with vLLM time-sharing" "External Library"
+        verl = softwareSystem "verl" "Multi-GPU distributed GRPO via FSDP" "External Library"
+        gepaLib = softwareSystem "GEPA" "Gradient-free evolutionary prompt optimization engine" "External Library"
 
-        # User interactions
-        dataScientist -> trainingHub "Imports and calls training functions" "Python API"
+        # Infrastructure dependencies
+        pytorch = softwareSystem "PyTorch" "Deep learning framework with torchrun distributed training" "External Infrastructure"
+        ray = softwareSystem "Ray" "Distributed compute framework for verl backend" "External Infrastructure"
+        vllm = softwareSystem "vLLM" "High-throughput LLM inference engine for GRPO rollouts" "External Infrastructure"
 
-        # Algorithm-Backend wiring
-        algorithmFramework -> sftAlgorithm "Registers and instantiates"
-        algorithmFramework -> osftAlgorithm "Registers and instantiates"
-        algorithmFramework -> loraSftAlgorithm "Registers and instantiates"
-        algorithmFramework -> loraGrpoAlgorithm "Registers and instantiates"
-        algorithmFramework -> grpoAlgorithm "Registers and instantiates"
-        peftExtender -> loraSftAlgorithm "Composes LoRA params with"
-        peftExtender -> loraGrpoAlgorithm "Composes LoRA params with"
+        # External services
+        huggingfaceHub = softwareSystem "HuggingFace Hub" "Model and dataset registry" "External Service"
+        mlflow = softwareSystem "MLflow" "Experiment tracking and prompt registry" "External Service"
+        wandb = softwareSystem "Weights & Biases" "Training metrics logging platform" "External Service"
+        llmApi = softwareSystem "LLM API" "External LLM for GEPA judge/mutator (via litellm)" "External Service"
 
-        # Backend delegations
-        sftAlgorithm -> instructlabTraining "Delegates training execution" "Python import"
-        osftAlgorithm -> miniTrainer "Delegates training execution" "Python import"
-        loraSftAlgorithm -> unsloth "Delegates LoRA training" "Python import"
-        loraGrpoAlgorithm -> openPipeART "Delegates single-GPU GRPO" "Subprocess"
-        loraGrpoAlgorithm -> verl "Delegates multi-GPU GRPO" "Subprocess"
-        grpoAlgorithm -> verl "Delegates full fine-tuning GRPO" "Subprocess"
+        # Consuming systems
+        rhoaiPipelines = softwareSystem "RHOAI Training Pipelines" "Upstream pipeline orchestration that imports Training Hub" "Internal RHOAI"
 
-        # External connections
-        trainingHub -> huggingfaceHub "Downloads model weights and tokenizers" "HTTPS/443"
-        trainingHub -> wandb "Uploads experiment metrics" "HTTPS/443"
-        trainingHub -> mlflow "Uploads experiment metrics" "HTTPS"
-        trainingHub -> gpuCluster "Distributed training coordination" "TCP/NCCL"
-        instructlabTraining -> pytorch "Uses for distributed training" "In-process"
-        verl -> pytorch "Uses for FSDP training" "In-process"
+        # Relationships - Users
+        dataScientist -> trainingHub "Invokes training_hub.sft(), lora_grpo(), gepa()" "Python API"
+        mlEngineer -> trainingHub "Integrates into training pipelines" "Python API"
+        codingAgent -> trainingHub "Invokes training via plugin manifests" "Claude Code / Codex Plugin"
+
+        # Relationships - Internal containers
+        algorithmFramework -> sftAlgorithm "creates via registry"
+        algorithmFramework -> osftAlgorithm "creates via registry"
+        algorithmFramework -> loraSftAlgorithm "creates via registry"
+        algorithmFramework -> loraGrpoAlgorithm "creates via registry"
+        algorithmFramework -> gepaAlgorithm "creates via registry"
+        loraGrpoAlgorithm -> rewardFunctions "evaluates rewards"
+        loraGrpoAlgorithm -> itsRollout "sampling strategies"
+
+        # Relationships - Backend delegations
+        sftAlgorithm -> instructlabTraining "delegates training" "Python import"
+        osftAlgorithm -> miniTrainer "delegates training" "Python import"
+        loraSftAlgorithm -> unsloth "delegates training" "Python import"
+        loraGrpoAlgorithm -> openpipeArt "ART backend (single-GPU)" "Python import"
+        loraGrpoAlgorithm -> verl "verl backend (multi-GPU)" "Subprocess"
+        gepaAlgorithm -> gepaLib "delegates optimization" "Python import"
+
+        # Relationships - Infrastructure
+        sftAlgorithm -> pytorch "torchrun distributed training" "TCP (NCCL/Gloo)"
+        verl -> ray "distributed compute" "TCP"
+        loraGrpoAlgorithm -> vllm "rollout generation" "In-process / TCP"
+
+        # Relationships - External services
+        trainingHub -> huggingfaceHub "Downloads models and datasets" "HTTPS/443"
+        gepaAlgorithm -> llmApi "Judge/mutator LLM calls" "HTTPS"
+        gepaAlgorithm -> mlflow "Prompt registry, experiment logging" "HTTP/HTTPS"
+        trainingHub -> wandb "Training metrics logging (optional)" "HTTPS/443"
+
+        # Relationships - Consuming systems
+        rhoaiPipelines -> trainingHub "imports as Python library" "pip install training-hub"
     }
 
     views {
@@ -67,20 +88,24 @@ workspace {
         }
 
         styles {
-            element "External" {
+            element "External Library" {
                 background #999999
                 color #ffffff
             }
-            element "Internal" {
-                background #7ed321
+            element "External Infrastructure" {
+                background #775555
                 color #ffffff
             }
-            element "Infrastructure" {
+            element "External Service" {
                 background #f5a623
                 color #ffffff
             }
+            element "Internal RHOAI" {
+                background #7ed321
+                color #ffffff
+            }
             element "Person" {
-                shape Person
+                shape person
                 background #4a90e2
                 color #ffffff
             }

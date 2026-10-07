@@ -1,0 +1,69 @@
+graph TB
+    subgraph PlatformLayer["ODH Platform Layer"]
+        PlatformOp["ODH Platform Operator"]
+    end
+
+    subgraph ModuleOperator["MCP Lifecycle Module Operator"]
+        Controller["Module Operator Controller<br/>(controller-runtime)"]
+        EmbeddedManifests["Embedded Operand Manifests<br/>(go:embed)"]
+        KustomizeProvider["KustomizeProvider<br/>(manifestival transforms)"]
+        TLSConfig["TLS Config Reader"]
+
+        Controller -->|reads| EmbeddedManifests
+        Controller -->|uses| KustomizeProvider
+        Controller -->|uses| TLSConfig
+        EmbeddedManifests -->|input to| KustomizeProvider
+    end
+
+    subgraph Operand["MCP Lifecycle Operator (Operand)"]
+        OperandController["MCP Lifecycle Operator<br/>Controller"]
+        MCPServerCRD["MCPServer CRD<br/>(mcp.x-k8s.io)"]
+        OperandController -->|manages| MCPServerCRD
+    end
+
+    subgraph UserWorkloads["User Workloads"]
+        MCPServers["MCPServer Instances"]
+    end
+
+    %% CR Flow
+    PlatformOp -->|creates| MCPLifecycleOpCR["MCPLifecycleOperator CR<br/>(components.platform.opendatahub.io/v1alpha1)"]
+    MCPLifecycleOpCR -->|watched by| Controller
+
+    %% Deployment
+    KustomizeProvider -->|SSA apply| OperandController
+    KustomizeProvider -->|deploys| OperandRBAC["Operand RBAC<br/>(SA, Roles, Bindings)"]
+    KustomizeProvider -->|deploys| OperandService["Operand Service<br/>(metrics)"]
+    KustomizeProvider -->|deploys| OperandNetPol["Operand NetworkPolicy"]
+    KustomizeProvider -->|deploys| MCPServerCRD
+
+    %% TLS
+    TLSConfig -->|reads TLS profile| APIServer["OpenShift APIServer CR"]
+
+    %% Operand manages user workloads
+    MCPServerCRD -->|reconciled by| OperandController
+    OperandController -->|manages| MCPServers
+
+    %% Metrics
+    Prometheus["Prometheus"] -->|scrapes 8443/TCP| MetricsService["controller-manager-<br/>metrics-service"]
+    MetricsService -->|routes to| Controller
+
+    %% Health
+    Kubelet["Kubelet"] -->|probes 8081/TCP| Controller
+
+    %% Styles
+    style PlatformOp fill:#9b59b6,stroke:#333,color:#fff
+    style Controller fill:#4a90e2,stroke:#333,color:#fff
+    style EmbeddedManifests fill:#4a90e2,stroke:#333,color:#fff
+    style KustomizeProvider fill:#4a90e2,stroke:#333,color:#fff
+    style TLSConfig fill:#4a90e2,stroke:#333,color:#fff
+    style MCPLifecycleOpCR fill:#f5a623,stroke:#333,color:#fff
+    style OperandController fill:#7ed321,stroke:#333,color:#fff
+    style MCPServerCRD fill:#f5a623,stroke:#333
+    style MCPServers fill:#e8e8e8,stroke:#333
+    style APIServer fill:#999,stroke:#333,color:#fff
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style Kubelet fill:#e8e8e8,stroke:#333
+    style MetricsService fill:#4a90e2,stroke:#333,color:#fff
+    style OperandRBAC fill:#7ed321,stroke:#333
+    style OperandService fill:#7ed321,stroke:#333
+    style OperandNetPol fill:#7ed321,stroke:#333

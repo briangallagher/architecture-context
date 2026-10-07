@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "component": "llama-stack-provider-trustyai-garak",
+  "reads": [
+    {
+      "path": "pyproject.toml",
+      "line_range": "1-102",
+      "gap_category": ["http_endpoints", "services", "fips_compliance"],
+      "question": "What entry points, server configuration, or FIPS-related build settings exist in the project metadata?",
+      "expected_signal": "Entry point scripts, uvicorn configuration, or FIPS build flags",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "FIPS Compliance"]
+    },
+    {
+      "path": "src/llama_stack_provider_trustyai_garak/evalhub/__init__.py",
+      "line_range": "1-27",
+      "gap_category": ["http_endpoints", "services"],
+      "question": "Does the evalhub module expose HTTP endpoints or configure a web server?",
+      "expected_signal": "FastAPI/Starlette app creation, route registration, or server startup",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis"]
+    },
+    {
+      "path": "src/llama_stack_provider_trustyai_garak/evalhub/__main__.py",
+      "line_range": "1-10",
+      "gap_category": ["http_endpoints", "services"],
+      "question": "What is the module entry point and does it start an HTTP server?",
+      "expected_signal": "uvicorn.run call or HTTP server startup",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis"]
+    },
+    {
+      "path": "src/llama_stack_provider_trustyai_garak/evalhub/garak_adapter.py",
+      "line_range": "1-70",
+      "gap_category": ["http_endpoints", "services", "authentication"],
+      "question": "What is the adapter's architecture and does it serve HTTP endpoints or use authentication middleware?",
+      "expected_signal": "FrameworkAdapter implementation, HTTP route registration, auth middleware",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "src/llama_stack_provider_trustyai_garak/evalhub/garak_adapter.py",
+      "line_range": "870-899",
+      "gap_category": ["authentication"],
+      "question": "How does the adapter authenticate to Kubernetes API for secret retrieval?",
+      "expected_signal": "KFP_AUTH_TOKEN usage, in-cluster config, bearer token authentication",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "src/llama_stack_provider_trustyai_garak/evalhub/garak_adapter.py",
+      "line_range": "1190-1229",
+      "gap_category": ["authentication"],
+      "question": "How does the adapter authenticate to model endpoints?",
+      "expected_signal": "API key resolution, auth token handling",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "src/llama_stack_provider_trustyai_garak/core/pipeline_steps.py",
+      "line_range": "155-183",
+      "gap_category": ["authentication"],
+      "question": "What is the cascading API key resolution strategy for model authentication?",
+      "expected_signal": "Environment variable fallback chain, secret file reading",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "src/llama_stack_provider_trustyai_garak/evalhub/kfp_pipeline.py",
+      "line_range": "1-59",
+      "gap_category": ["authentication", "services"],
+      "question": "How does the KFP pipeline inject credentials and what services does it expose?",
+      "expected_signal": "Secret injection, S3 credential mapping, service definitions",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Data Flows"]
+    }
+  ]
+}

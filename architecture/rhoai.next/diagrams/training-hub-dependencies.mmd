@@ -1,125 +1,77 @@
 graph LR
-    TrainingHub["training-hub<br/>Python SDK<br/>v0.8.0"]
+    TrainingHub["Training Hub<br/>(Python Library)"]
 
     %% Core Required Dependencies
-    subgraph CoreDeps["Core Dependencies (Required)"]
-        torch["torch >=2.6.0<br/><i>DDP/FSDP, model execution</i>"]
-        transformers["transformers >=4.57.6<br/><i>Model loading, tokenization</i>"]
-        peft["peft >=0.15<br/><i>LoRA config, adapters</i>"]
-        accelerate["accelerate >=0.34.2<br/><i>Distributed training setup</i>"]
-        datasets["datasets >=4.0.0<br/><i>Data loading/processing</i>"]
-        pydantic["pydantic >=2.7.0<br/><i>Parameter validation</i>"]
-        pandas["pandas >=2.2<br/><i>Metrics processing, EMA</i>"]
-        matplotlib["matplotlib >=3.9<br/><i>Loss visualization</i>"]
-        numpy["numpy >=1.26.4<br/><i>Numerical operations</i>"]
-        numba["numba >=0.61.2<br/><i>JIT compilation</i>"]
-        rich["rich >=14.1.0<br/><i>Console formatting</i>"]
-        timm["timm >=1.0<br/><i>Vision model architectures</i>"]
-    end
+    TrainingHub -->|"SFT backend"| InstructLab["instructlab-training<br/>>=0.14.0"]
+    TrainingHub -->|"OSFT backend"| MiniTrainer["rhai-innovation-mini-trainer<br/>>=0.6.0"]
+    TrainingHub -->|"distributed training"| PyTorch["torch<br/>>=2.6.0"]
+    TrainingHub -->|"model loading, tokenizers"| Transformers["transformers<br/>>=4.57.6"]
+    TrainingHub -->|"LoRA adapters"| PEFT["peft<br/>>=0.15"]
+    TrainingHub -->|"dataset processing"| Datasets["datasets<br/>>=3.1.0"]
+    TrainingHub -->|"distributed acceleration"| Accelerate["accelerate<br/>>=1.2.0"]
+    TrainingHub -->|"SFTTrainer, GRPOTrainer"| TRL["trl<br/>>=0.18.1"]
+    TrainingHub -->|"weight serialization"| Safetensors["safetensors<br/>>=0.4.3"]
+    TrainingHub -->|"model downloads"| HFHub["huggingface-hub<br/>>=0.29.0"]
+    TrainingHub -->|"loss curve plotting"| Matplotlib["matplotlib<br/>>=3.0"]
 
-    %% Internal Platform Dependencies
-    subgraph InternalDeps["Internal Platform Dependencies"]
-        instructlab["instructlab-training >=0.14.0<br/><i>SFT backend</i>"]
-        minitrainer["rhai-innovation-mini-trainer >=0.6.0<br/><i>OSFT backend</i>"]
-    end
+    %% Optional Dependencies (extras)
+    TrainingHub -.->|"QLoRA quantization<br/>[cuda extra]"| BitsAndBytes["bitsandbytes<br/>>=0.45.5"]
+    TrainingHub -.->|"optimized LoRA<br/>[lora extra]"| Unsloth["unsloth<br/>>=2025.6.3"]
+    TrainingHub -.->|"single-GPU GRPO<br/>[grpo extra]"| OpenPipeART["openpipe-art<br/>>=0.5.18,<0.7"]
+    TrainingHub -.->|"inference engine<br/>[grpo extra]"| vLLM["vllm<br/>>=0.9.1"]
+    TrainingHub -.->|"multi-GPU GRPO<br/>[grpo-verl extra]"| verl["verl<br/>>=0.3.1.post1,<0.4"]
+    TrainingHub -.->|"distributed compute<br/>[grpo-verl extra]"| Ray["ray<br/>>=2.46"]
+    TrainingHub -.->|"prompt optimization<br/>[gepa extra]"| GEPA["gepa<br/>>=0.1.4"]
+    TrainingHub -.->|"LLM API abstraction<br/>[gepa extra]"| LiteLLM["litellm<br/>>=1.72<br/>!=1.82.7,!=1.82.8<br/>(supply chain exclusion)"]
+    TrainingHub -.->|"prompt registry<br/>[gepa extra]"| MLflow["mlflow<br/>>=2.22"]
+    TrainingHub -.->|"math verification<br/>(optional)"| MathVerify["math-verify"]
 
-    %% Optional: CUDA extras
-    subgraph CUDAExtras["Optional: [cuda]"]
-        flashattn["flash-attn >=2.8<br/><i>Flash Attention 2</i>"]
-        bitsandbytes["bitsandbytes >=0.47.0<br/><i>QLoRA quantization</i>"]
-        liger["liger-kernel >=0.5.10<br/><i>Triton kernels</i>"]
-        mamba["mamba-ssm >=2.2.5<br/><i>Mamba SSM support</i>"]
-        einops["einops >=0.8<br/><i>Tensor operations</i>"]
-    end
+    %% External Service Integrations
+    TrainingHub ==>|"HTTPS/443<br/>model downloads"| HFHubService["HuggingFace Hub<br/>(huggingface.co)"]
+    TrainingHub ==>|"HTTPS/443<br/>metrics logging"| WandBService["Weights & Biases<br/>(api.wandb.ai)"]
+    TrainingHub ==>|"HTTP/HTTPS<br/>experiment tracking"| MLflowService["MLflow Server"]
+    TrainingHub ==>|"HTTP/HTTPS<br/>judge/mutator calls"| LLMService["LLM API<br/>(via litellm)"]
 
-    %% Optional: LoRA extras
-    subgraph LoRAExtras["Optional: [lora]"]
-        unsloth["unsloth >=2026.1.1<br/><i>Optimized LoRA backend</i>"]
-        trl["trl >=0.18.0<br/><i>SFTTrainer/SFTConfig</i>"]
-        xformers["xformers >=0.0.33<br/><i>Memory-efficient attention</i>"]
-    end
-
-    %% Optional: GRPO extras
-    subgraph GRPOExtras["Optional: [grpo]"]
-        art["openpipe-art<br/><i>Single-GPU GRPO backend</i>"]
-        verl["verl >=0.7<br/><i>Multi-GPU GRPO (FSDP)</i>"]
-        litellm["litellm >=1.82.0,<1.82.7<br/><i>LLM inference abstraction</i><br/>⚠️ 1.82.7-8 compromised"]
-    end
-
-    %% External Services (Runtime)
-    subgraph ExternalServices["External Services (Runtime)"]
-        hfhub["HuggingFace Hub<br/><i>Model downloads</i><br/>443/TCP HTTPS"]
-        wandb["WandB<br/><i>Experiment tracking</i><br/>443/TCP HTTPS"]
-        mlflow["MLflow<br/><i>Experiment tracking</i><br/>HTTPS"]
-    end
-
-    %% Core connections
-    TrainingHub -->|requires| torch
-    TrainingHub -->|requires| transformers
-    TrainingHub -->|requires| peft
-    TrainingHub -->|requires| accelerate
-    TrainingHub -->|requires| datasets
-    TrainingHub -->|requires| pydantic
-    TrainingHub -->|requires| pandas
-    TrainingHub -->|requires| matplotlib
-    TrainingHub -->|requires| numpy
-    TrainingHub -->|requires| numba
-    TrainingHub -->|requires| rich
-    TrainingHub -->|requires| timm
-
-    %% Internal platform
-    TrainingHub -->|"SFT backend"| instructlab
-    TrainingHub -->|"OSFT backend"| minitrainer
-
-    %% Optional extras
-    TrainingHub -.->|"[cuda]"| flashattn
-    TrainingHub -.->|"[cuda]"| bitsandbytes
-    TrainingHub -.->|"[cuda]"| liger
-    TrainingHub -.->|"[cuda]"| mamba
-    TrainingHub -.->|"[cuda]"| einops
-    TrainingHub -.->|"[lora]"| unsloth
-    TrainingHub -.->|"[lora]"| trl
-    TrainingHub -.->|"[lora]"| xformers
-    TrainingHub -.->|"[grpo]"| art
-    TrainingHub -.->|"[grpo]"| verl
-    TrainingHub -.->|"[grpo]"| litellm
-
-    %% Runtime services
-    TrainingHub -->|"model download"| hfhub
-    TrainingHub -.->|"optional metrics"| wandb
-    TrainingHub -.->|"optional metrics"| mlflow
+    %% Consuming systems
+    Pipelines["RHOAI Training<br/>Pipelines"] -->|"pip install"| TrainingHub
+    ClaudeCode["Claude Code<br/>(plugin)"] -->|"plugin invocation"| TrainingHub
+    CodexCLI["Codex CLI<br/>(plugin)"] -->|"plugin invocation"| TrainingHub
 
     %% Styling
     style TrainingHub fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
-    style torch fill:#e8e8e8,stroke:#333
-    style transformers fill:#e8e8e8,stroke:#333
-    style peft fill:#e8e8e8,stroke:#333
-    style accelerate fill:#e8e8e8,stroke:#333
-    style datasets fill:#e8e8e8,stroke:#333
-    style pydantic fill:#e8e8e8,stroke:#333
-    style pandas fill:#e8e8e8,stroke:#333
-    style matplotlib fill:#e8e8e8,stroke:#333
-    style numpy fill:#e8e8e8,stroke:#333
-    style numba fill:#e8e8e8,stroke:#333
-    style rich fill:#e8e8e8,stroke:#333
-    style timm fill:#e8e8e8,stroke:#333
+    %% Required dependencies
+    style InstructLab fill:#2196F3,stroke:#333,color:#fff
+    style MiniTrainer fill:#2196F3,stroke:#333,color:#fff
+    style PyTorch fill:#2196F3,stroke:#333,color:#fff
+    style Transformers fill:#2196F3,stroke:#333,color:#fff
+    style PEFT fill:#2196F3,stroke:#333,color:#fff
+    style Datasets fill:#2196F3,stroke:#333,color:#fff
+    style Accelerate fill:#2196F3,stroke:#333,color:#fff
+    style TRL fill:#2196F3,stroke:#333,color:#fff
+    style Safetensors fill:#2196F3,stroke:#333,color:#fff
+    style HFHub fill:#2196F3,stroke:#333,color:#fff
+    style Matplotlib fill:#2196F3,stroke:#333,color:#fff
 
-    style instructlab fill:#7ed321,stroke:#333,color:#fff
-    style minitrainer fill:#7ed321,stroke:#333,color:#fff
+    %% Optional dependencies
+    style BitsAndBytes fill:#999,stroke:#333,color:#fff
+    style Unsloth fill:#999,stroke:#333,color:#fff
+    style OpenPipeART fill:#999,stroke:#333,color:#fff
+    style vLLM fill:#999,stroke:#333,color:#fff
+    style verl fill:#999,stroke:#333,color:#fff
+    style Ray fill:#999,stroke:#333,color:#fff
+    style GEPA fill:#999,stroke:#333,color:#fff
+    style LiteLLM fill:#e91e63,stroke:#333,color:#fff
+    style MLflow fill:#999,stroke:#333,color:#fff
+    style MathVerify fill:#999,stroke:#333,color:#fff
 
-    style flashattn fill:#ddd,stroke:#999
-    style bitsandbytes fill:#ddd,stroke:#999
-    style liger fill:#ddd,stroke:#999
-    style mamba fill:#ddd,stroke:#999
-    style einops fill:#ddd,stroke:#999
-    style unsloth fill:#ddd,stroke:#999
-    style trl fill:#ddd,stroke:#999
-    style xformers fill:#ddd,stroke:#999
-    style art fill:#ddd,stroke:#999
-    style verl fill:#ddd,stroke:#999
-    style litellm fill:#ffcccc,stroke:#c62828
+    %% External services
+    style HFHubService fill:#f5a623,stroke:#333,color:#fff
+    style WandBService fill:#f5a623,stroke:#333,color:#fff
+    style MLflowService fill:#f5a623,stroke:#333,color:#fff
+    style LLMService fill:#f5a623,stroke:#333,color:#fff
 
-    style hfhub fill:#f5a623,stroke:#333,color:#fff
-    style wandb fill:#f5a623,stroke:#333,color:#fff
-    style mlflow fill:#f5a623,stroke:#333,color:#fff
+    %% Consuming systems
+    style Pipelines fill:#7ed321,stroke:#333,color:#fff
+    style ClaudeCode fill:#7ed321,stroke:#333,color:#fff
+    style CodexCLI fill:#7ed321,stroke:#333,color:#fff

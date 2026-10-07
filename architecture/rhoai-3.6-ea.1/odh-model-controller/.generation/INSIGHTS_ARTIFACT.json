@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "component": "odh-model-controller",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "odh-model-controller-dual-workload-001",
+      "claim": "odh-model-controller deploys as two separate workloads (operator controller and REST API server) with distinct service accounts and RBAC scopes, creating a least-privilege boundary between controller reconciliation and user-facing API operations.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/architecture_components"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "server/main.go:27-134"
+        }
+      ],
+      "reasoning": "The analyzer identifies two Deployment workloads (odh-model-controller and model-serving-api) with separate service accounts. Source inspection confirms the model-serving-api has a narrower ClusterRole (gateway list + namespace get) compared to the controller's 36-rule ClusterRole, implementing least-privilege separation between operator logic and user-facing API surface.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "odh-model-controller-tls-profile-001",
+      "claim": "The controller dynamically adapts TLS configuration from the OpenShift cluster-wide TLS profile and triggers a graceful restart when the profile changes, ensuring runtime compliance with cluster security policy.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/tls/tls.go:76-139"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:158-171"
+        }
+      ],
+      "reasoning": "The pkg/tls package reads apiservers.config.openshift.io/cluster at startup and resolves cipher suites and minimum TLS version. The ProfileWatcher controller watches for changes and triggers a graceful shutdown, ensuring the operator always serves with the current cluster-wide TLS policy. This pattern is significant for platform operators who need assurance that component TLS follows cluster policy changes.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "odh-model-controller-fips-strictruntime-001",
+      "claim": "The Konflux build enforces FIPS cryptography via GOEXPERIMENT=strictfipsruntime with dynamic linking, and the application-level cipher suite configuration exclusively uses FIPS-approved algorithms.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:28"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/tls/tls.go:53-60"
+        }
+      ],
+      "reasoning": "The build uses strictfipsruntime (both GOEXPERIMENT and build tag), which enforces that all Go crypto operations use the FIPS-validated OpenSSL backend. The application TLS configuration only includes ECDHE ciphers with AES-GCM or ChaCha20-Poly1305, all FIPS 140-2/140-3 approved. This dual enforcement (build-time and application-level) provides defense-in-depth for FIPS compliance.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

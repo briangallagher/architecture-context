@@ -1,0 +1,141 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [External Client]                                                       │
+│         │                                                                │
+│         │ Port: 443/TCP (via platform gateway)                           │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS (platform-managed)                             │
+│         │ Auth: Bearer Token (platform-enforced)                         │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Platform Gateway)                                              │
+│                                                                          │
+│  [llm-d Inference Gateway - Gateway API HTTPRoute]                       │
+│  - Type: Gateway API HTTPRoute                                           │
+│  - AuthN/AuthZ: Platform-delegated                                       │
+│  - Passes Authorization header through to backend                        │
+│  - Extracts X-MaaS-Username for tenant scoping                          │
+│         │                                                                │
+│         │ Port: 8000/TCP                                                 │
+│         │ Protocol: HTTP or HTTPS                                        │
+│         │ Encryption: TLS opt-in (min TLS 1.2, ALPN h2/http1.1)         │
+│         │ Cipher suites: tls.CipherSuites() (non-insecure only)         │
+│         │ Auth: None enforced locally                                    │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  WORKLOAD TIER (batch-gateway namespace)                                 │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────┐              │
+│  │  [batch-gateway-apiserver]                              │              │
+│  │  - Port 8000: Business API (REST)                       │              │
+│  │    TLS: Optional (configurable via cert/key files)      │              │
+│  │    Min TLS version: 1.2 (configurable)                  │              │
+│  │    Cipher suites: IANA-approved, non-insecure           │              │
+│  │    ALPN: h2, http/1.1                                   │              │
+│  │    Auth: None locally; Authorization header passthrough  │              │
+│  │  - Port 8081: Observability (plain HTTP, no middleware)  │              │
+│  │    Endpoints: /health, /ready, /metrics, /debug/pprof/*  │              │
+│  │  - Secret mount: /etc/.secrets/ (read-only)             │              │
+│  │  - FIPS: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime  │              │
+│  │  - Base image: UBI 9 minimal (OpenSSL)                  │              │
+│  └────────────────────────┬───────────────────────────────┘              │
+│                           │                                              │
+│  ┌────────────────────────┼───────────────────────────────┐              │
+│  │  [batch-gateway-processor]                              │              │
+│  │  - Port 8081: Observability (plain HTTP)                │              │
+│  │    Endpoints: /ready, /debug/pprof/cmdline              │              │
+│  │  - Secret mount: /etc/.secrets/ (read-only)             │              │
+│  │  - FIPS: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime  │              │
+│  │  - Base image: UBI 9 minimal (OpenSSL)                  │              │
+│  └────────────────────────┬───────────────────────────────┘              │
+│                           │                                              │
+│  ┌────────────────────────┼───────────────────────────────┐              │
+│  │  [batch-gateway-gc]                                     │              │
+│  │  - Port 8081: Observability (plain HTTP)                │              │
+│  │    Endpoints: /health, /metrics                          │              │
+│  │  - Secret mount: /etc/.secrets/ (read-only)             │              │
+│  │  - FIPS: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime  │              │
+│  │  - Base image: UBI 9 minimal (OpenSSL)                  │              │
+│  └────────────────────────┬───────────────────────────────┘              │
+│                           │                                              │
+├───────────────────────────┼─────────────────────────────────────────────┤
+│  DATA TIER                │                                              │
+│                           │                                              │
+│  ┌────────────────────────┼───────────────────────────────┐              │
+│  │  [PostgreSQL]          │                                │              │
+│  │  - Protocol: TCP       │                                │              │
+│  │  - Port: Runtime-configured                             │              │
+│  │  - Encryption: Runtime-configured                       │              │
+│  │  - Auth: Connection URL from batch-gateway-secrets      │              │
+│  │  - Purpose: Batch/file metadata storage                 │              │
+│  │  - OTel: pgx instrumented (otelpgx)                    │              │
+│  └────────────────────────────────────────────────────────┘              │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────┐              │
+│  │  [Redis/Valkey]                                         │              │
+│  │  - Protocol: TCP                                        │              │
+│  │  - Port: Runtime-configured                             │              │
+│  │  - Encryption: Runtime-configured                       │              │
+│  │  - Auth: Connection URL from batch-gateway-secrets      │              │
+│  │  - Purpose: Work exchange queue between API and Proc    │              │
+│  │  - OTel: redisotel instrumented                         │              │
+│  └────────────────────────────────────────────────────────┘              │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                       │
+│                                                                          │
+│  [S3-Compatible Storage]                                                 │
+│  - Protocol: HTTP/HTTPS                                                  │
+│  - Port: Runtime-configured                                              │
+│  - Encryption: Runtime-configured                                        │
+│  - Auth: AWS SDK v2 credentials from batch-gateway-secrets               │
+│  - Purpose: Model input/output file storage                              │
+│                                                                          │
+│  [llm-d Inference Gateway]                                               │
+│  - Protocol: HTTP/HTTPS                                                  │
+│  - Port: Runtime-configured                                              │
+│  - Encryption: Runtime-configured                                        │
+│  - Auth: API key from batch-gateway-secrets, Authorization passthrough   │
+│  - Purpose: Downstream inference requests                                │
+│                                                                          │
+│  [OpenTelemetry Collector]                                               │
+│  - Protocol: OTLP/gRPC                                                   │
+│  - Port: Runtime-configured                                              │
+│  - Encryption: Runtime-configured                                        │
+│  - Auth: None                                                            │
+│  - Purpose: Distributed trace export                                     │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Shared Secret:
+- Name: batch-gateway-secrets
+- Mount: /etc/.secrets/ (read-only)
+- Contains:
+  - Redis connection URL
+  - PostgreSQL connection URL
+  - Inference API key
+  - S3 credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+- Provisioned by: Cluster administrator / Helm values
+- Mounted by: All three workloads (apiserver, processor, gc)
+
+RBAC Summary:
+- No ClusterRoles or RoleBindings defined
+- Workloads operate with default service account privileges
+
+Authentication & Authorization:
+- API server: No local authentication enforcement
+- Auth delegated to platform Gateway / service mesh
+- Authorization header passed through to llm-d inference gateway
+- X-MaaS-Username header used for tenant scoping (not auth)
+- Observability endpoints: No authentication (separate port 8081)
+
+FIPS Compliance:
+- Build: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime
+- Runtime: Dynamic linking with OpenSSL via UBI 9
+- TLS: Configurable min version (default 1.2), non-insecure cipher suites only
+- Satisfies: Konflux check-payload FIPS gate
+
+Certificate Management:
+- TLS cert/key loaded from file paths (opt-in)
+- Optionally managed by cert-manager

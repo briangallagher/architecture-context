@@ -1,147 +1,132 @@
 graph TD
-    subgraph "Operator Service Account"
-        SA_Op["mlflow-operator-controller-manager<br/>ServiceAccount"]
+    subgraph ServiceAccounts["Service Accounts"]
+        OperatorSA["mlflow-operator-<br/>controller-manager<br/>(Operator SA)"]
+        MLflowSA["mlflow-sa<br/>(Server SA)"]
     end
 
-    subgraph "MLflow Workload Service Account"
-        SA_MLflow["mlflow-sa<br/>ServiceAccount"]
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        ManagerCRB["manager-rolebinding<br/>(cluster-scoped)"]
+        MLflowCRB["mlflow<br/>(cluster-scoped)"]
     end
 
-    subgraph "User-Facing Aggregate Roles"
-        ViewRole["mlflow-view<br/>(aggregate ClusterRole)"]
-        EditRole["mlflow-edit<br/>(aggregate ClusterRole)"]
-        IntegrationRole["mlflow-integration<br/>(ClusterRole)"]
+    subgraph RoleBindings["Role Bindings (namespace-scoped)"]
+        ManagerRB["manager-rolebinding<br/>(target namespace)"]
+        ViewRB["odh-group-mlflow-view<br/>(workspace namespaces)"]
+        EditRB["odh-group-mlflow-edit<br/>(workspace namespaces)"]
     end
 
-    subgraph "Operator ClusterRole Bindings"
-        CRB_Manager["manager-rolebinding<br/>(ClusterRoleBinding)"]
-        CRB_Metrics["metrics-auth-rolebinding<br/>(ClusterRoleBinding)"]
+    subgraph ClusterRoles["Cluster Roles"]
+        ManagerCR["manager-role<br/>(ClusterRole)"]
+        MLflowCR["mlflow<br/>(ClusterRole)"]
+        MLflowGC["mlflow-gc<br/>(ClusterRole)"]
+        ViewCR["mlflow-view<br/>(aggregate)"]
+        EditCR["mlflow-edit<br/>(aggregate)"]
+        IntegrationCR["mlflow-integration<br/>(ClusterRole)"]
     end
 
-    subgraph "Operator Role Bindings (namespace-scoped)"
-        RB_Manager["manager-rolebinding<br/>(RoleBinding)"]
-        RB_Leader["leader-election-rolebinding<br/>(RoleBinding)"]
+    subgraph NamespaceRole["Role (namespace-scoped)"]
+        ManagerRole["manager-role<br/>(Role)"]
     end
 
-    subgraph "MLflow Workload Bindings"
-        CRB_MLflow["mlflow<br/>(ClusterRoleBinding)<br/>Helm-rendered"]
-    end
-
-    subgraph "Operator ClusterRole Permissions"
-        CR_Manager["manager-role<br/>(ClusterRole)"]
-        CR_Metrics["metrics-auth-role<br/>(ClusterRole)"]
-        CR_Reader["metrics-reader<br/>(ClusterRole)"]
-    end
-
-    subgraph "Operator Role Permissions (namespace-scoped)"
-        R_Manager["manager-role<br/>(Role)"]
-        R_Leader["leader-election-role<br/>(Role)"]
-    end
-
-    subgraph "MLflow Workload Role"
-        CR_MLflow["mlflow<br/>(ClusterRole)<br/>Helm-rendered"]
-    end
-
-    subgraph "Cluster-scoped API Resources"
-        MLflows["mlflow.opendatahub.io<br/>mlflows, mlflows/status,<br/>mlflows/finalizers"]
+    subgraph OperatorResources["Operator-Managed Resources (ClusterRole)"]
+        MLflowCRD["mlflow.opendatahub.io<br/>mlflows, mlflows/status,<br/>mlflows/finalizers"]
+        MLflowOpCRD["components.platform.opendatahub.io<br/>mlflowoperators, mlflowoperators/status,<br/>mlflowoperators/finalizers"]
         HTTPRoutes["gateway.networking.k8s.io<br/>httproutes"]
         ConsoleLinks["console.openshift.io<br/>consolelinks"]
-        ClusterRBAC["rbac.authorization.k8s.io<br/>clusterroles,<br/>clusterrolebindings"]
+        APIServers["config.openshift.io<br/>apiservers"]
         Namespaces["core<br/>namespaces"]
-        ArtifactSecret["core<br/>secrets<br/>(mlflow-artifact-connection)"]
+        Secrets["core<br/>secrets (mlflow-artifact-connection)"]
+        RBAC["rbac.authorization.k8s.io<br/>clusterroles, clusterrolebindings,<br/>rolebindings"]
+        AuthsRes["services.platform.opendatahub.io<br/>auths (auth)"]
+    end
+
+    subgraph NamespaceResources["Namespace-Scoped Resources (Role)"]
+        CoreRes["core<br/>configmaps, secrets,<br/>serviceaccounts, services, pvcs"]
+        AppsRes["apps<br/>deployments"]
+        BatchRes["batch<br/>jobs, cronjobs"]
+        NetRes["networking.k8s.io<br/>networkpolicies"]
+        MonRes["monitoring.coreos.com<br/>servicemonitors"]
+    end
+
+    subgraph ServerResources["Server Resources (ClusterRole)"]
+        ServerNS["core<br/>namespaces"]
+        ServerSecrets["core<br/>secrets (mlflow-artifact-connection)"]
         MLflowConfigs["mlflow.kubeflow.org<br/>mlflowconfigs"]
-        TokenReviews["authentication.k8s.io<br/>tokenreviews"]
-        SAR["authorization.k8s.io<br/>subjectaccessreviews"]
-        MetricsEndpoint["/metrics<br/>(non-resource URL)"]
     end
 
-    subgraph "Namespace-scoped API Resources"
-        CoreResources["core<br/>configmaps, pvcs, secrets,<br/>serviceaccounts, services"]
-        Deployments["apps<br/>deployments"]
-        NetPolicies["networking.k8s.io<br/>networkpolicies"]
-        ServiceMonitors["monitoring.coreos.com<br/>servicemonitors"]
-        LeaderResources["core, coordination.k8s.io<br/>configmaps, leases, events"]
+    subgraph AggregateResources["Aggregate Role Resources"]
+        ViewRes["mlflow.opendatahub.io<br/>mlflows, mlflows/status<br/>(get, list, watch)"]
+        EditRes["mlflow.opendatahub.io<br/>mlflows, mlflows/finalizers<br/>(full CRUD)"]
     end
 
-    subgraph "User-Facing API Resources"
-        UserMLflows["mlflow.opendatahub.io<br/>mlflows, mlflows/status,<br/>mlflows/finalizers"]
-        UserKubeflow["mlflow.kubeflow.org<br/>mlflowconfigs, datasets,<br/>experiments, registeredmodels,<br/>gatewayendpoints,<br/>gatewaymodeldefinitions,<br/>gatewaysecrets"]
+    subgraph WorkspaceGroups["Workspace Group Subjects"]
+        AllowedGroups["Auth CR allowedGroups<br/>+ adminGroups"]
+        AdminGroups["Auth CR adminGroups"]
     end
 
-    %% Operator bindings
-    SA_Op -->|bound via| CRB_Manager
-    SA_Op -->|bound via| CRB_Metrics
-    SA_Op -->|bound via| RB_Manager
-    SA_Op -->|bound via| RB_Leader
+    %% Operator SA bindings
+    OperatorSA -->|"bound via"| ManagerCRB
+    ManagerCRB -->|"grants"| ManagerCR
 
-    CRB_Manager -->|grants| CR_Manager
-    CRB_Metrics -->|grants| CR_Metrics
-    RB_Manager -->|grants| R_Manager
-    RB_Leader -->|grants| R_Leader
+    OperatorSA -->|"bound via"| ManagerRB
+    ManagerRB -->|"grants"| ManagerRole
 
-    %% Operator cluster permissions
-    CR_Manager -->|"full CRUD"| MLflows
-    CR_Manager -->|"full CRUD"| HTTPRoutes
-    CR_Manager -->|"full CRUD"| ConsoleLinks
-    CR_Manager -->|"full CRUD"| ClusterRBAC
-    CR_Manager -->|"get, list, watch"| Namespaces
-    CR_Manager -->|"get, list, watch"| ArtifactSecret
-    CR_Manager -->|"get, list, watch"| MLflowConfigs
+    %% Server SA bindings
+    MLflowSA -->|"bound via"| MLflowCRB
+    MLflowCRB -->|"grants"| MLflowCR
 
-    %% Operator namespace permissions
-    R_Manager -->|"full CRUD"| CoreResources
-    R_Manager -->|"full CRUD"| Deployments
-    R_Manager -->|"full CRUD"| NetPolicies
-    R_Manager -->|"full CRUD"| ServiceMonitors
+    %% Workspace group bindings
+    AllowedGroups -->|"bound via"| ViewRB
+    ViewRB -->|"grants"| ViewCR
 
-    %% Metrics auth
-    CR_Metrics -->|"create"| TokenReviews
-    CR_Metrics -->|"create"| SAR
-    CR_Reader -->|"get"| MetricsEndpoint
+    AdminGroups -->|"bound via"| EditRB
+    EditRB -->|"grants"| EditCR
 
-    %% Leader election
-    R_Leader -->|"full CRUD"| LeaderResources
+    %% ClusterRole to resources
+    ManagerCR -->|"full CRUD"| MLflowCRD
+    ManagerCR -->|"get, list, watch, update, patch"| MLflowOpCRD
+    ManagerCR -->|"full CRUD"| HTTPRoutes
+    ManagerCR -->|"full CRUD"| ConsoleLinks
+    ManagerCR -->|"get, list, watch"| APIServers
+    ManagerCR -->|"get, list, watch"| Namespaces
+    ManagerCR -->|"get, list, watch"| Secrets
+    ManagerCR -->|"create + scoped"| RBAC
+    ManagerCR -->|"get, list, watch"| AuthsRes
 
-    %% MLflow workload bindings
-    SA_MLflow -->|bound via| CRB_MLflow
-    CRB_MLflow -->|grants| CR_MLflow
-    CR_MLflow -->|"get, list, watch"| Namespaces
-    CR_MLflow -->|"get, list, watch"| ArtifactSecret
-    CR_MLflow -->|"get, list, watch"| MLflowConfigs
+    %% Role to namespace resources
+    ManagerRole -->|"full CRUD"| CoreRes
+    ManagerRole -->|"full CRUD"| AppsRes
+    ManagerRole -->|"full CRUD"| BatchRes
+    ManagerRole -->|"full CRUD"| NetRes
+    ManagerRole -->|"full CRUD"| MonRes
 
-    %% User-facing roles
-    ViewRole -->|"get, list, watch"| UserMLflows
-    ViewRole -->|"get, list"| UserKubeflow
-    EditRole -->|"full CRUD"| UserMLflows
-    EditRole -->|"full CRUD"| UserKubeflow
-    IntegrationRole -->|"get, list, create, update"| UserKubeflow
+    %% Server ClusterRole to resources
+    MLflowCR -->|"get, list, watch"| ServerNS
+    MLflowCR -->|"get, list, watch"| ServerSecrets
+    MLflowCR -->|"get, list, watch"| MLflowConfigs
+
+    %% Aggregate roles to resources
+    ViewCR -->|"get, list, watch"| ViewRes
+    EditCR -->|"full CRUD"| EditRes
 
     %% Styling
-    style SA_Op fill:#4a90e2,stroke:#333,color:#fff
-    style SA_MLflow fill:#4a90e2,stroke:#333,color:#fff
-    style CR_Manager fill:#f5a623,stroke:#333,color:#fff
-    style CR_Metrics fill:#f5a623,stroke:#333,color:#fff
-    style CR_Reader fill:#f5a623,stroke:#333,color:#fff
-    style R_Manager fill:#f5a623,stroke:#333,color:#fff
-    style R_Leader fill:#f5a623,stroke:#333,color:#fff
-    style CR_MLflow fill:#f5a623,stroke:#333,color:#fff
-    style ViewRole fill:#9b59b6,stroke:#333,color:#fff
-    style EditRole fill:#9b59b6,stroke:#333,color:#fff
-    style IntegrationRole fill:#9b59b6,stroke:#333,color:#fff
-    style MLflows fill:#7ed321,stroke:#333,color:#fff
-    style HTTPRoutes fill:#7ed321,stroke:#333,color:#fff
-    style ConsoleLinks fill:#7ed321,stroke:#333,color:#fff
-    style ClusterRBAC fill:#7ed321,stroke:#333,color:#fff
-    style Namespaces fill:#7ed321,stroke:#333,color:#fff
-    style ArtifactSecret fill:#7ed321,stroke:#333,color:#fff
-    style MLflowConfigs fill:#7ed321,stroke:#333,color:#fff
-    style CoreResources fill:#7ed321,stroke:#333,color:#fff
-    style Deployments fill:#7ed321,stroke:#333,color:#fff
-    style NetPolicies fill:#7ed321,stroke:#333,color:#fff
-    style ServiceMonitors fill:#7ed321,stroke:#333,color:#fff
-    style LeaderResources fill:#7ed321,stroke:#333,color:#fff
-    style TokenReviews fill:#7ed321,stroke:#333,color:#fff
-    style SAR fill:#7ed321,stroke:#333,color:#fff
-    style MetricsEndpoint fill:#7ed321,stroke:#333,color:#fff
-    style UserMLflows fill:#7ed321,stroke:#333,color:#fff
-    style UserKubeflow fill:#7ed321,stroke:#333,color:#fff
+    style OperatorSA fill:#4a90e2,stroke:#333,color:#fff
+    style MLflowSA fill:#4a90e2,stroke:#333,color:#fff
+    style ManagerCR fill:#f5a623,stroke:#333
+    style MLflowCR fill:#f5a623,stroke:#333
+    style MLflowGC fill:#f5a623,stroke:#333
+    style ViewCR fill:#f5a623,stroke:#333
+    style EditCR fill:#f5a623,stroke:#333
+    style IntegrationCR fill:#f5a623,stroke:#333
+    style ManagerRole fill:#e8a040,stroke:#333
+    style ManagerCRB fill:#c8c8c8,stroke:#333
+    style MLflowCRB fill:#c8c8c8,stroke:#333
+    style ManagerRB fill:#c8c8c8,stroke:#333
+    style ViewRB fill:#c8c8c8,stroke:#333
+    style EditRB fill:#c8c8c8,stroke:#333
+    style MLflowCRD fill:#7ed321,stroke:#333
+    style MLflowOpCRD fill:#7ed321,stroke:#333
+    style HTTPRoutes fill:#7ed321,stroke:#333
+    style ConsoleLinks fill:#7ed321,stroke:#333
+    style AllowedGroups fill:#9b59b6,stroke:#333,color:#fff
+    style AdminGroups fill:#9b59b6,stroke:#333,color:#fff

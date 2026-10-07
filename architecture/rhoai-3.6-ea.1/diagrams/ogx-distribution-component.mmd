@@ -1,0 +1,96 @@
+graph TB
+    subgraph OGX["OGX Distribution (AI Agent Gateway)"]
+        direction TB
+        Entrypoint["entrypoint.sh<br/>Secret resolution + OTel setup"]
+        Server["OGX Server<br/>Port 8321/TCP"]
+        AuthModule["Auth Module<br/>OAuth2 / JWKS"]
+        ProviderRouter["Provider Router<br/>Environment-gated activation"]
+
+        Entrypoint -->|launches| Server
+        Server -->|validates tokens| AuthModule
+        Server -->|routes requests| ProviderRouter
+    end
+
+    subgraph APIs["API Surface (8321/TCP)"]
+        direction TB
+        InferenceAPI["/v1/inference/*"]
+        ResponsesAPI["/v1/responses/*"]
+        MessagesAPI["/v1/messages/*"]
+        BatchesAPI["/v1/batches/*"]
+        VectorIOAPI["/v1/vector-io/*"]
+        ToolRuntimeAPI["/v1/tool-runtime/*"]
+        FilesAPI["/v1/files/*"]
+        FileProcessorsAPI["/v1/file-processors/*"]
+    end
+
+    subgraph InferenceProviders["Inference Providers (Remote)"]
+        direction TB
+        vLLM["vLLM"]
+        Bedrock["AWS Bedrock"]
+        WatsonX["IBM WatsonX"]
+        AzureAI["Azure AI"]
+        VertexAI["Google Vertex AI"]
+        OpenAI["OpenAI"]
+        Gemini["Google Gemini"]
+        Anthropic["Anthropic"]
+    end
+
+    subgraph VectorDBs["Vector Databases"]
+        direction TB
+        Milvus["Milvus"]
+        PGVector["PGVector"]
+        Qdrant["Qdrant"]
+    end
+
+    subgraph Storage["Persistent Storage"]
+        PostgreSQL["PostgreSQL<br/>KV + SQL backends<br/>5432/TCP"]
+    end
+
+    subgraph Tooling["Tool Runtimes"]
+        BraveSearch["Brave Search"]
+        TavilySearch["Tavily Search"]
+        S3["S3 Storage"]
+    end
+
+    Client[Client] -->|HTTP 8321| Server
+
+    ProviderRouter -->|inference| vLLM
+    ProviderRouter -->|inference| Bedrock
+    ProviderRouter -->|inference| WatsonX
+    ProviderRouter -->|inference| AzureAI
+    ProviderRouter -->|inference| VertexAI
+    ProviderRouter -->|inference| OpenAI
+    ProviderRouter -->|inference| Gemini
+    ProviderRouter -->|inference| Anthropic
+
+    ProviderRouter -->|vector ops| Milvus
+    ProviderRouter -->|vector ops| PGVector
+    ProviderRouter -->|vector ops| Qdrant
+
+    ProviderRouter -->|web search| BraveSearch
+    ProviderRouter -->|web search| TavilySearch
+    ProviderRouter -->|file storage| S3
+
+    Server -->|state & metadata| PostgreSQL
+
+    Server -.->|OTLP traces/metrics| OTELCollector["OTEL Collector"]
+
+    %% Styling
+    style Server fill:#4a90e2,stroke:#333,color:#fff
+    style AuthModule fill:#4a90e2,stroke:#333,color:#fff
+    style ProviderRouter fill:#4a90e2,stroke:#333,color:#fff
+    style Entrypoint fill:#4a90e2,stroke:#333,color:#fff
+    style PostgreSQL fill:#f5a623,stroke:#333,color:#fff
+    style Client fill:#e8e8e8,stroke:#333
+    style vLLM fill:#7ed321,stroke:#333
+    style Bedrock fill:#999,stroke:#333,color:#fff
+    style WatsonX fill:#999,stroke:#333,color:#fff
+    style AzureAI fill:#999,stroke:#333,color:#fff
+    style VertexAI fill:#999,stroke:#333,color:#fff
+    style OpenAI fill:#999,stroke:#333,color:#fff
+    style Gemini fill:#999,stroke:#333,color:#fff
+    style Anthropic fill:#999,stroke:#333,color:#fff
+    style Milvus fill:#999,stroke:#333,color:#fff
+    style PGVector fill:#999,stroke:#333,color:#fff
+    style Qdrant fill:#999,stroke:#333,color:#fff
+    style OTELCollector fill:#e8e8e8,stroke:#333

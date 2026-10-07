@@ -1,0 +1,83 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  INTERNAL CLUSTER (Service-to-Service)                                  │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  FMS Guardrails Orchestrator                                     │    │
+│  │  - Sends text content for PII/pattern detection                  │    │
+│  │  - Receives structured detection results                         │    │
+│  └──────────────────────────┬──────────────────────────────────────┘    │
+│                              │                                           │
+│                              │ Port: 8080/TCP                            │
+│                              │ Protocol: HTTP                            │
+│                              │ Encryption: None (plaintext)              │
+│                              │ Auth: None                                │
+│                              │ Direction: Inbound request                │
+│                              ▼                                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│  GUARDRAILS REGEX DETECTOR                                              │
+│                                                                          │
+│  [regex-detector]                                                        │
+│  - Image: guardrails-regex-detector (UBI9-minimal based)                │
+│  - Runtime: Rust binary on Tokio async runtime                          │
+│  - Namespace: (managed externally)                                      │
+│  - ServiceAccount: (managed externally)                                 │
+│  - Container runs as: root (no USER directive in Dockerfile)            │
+│                                                                          │
+│  Listening Ports:                                                        │
+│  ┌──────────────────────────────────────────────────────────────┐       │
+│  │  8080/TCP (configurable via HTTP_PORT env var)                │       │
+│  │  - POST /api/v1/text/contents  (detection endpoint)          │       │
+│  │  - GET  /health                (health check)                 │       │
+│  │  - Protocol: HTTP (plaintext)                                 │       │
+│  │  - Auth: None                                                 │       │
+│  │  - TLS: Not configured                                        │       │
+│  └──────────────────────────────────────────────────────────────┘       │
+│                                                                          │
+│  Egress: NONE                                                            │
+│  - No outbound network connections                                       │
+│  - Pure in-memory regex matching                                         │
+│  - No external storage, databases, or APIs called                        │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  SERVICE (assumed - not defined in this repo)                            │
+│                                                                          │
+│  [regex-detector Service]                                                │
+│  - Type: ClusterIP (assumed)                                             │
+│  - Port: 8080/TCP → 8080/TCP                                            │
+│  - Exposure: Internal only                                               │
+│  - No Ingress resources                                                  │
+│  - No external exposure                                                  │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No RBAC resources defined
+- Service does not interact with the Kubernetes API
+- No ClusterRoles, Roles, or RoleBindings
+
+Secrets:
+- No secrets referenced
+- No TLS certificates
+- No credentials or API keys
+
+Authentication & Authorization:
+- No built-in authentication on any endpoint
+- No authorization policies defined
+- Security relies entirely on network-level isolation:
+  - NetworkPolicy (if configured externally)
+  - Service mesh mTLS (if deployed with sidecar)
+  - Pod-to-pod network restrictions
+
+Security Concerns:
+- Container runs as root (no USER directive in Dockerfile)
+- No TLS termination at application level
+- No request size limits or rate limiting
+- Custom regex patterns accepted without ReDoS protection
+  (mitigated: Rust regex crate uses finite automaton, not backtracking)
+- shadow-utils package installed but non-root user never created
+- compat-openssl11 installed but unused by application
+
+FIPS Compliance:
+- Not directly applicable (no cryptographic operations)
+- Rust binary, not subject to Go check-payload FIPS gate
+- Relies on network layer (service mesh) for transport encryption

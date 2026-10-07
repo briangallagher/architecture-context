@@ -1,0 +1,68 @@
+graph TB
+    subgraph AGO["ai-gateway-operator (Module Operator)"]
+        Controller["AIGateway Controller<br/>controller-runtime"]
+        KustomizeRenderer["Kustomize Renderer<br/>Manifest SSA"]
+        UpgradeHandler["Upgrade Handler<br/>Platform Version Handshake"]
+        TeardownCoord["Teardown Coordinator<br/>Annotation Protocol"]
+    end
+
+    subgraph SubComponents["Managed Sub-Components"]
+        BGO["batch-gateway-operator<br/>LLM Batch Inference"]
+        MaaS["maas-controller<br/>Models as a Service"]
+    end
+
+    %% Platform operator creates the CR
+    ODHOperator["opendatahub-operator<br/>(Platform Operator)"] -->|creates| AIGatewayCR["AIGateway CR<br/>(Cluster-scoped singleton)"]
+    ODHOperator -->|writes| ConfigMap["odh-aigateway-config<br/>ConfigMap"]
+
+    %% Controller watches the CR
+    AIGatewayCR -->|watched by| Controller
+    ConfigMap -->|read by| UpgradeHandler
+
+    %% Controller deploys sub-components
+    Controller --> KustomizeRenderer
+    KustomizeRenderer -->|"SSA when batchGateway=Managed"| BGO
+    KustomizeRenderer -->|"SSA when MaaS=Managed"| MaaS
+
+    %% Teardown flow
+    Controller --> TeardownCoord
+    TeardownCoord -->|"teardown-requested annotation"| MaaS
+    MaaS -.->|"teardown-completed annotation"| TeardownCoord
+
+    %% Sub-component CRDs
+    BGO -->|watches| LLMBatchGatewayCR["LLMBatchGateway CR"]
+    MaaS -->|watches| AITenantCR["AITenant CR"]
+    MaaS -->|watches| MaaSSubCR["MaaSSubscription CR"]
+    MaaS -->|creates| HTTPRoute["HTTPRoute"]
+    MaaS -->|creates| AuthPolicy["AuthPolicy<br/>(Kuadrant)"]
+    MaaS -->|creates| TRLP["TokenRateLimitPolicy<br/>(Kuadrant)"]
+
+    %% Upgrade handshake
+    UpgradeHandler -->|"writes status.releases"| AIGatewayCR
+
+    %% External dependencies
+    MaaS -->|"get/list/watch"| KServe["KServe<br/>LLMInferenceService"]
+    MaaS -->|creates| IstioRes["Istio Resources<br/>DestinationRule, EnvoyFilter"]
+    MaaS -->|creates| OTel["OpenTelemetryCollector"]
+    MaaS -->|creates| Perses["PersesDashboard"]
+
+    %% Styling
+    style Controller fill:#4a90e2,stroke:#333,color:#fff
+    style KustomizeRenderer fill:#4a90e2,stroke:#333,color:#fff
+    style UpgradeHandler fill:#4a90e2,stroke:#333,color:#fff
+    style TeardownCoord fill:#4a90e2,stroke:#333,color:#fff
+    style BGO fill:#7ed321,stroke:#333,color:#fff
+    style MaaS fill:#7ed321,stroke:#333,color:#fff
+    style ODHOperator fill:#9b59b6,stroke:#333,color:#fff
+    style AIGatewayCR fill:#f5a623,stroke:#333
+    style ConfigMap fill:#f5a623,stroke:#333
+    style LLMBatchGatewayCR fill:#f5a623,stroke:#333
+    style AITenantCR fill:#f5a623,stroke:#333
+    style MaaSSubCR fill:#f5a623,stroke:#333
+    style HTTPRoute fill:#e8e8e8,stroke:#333
+    style AuthPolicy fill:#e8e8e8,stroke:#333
+    style TRLP fill:#e8e8e8,stroke:#333
+    style KServe fill:#e8e8e8,stroke:#333
+    style IstioRes fill:#e8e8e8,stroke:#333
+    style OTel fill:#e8e8e8,stroke:#333
+    style Perses fill:#e8e8e8,stroke:#333

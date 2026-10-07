@@ -1,69 +1,73 @@
 graph TD
-    subgraph Note["RBAC Note"]
+    subgraph Note["Notebooks Component RBAC"]
         direction TB
-        Info["Notebooks repository does NOT define<br/>its own RBAC resources.<br/><br/>RBAC for workbench pods is managed by:<br/>- kubeflow notebook controller<br/>- rhods-operator / opendatahub-operator"]
+        Info["This component does not define its own<br/>RBAC resources (ClusterRoles, RoleBindings).<br/>Authentication and authorization are enforced<br/>externally by the platform."]
     end
 
-    subgraph RuntimeRBAC["Runtime RBAC (Managed by Notebook Controller)"]
+    subgraph AuthMechanism["Authentication & Authorization Architecture"]
         direction TB
 
-        subgraph ServiceAccounts["Service Accounts"]
-            NotebookSA["Per-Notebook SA<br/>(created by notebook controller<br/>for each Notebook CR)"]
+        subgraph UserAccess["User Access Path"]
+            User["User / Data Scientist<br/>(OpenShift Identity)"]
         end
 
-        subgraph SidecarAuth["Sidecar Authentication"]
-            KRBP["kube-rbac-proxy Sidecar<br/>Injected by notebook controller webhook"]
+        subgraph ProxySidecar["kube-rbac-proxy Sidecar (per-pod)"]
+            KRBP["kube-rbac-proxy<br/>Port: 8443/TCP HTTPS<br/>TLS 1.3<br/>Auth: Bearer Token"]
+            Policy["Policy: Only authenticated<br/>users with namespace access"]
         end
 
-        subgraph AuthMechanisms["Authentication Mechanisms"]
-            OAuthOIDC["OAuth/OIDC<br/>User authentication via<br/>kube-rbac-proxy (8443/TCP)"]
-            SAToken["ServiceAccount Token<br/>Mounted at standard path<br/>for KFP and K8s API access"]
+        subgraph WorkbenchEndpoints["Workbench Endpoints (unauthed internally)"]
+            JupyterEndpoint["JupyterLab :8888/TCP<br/>/lab, /api/kernels/, /api/status"]
+            CodeServerEndpoint["Code-Server :80/TCP<br/>/ (nginx → code-server)"]
+        end
+
+        subgraph ControllerAccess["Controller Access"]
+            Controller["ODH Notebook Controller<br/>SA: controller-manager"]
+            Culler["Idle Culler<br/>Polls /api/kernels/"]
         end
     end
 
-    subgraph Secrets["Secrets Used by Workbenches"]
-        direction TB
-        SATokenSecret["Notebook SA Token<br/>Type: kubernetes.io/service-account-token<br/>Provisioned: Kubernetes<br/>Auto-Rotate: Yes"]
-        DSPASecret["DSPA Connection Secret<br/>Type: Opaque<br/>Provisioned: Notebook Controller<br/>Auto-Rotate: No"]
-        CABundle["CA Certificate Bundle<br/>Type: ConfigMap mount<br/>Path: /etc/pki/tls/custom-certs/ca-bundle.crt<br/>Provisioned: Notebook Controller<br/>Auto-Rotate: No"]
+    subgraph SecretsManagement["Secrets (Mounted by Notebook Controller)"]
+        DSPASecret["DSPA Connection Secret<br/>Type: Opaque<br/>Mount: /opt/app-root/runtimes/<br/>Provisioned by: Notebook Controller<br/>Auto-rotate: No"]
+        CABundle["CA Certificate Bundle<br/>Type: Opaque<br/>Mount: /etc/pki/tls/custom-certs/ca-bundle.crt<br/>Provisioned by: Notebook Controller<br/>Auto-rotate: No"]
     end
 
-    subgraph AccessPatterns["Workbench Access Patterns"]
-        direction TB
-        UserAccess["User → Gateway → kube-rbac-proxy → Workbench<br/>Auth: OAuth/OIDC Token"]
-        PipelineAccess["Elyra → DSPA<br/>Auth: ServiceAccount Token (443/TCP)"]
-        K8sAccess["kubectl/oc → K8s API<br/>Auth: ServiceAccount Token (6443/TCP)"]
-        CullerAccess["Notebook Controller Culler → kube-rbac-proxy<br/>Auth: ServiceAccount Token (8443/TCP)"]
+    subgraph TenantIsolation["Tenant Isolation"]
+        Boundary["Tenant Boundary: per-user<br/>(one pod per user per namespace)"]
+        NSIsolation["Namespace-scoped PVCs,<br/>Secrets, ConfigMaps"]
+        NetPolicy["NetworkPolicy<br/>(if configured by platform)"]
+        ResourceQuota["ResourceQuota / LimitRange<br/>(namespace-level)"]
     end
 
-    %% Relationships
-    NotebookSA -->|"token mounted in"| SATokenSecret
-    NotebookSA -->|"used by"| PipelineAccess
-    NotebookSA -->|"used by"| K8sAccess
-    KRBP -->|"enforces"| OAuthOIDC
-    KRBP -->|"validates"| SAToken
-    OAuthOIDC -->|"protects"| UserAccess
-    SAToken -->|"enables"| CullerAccess
-    DSPASecret -->|"credentials for"| PipelineAccess
-    CABundle -->|"TLS trust for"| PipelineAccess
-    CABundle -->|"TLS trust for"| K8sAccess
+    %% User access flow
+    User -->|"HTTPS/8443<br/>Bearer Token<br/>(OpenShift user token)"| KRBP
+    KRBP -->|validates| Policy
+    Policy -->|"HTTP (pod-internal)<br/>No auth"| JupyterEndpoint
+    Policy -->|"HTTP (pod-internal)<br/>No auth"| CodeServerEndpoint
+
+    %% Controller access
+    Controller -->|"injects sidecar"| KRBP
+    Culler -->|"HTTPS/8443<br/>Bearer Token"| KRBP
+
+    %% Secrets
+    Controller -->|"mounts"| DSPASecret
+    Controller -->|"mounts"| CABundle
+
+    %% Isolation
+    Boundary -->|"enforced by"| NSIsolation
 
     %% Styling
-    style Note fill:#fff3e0,stroke:#f5a623,stroke-width:2px
-    style Info fill:#fff3e0,stroke:#f5a623
-    style RuntimeRBAC fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
-    style Secrets fill:#fce4ec,stroke:#e91e63,stroke-width:2px
-    style AccessPatterns fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
-
-    style NotebookSA fill:#4a90e2,stroke:#333,color:#fff
-    style KRBP fill:#e91e63,stroke:#333,color:#fff
-    style OAuthOIDC fill:#f5a623,stroke:#333
-    style SAToken fill:#f5a623,stroke:#333
-    style SATokenSecret fill:#7ed321,stroke:#333
-    style DSPASecret fill:#7ed321,stroke:#333
-    style CABundle fill:#7ed321,stroke:#333
-
-    style UserAccess fill:#e8e8e8,stroke:#333
-    style PipelineAccess fill:#e8e8e8,stroke:#333
-    style K8sAccess fill:#e8e8e8,stroke:#333
-    style CullerAccess fill:#e8e8e8,stroke:#333
+    style Info fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#333
+    style KRBP fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    style Policy fill:#fff9c4,stroke:#f9a825
+    style User fill:#4a90e2,stroke:#333,color:#fff
+    style Controller fill:#7ed321,stroke:#333,color:#fff
+    style Culler fill:#7ed321,stroke:#333,color:#fff
+    style JupyterEndpoint fill:#d5e8d4,stroke:#82b366
+    style CodeServerEndpoint fill:#d5e8d4,stroke:#82b366
+    style DSPASecret fill:#f8cecc,stroke:#b85450
+    style CABundle fill:#f8cecc,stroke:#b85450
+    style Boundary fill:#e1bee7,stroke:#8e24aa
+    style NSIsolation fill:#e1bee7,stroke:#8e24aa
+    style NetPolicy fill:#e1bee7,stroke:#8e24aa
+    style ResourceQuota fill:#e1bee7,stroke:#8e24aa

@@ -1,43 +1,36 @@
 workspace {
     model {
-        user = person "Data Scientist" "Creates RayClusters and submits distributed compute workloads"
-        admin = person "Platform Admin" "Manages RHOAI platform and monitors operator health"
+        user = person "Data Scientist" "Creates and manages RayCluster and AppWrapper resources for distributed ML workloads"
 
-        codeflareOperator = softwareSystem "CodeFlare Operator" "Kubernetes operator managing RayCluster lifecycle with OAuth proxy injection, mTLS certificate generation, and optional AppWrapper controller for batch workload scheduling" {
-            manager = container "Operator Manager" "controller-runtime-based operator binary" "Go"
-            rayclusterController = container "RayCluster Controller" "Reconciles RayCluster CRs — creates OAuth Routes, Services, Secrets, CA certs, NetworkPolicies, ClusterRoleBindings" "Go Controller"
-            rayclusterWebhook = container "RayCluster Webhook" "Mutating: injects OAuth proxy sidecar + mTLS init containers; Validating: enforces immutability" "Admission Webhook"
-            appwrapperController = container "AppWrapper Controller (embedded)" "Optional controller for quota-aware batch workload scheduling via Kueue integration" "Go Controller"
-            appwrapperWebhook = container "AppWrapper Webhook" "Optional admission control with SubjectAccessReview-based authorization" "Admission Webhook"
+        codeflareOperator = softwareSystem "CodeFlare Operator" "Manages RayCluster lifecycle with OAuth proxy injection, mTLS certificate provisioning, and optional AppWrapper batch scheduling" {
+            controller = container "RayCluster Controller" "Reconciles RayCluster CRs: creates Routes, OAuth Services, NetworkPolicies, Secrets, ServiceAccounts" "Go (controller-runtime)"
+            mutatingWebhook = container "RayCluster Mutating Webhook" "Injects oauth-proxy sidecar, TLS volumes, mTLS init containers into RayCluster pod specs" "Go Webhook Server"
+            validatingWebhook = container "RayCluster Validating Webhook" "Enforces immutability of injected OAuth proxy and mTLS resources" "Go Webhook Server"
+            certController = container "cert-controller" "Manages webhook TLS certificate rotation" "open-policy-agent/cert-controller"
+            appwrapperController = container "AppWrapper Controller" "Optional embedded controller for workload queuing with Kueue integration" "Go (controller-runtime)"
+            appwrapperWebhook = container "AppWrapper Webhook" "Validates and defaults AppWrapper resources, performs SubjectAccessReview checks" "Go Webhook Server"
         }
 
-        kuberayOperator = softwareSystem "KubeRay Operator" "Creates and manages RayCluster pods and services" "Internal Platform"
-        openshiftOAuth = softwareSystem "OpenShift OAuth" "OpenShift authentication provider for user identity" "Platform"
-        openshiftRouter = softwareSystem "OpenShift Router" "Ingress controller routing external traffic via Routes" "Platform"
-        k8sAPI = softwareSystem "Kubernetes API Server" "Cluster API for resource management and webhook invocation" "Platform"
-        kueue = softwareSystem "Kueue" "Quota-aware workload admission controller" "Internal Platform"
-        odhOperator = softwareSystem "ODH/RHOAI Operator" "Platform operator providing DSCInitialization for namespace discovery" "Internal Platform"
-        prometheus = softwareSystem "Prometheus / OpenShift Monitoring" "Metrics collection and alerting" "Platform"
-        certController = softwareSystem "cert-controller (OPA)" "Webhook certificate rotation library" "Library"
+        kuberay = softwareSystem "KubeRay Operator" "Manages Ray cluster lifecycle (upstream)" "External"
+        openshiftOAuth = softwareSystem "OpenShift OAuth" "Platform authentication provider" "External"
+        openshiftRouter = softwareSystem "OpenShift Router" "Ingress controller for Routes" "External"
+        odhOperator = softwareSystem "opendatahub-operator" "Platform operator providing DSCInitialization CR" "Internal RHOAI"
+        kueue = softwareSystem "Kueue" "Quota management and gang scheduling for batch workloads" "External"
+        certSigner = softwareSystem "service-serving-cert-signer" "OpenShift component that generates TLS certificates for Services" "External"
+        monitoring = softwareSystem "Prometheus (openshift-monitoring)" "Cluster monitoring stack" "External"
+        k8sAPI = softwareSystem "Kubernetes API Server" "Core API for all resource CRUD and webhook registration" "External"
 
-        # Relationships
         user -> codeflareOperator "Creates RayCluster / AppWrapper CRs via kubectl"
-        admin -> prometheus "Monitors operator metrics"
-
-        codeflareOperator -> kuberayOperator "Watches RayClusters created by KubeRay" "K8s API / CRD Watch"
-        codeflareOperator -> openshiftOAuth "OAuth proxy delegates user authentication" "HTTPS/443"
-        codeflareOperator -> openshiftRouter "Creates Routes for dashboard and client access" "K8s API"
-        codeflareOperator -> k8sAPI "Manages Secrets, Services, NetworkPolicies, RBAC" "HTTPS/443"
-        codeflareOperator -> kueue "AppWrapper controller integrates for quota scheduling" "K8s API / CRD"
-        codeflareOperator -> odhOperator "Reads DSCInitialization for namespace discovery" "K8s API / CRD Watch"
-        codeflareOperator -> certController "Uses for webhook TLS cert rotation" "Library"
-        prometheus -> codeflareOperator "Scrapes /metrics endpoint" "HTTP/8080"
-
-        # Internal container relationships
-        manager -> rayclusterController "Manages"
-        manager -> rayclusterWebhook "Serves"
-        manager -> appwrapperController "Manages (optional)"
-        manager -> appwrapperWebhook "Serves (optional)"
+        codeflareOperator -> kuberay "Watches RayCluster CRs created by KubeRay"
+        codeflareOperator -> openshiftOAuth "oauth-proxy delegates authentication" "HTTPS/443"
+        codeflareOperator -> odhOperator "Reads DSCInitialization CR for app namespace" "Kubernetes API"
+        codeflareOperator -> kueue "AppWrapper integrates for quota reservation" "CRD integration"
+        codeflareOperator -> certSigner "Annotation-triggered TLS cert generation for OAuth service"
+        codeflareOperator -> k8sAPI "CRD watches, resource CRUD, webhook registration" "HTTPS/443"
+        monitoring -> codeflareOperator "Scrapes Prometheus metrics" "HTTP/8080"
+        k8sAPI -> codeflareOperator "Webhook admission calls" "HTTPS/9443"
+        user -> openshiftRouter "Accesses Ray Dashboard via Route" "HTTPS/443"
+        openshiftRouter -> codeflareOperator "Routes traffic to oauth-proxy sidecar" "HTTPS/8443"
     }
 
     views {
@@ -52,29 +45,25 @@ workspace {
         }
 
         styles {
-            element "Software System" {
-                background #438DD5
-                color #ffffff
-            }
-            element "Internal Platform" {
-                background #7ed321
-                color #ffffff
-            }
-            element "Platform" {
+            element "External" {
                 background #999999
                 color #ffffff
             }
-            element "Library" {
-                background #d6b656
+            element "Internal RHOAI" {
+                background #7ed321
                 color #ffffff
             }
             element "Person" {
                 shape person
-                background #08427B
+                background #4a90e2
+                color #ffffff
+            }
+            element "Software System" {
+                background #4a90e2
                 color #ffffff
             }
             element "Container" {
-                background #438DD5
+                background #438dd5
                 color #ffffff
             }
         }

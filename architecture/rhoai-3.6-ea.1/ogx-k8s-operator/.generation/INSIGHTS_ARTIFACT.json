@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "ogx-k8s-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "ogx-k8s-operator-dual-binary-001",
+      "claim": "ogx-k8s-operator uses a dual-binary operator pattern where the root operator manages user-facing OGXServer CRs and ogx-module manages the platform-level OGX component installation, keeping reconciliation concerns separated.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/architecture_components"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "ogx-module/internal/controller/ogx/reconciler.go:44-52"
+        }
+      ],
+      "reasoning": "The analyzer identifies two controller-runtime operators (ogx-k8s-operator and ogx-module) with distinct CRD watches. The root operator watches ogx.io/OGXServer while ogx-module watches components.platform.opendatahub.io/OGX, confirming they serve different lifecycle concerns.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "ogx-k8s-operator-tls-delegation-002",
+      "claim": "The operator delegates TLS policy to the OpenShift platform by fetching the APIServer TLS profile at startup, avoiding hardcoded cipher suites but lacking GOEXPERIMENT=strictfipsruntime for strict FIPS runtime enforcement.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "main.go:156-198"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:6,29"
+        }
+      ],
+      "reasoning": "The TLS setup code fetches the OpenShift APIServer TLS profile and applies it, with an Intermediate fallback. This means the operator inherits platform-level TLS policy. However, CGO_ENABLED=1 without GOEXPERIMENT=strictfipsruntime means FIPS mode depends on the runtime environment rather than being strictly enforced at the Go binary level.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "ogx-k8s-operator-label-scoped-cache-003",
+      "claim": "The operator uses label-scoped informer caches to reduce API server watch pressure, filtering Deployments, Services, HPAs, PDBs, NetworkPolicies, Ingresses, and PVCs by the managed-by label, and Secrets/ConfigMaps by a dedicated watch label.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "main.go:108-136"
+        }
+      ],
+      "reasoning": "The newCacheOptions function configures ByObject cache filters with label selectors, which is an important multi-tenancy and scalability pattern for operators that share a namespace with other workloads.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

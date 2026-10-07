@@ -1,254 +1,212 @@
-================================================================================
-  SECURITY NETWORK DIAGRAM: Argo Workflows (RHOAI)
-  Component: workflow-controller + argoexec
-  Distribution: RHOAI (Konflux)
-================================================================================
-
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  INTERNAL PLATFORM (Trusted - RHOAI Namespace)                          │
+│  EXTERNAL (Untrusted)                                                   │
 │                                                                          │
-│  [Data Science Pipelines Operator]                                       │
-│  - Deploys workflow-controller                                           │
-│  - Configures argoexec image reference                                   │
-│  - No runtime network traffic (image reference only)                     │
+│  [Git Providers - GitHub/GitLab/Bitbucket]                               │
+│         │                                                                │
+│         │ Port: 2746/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: HMAC-SHA256 signature                                    │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ARGO SERVER (API Gateway - bundled in DSP)                             │
 │                                                                          │
-│  [Data Science Pipelines API Server]                                     │
+│  [Argo Server]                                                           │
+│  - Port: 2746/TCP (gRPC + HTTP/1.1)                                    │
+│  - Protocol: HTTPS, gRPC/HTTP2                                          │
+│  - Encryption: TLS 1.2+ (ECDSA P-256 self-signed or K8s Secret cert)   │
+│  - AuthN: Bearer Token (K8s SA) / SSO (OIDC JWT v2) / Server mode      │
+│  - AuthZ: K8s RBAC via SubjectAccessReview                              │
+│  - ServiceAccount: argo-server                                           │
+│  - Endpoints:                                                            │
+│    - /api/*        (gRPC-Gateway REST proxy)                             │
+│    - /artifacts/*  (artifact retrieval)                                   │
+│    - /oauth2/*     (SSO redirect/callback)                               │
+│    - /metrics      (Prometheus, optional auth)                           │
 │         │                                                                │
 │         │ Port: 443/TCP                                                  │
-│         │ Protocol: HTTPS (HTTP/2)                                       │
+│         │ Protocol: HTTPS                                                │
 │         │ Encryption: TLS 1.2+                                           │
 │         │ Auth: ServiceAccount token                                     │
-│         │ Action: Creates Workflow CRs                                   │
 │         ▼                                                                │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  CONTROLLER PLANE (workflow-controller)                                  │
-│                                                                          │
-│  [workflow-controller]                                                   │
-│  - Namespace: DSP-managed namespace                                      │
-│  - ServiceAccount: argo                                                  │
-│  - Image: odh-data-science-pipelines-argo-workflowcontroller             │
-│  - FIPS: CGO_ENABLED=1 GOEXPERIMENT=strictfipsruntime                   │
-│  - Replicas: 1 (leader election via Leases)                              │
-│  - Workers: 32 workflow, 4 TTL, 4 pod-cleanup, 8 cron, 8 archive       │
-│                                                                          │
-│  Exposed Ports:                                                          │
-│  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │ Port 9090/TCP - Metrics (Prometheus)                             │    │
-│  │   Protocol: HTTP/HTTPS                                           │    │
-│  │   Encryption: TLS 1.2+ (default enabled, self-signed ECDSA P-256)│   │
-│  │   Auth: None (configurable)                                      │    │
-│  │   Exposure: Internal (ClusterIP)                                 │    │
-│  ├──────────────────────────────────────────────────────────────────┤    │
-│  │ Port 6060/TCP - Health (/healthz)                                │    │
-│  │   Protocol: HTTP                                                 │    │
-│  │   Encryption: None                                               │    │
-│  │   Auth: None                                                     │    │
-│  │   Exposure: Internal (ClusterIP) - liveness probe                │    │
-│  └──────────────────────────────────────────────────────────────────┘    │
-│         │                                                                │
-│         │ Egress to Kubernetes API:                                      │
-│         │ Port: 443/TCP                                                  │
-│         │ Protocol: HTTPS (HTTP/2)                                       │
-│         │ Encryption: TLS 1.2+                                           │
-│         │ Auth: ServiceAccount token (mounted volume)                    │
-│         │ Actions: Watch/List/Patch Workflow CRs, Create Pods,           │
-│         │          Leases, ConfigMaps, Secrets, Events                   │
-│         ▼                                                                │
-├─────────────────────────────────────────────────────────────────────────┤
-│  DATA PLANE (Workflow Step Pods)                                         │
-│                                                                          │
-│  [Workflow Step Pod]                                                     │
-│  - Namespace: DSP-managed namespace                                      │
-│  - ServiceAccount: pipeline-runner (DSP-configured)                      │
-│                                                                          │
-│  ┌─────────────────────────────────────┐                                │
-│  │ argoexec (init container)           │                                │
-│  │   Image: odh-data-science-pipelines-│                                │
-│  │          argo-argoexec              │                                │
-│  │   FIPS: Dual binary                 │                                │
-│  │     /bin/argoexec (non-FIPS default)│                                │
-│  │     /bin/argoexec-fips (FIPS)       │                                │
-│  │   No listening ports                │                                │
-│  │         │                           │                                │
-│  │         │ Port: 443/TCP             │                                │
-│  │         │ Protocol: HTTPS           │                                │
-│  │         │ Encryption: TLS 1.2+      │                                │
-│  │         │ Auth: Secret-based creds  │                                │
-│  │         │ Action: Download artifacts│                                │
-│  │         ▼                           │                                │
-│  │    [S3/MinIO Storage]               │                                │
-│  └─────────────────────────────────────┘                                │
-│                                                                          │
-│  ┌─────────────────────────────────────┐                                │
-│  │ argoexec (wait/emissary sidecar)    │                                │
-│  │   No listening ports                │                                │
-│  │         │                           │                                │
-│  │         ├─► K8s API (443/TCP)       │                                │
-│  │         │   HTTPS, TLS 1.2+         │                                │
-│  │         │   SA token auth           │                                │
-│  │         │   Patch annotations,      │                                │
-│  │         │   Create WorkflowTaskResult│                               │
-│  │         │                           │                                │
-│  │         └─► S3/MinIO (443/TCP)      │                                │
-│  │             HTTPS, TLS 1.2+         │                                │
-│  │             Secret-based creds      │                                │
-│  │             Upload output artifacts │                                │
-│  └─────────────────────────────────────┘                                │
-│                                                                          │
-│  Shared Volume: /var/run/argo/                                           │
-│  - Init writes artifacts + scripts                                       │
-│  - Main container reads/executes                                         │
-│  - Wait sidecar reads outputs                                            │
-│                                                                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│  KUBERNETES CONTROL PLANE                                                │
+│  CLUSTER INTERNAL (Kubernetes)                                           │
 │                                                                          │
 │  [Kubernetes API Server]                                                 │
 │  - Port: 443/TCP                                                         │
-│  - Protocol: HTTPS (HTTP/2)                                              │
+│  - Protocol: HTTPS                                                       │
 │  - Encryption: TLS 1.2+                                                  │
-│  - Auth: ServiceAccount tokens, RBAC enforcement                         │
-│  - Purpose: CRD management, Pod lifecycle, leader election               │
+│  - Auth: ServiceAccount tokens (auto-mounted)                            │
+│         │                                                                │
+│         │ Informer watch / reconciliation                                │
+│         ▼                                                                │
+│  [Workflow Controller]                                                   │
+│  - Namespace: argo (cluster-install) or target namespace                 │
+│  - ServiceAccount: argo                                                  │
+│  - Image: odh-data-science-pipelines-argo-workflowcontroller             │
+│  - Ports:                                                                │
+│    - 9090/TCP (metrics - HTTP/HTTPS, TLS configurable, no auth)         │
+│    - 6060/TCP (health - HTTP, no encryption, no auth)                   │
+│  - Leader election via Kubernetes API                                    │
+│  - FIPS: Go 1.26 native FIPS 140-3 (GOFIPS140=v1.0.0, CGO_ENABLED=0)  │
+│         │                                                                │
+│         │ Creates workflow Pods                                          │
+│         ▼                                                                │
+│  [Workflow Pod]                                                          │
+│  - Namespace: {workflow-namespace}                                        │
+│  - ServiceAccount: per-workflow SA                                       │
+│    ┌────────────────────────────────────┐                                 │
+│    │ [argoexec - init container]        │                                 │
+│    │ - Image: odh-data-science-         │                                 │
+│    │   pipelines-argo-argoexec          │                                 │
+│    │ - Mode: Emissary (process proxy)   │                                 │
+│    │ - FIPS: Go 1.26 native FIPS 140-3  │                                │
+│    │         │                           │                                │
+│    │         │ Port: 443/TCP             │                                │
+│    │         │ Protocol: HTTPS           │                                │
+│    │         │ Encryption: TLS 1.2+      │                                │
+│    │         │ Auth: Access key / IAM    │                                │
+│    │         ▼                           │                                │
+│    │ [Artifact Storage]                  │                                │
+│    │                                     │                                │
+│    │ [argoexec - sidecar (wait)]        │                                 │
+│    │         │                           │                                │
+│    │         │ Port: 443/TCP             │                                │
+│    │         │ Protocol: HTTPS           │                                │
+│    │         │ Auth: SA token            │                                │
+│    │         ▼                           │                                │
+│    │ [Kubernetes API - patch TaskResult] │                                │
+│    └────────────────────────────────────┘                                 │
+│                                                                          │
+│  [Data Science Pipelines API Server]                                     │
+│  - Interaction: Creates Workflow CRDs                                    │
+│  - Port: 443/TCP (via K8s API)                                          │
+│  - Auth: ServiceAccount token                                            │
 │                                                                          │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  EXTERNAL SERVICES                                                       │
 │                                                                          │
-│  [S3-compatible Storage (MinIO/AWS S3)]                                  │
+│  [Container Registry]                                                    │
+│  - Purpose: Image entrypoint/CMD lookup for workflow containers          │
 │  - Port: 443/TCP                                                         │
 │  - Protocol: HTTPS                                                       │
 │  - Encryption: TLS 1.2+                                                  │
-│  - Auth: Secret-based (AccessKey/SecretKey)                              │
-│  - Purpose: Pipeline artifact storage (input/output)                     │
+│  - Auth: Image pull secrets                                              │
 │                                                                          │
-│  [PostgreSQL/MariaDB] (Optional)                                         │
-│  - Port: 5432/TCP (PostgreSQL) or 3306/TCP (MariaDB/MySQL)              │
+│  [S3-compatible Storage - MinIO/AWS S3/GCS/Azure Blob]                  │
+│  - Purpose: Artifact repository for workflow artifacts                   │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: Secret-referenced credentials (access keys, IAM roles)         │
+│                                                                          │
+│  [PostgreSQL] (optional)                                                 │
+│  - Purpose: Workflow archival and node status offloading                  │
+│  - Port: 5432/TCP                                                        │
 │  - Protocol: TCP                                                         │
-│  - Encryption: Optional SSL/TLS                                          │
-│  - Auth: Secret-based username/password                                  │
-│  - Purpose: Workflow archiving and node status offloading                │
+│  - Encryption: SSL (configurable)                                        │
+│  - Auth: Secret-referenced DB credentials                                │
 │                                                                          │
-│  [GCS - Google Cloud Storage] (Optional)                                 │
+│  [MySQL] (optional)                                                      │
+│  - Purpose: Alternative persistence backend                              │
+│  - Port: 3306/TCP                                                        │
+│  - Protocol: TCP                                                         │
+│  - Encryption: TLS (configurable)                                        │
+│  - Auth: Secret-referenced DB credentials                                │
+│                                                                          │
+│  [OIDC Provider - Dex/Keycloak] (optional)                              │
+│  - Purpose: SSO authentication (token exchange, JWKS verification)       │
 │  - Port: 443/TCP                                                         │
 │  - Protocol: HTTPS                                                       │
 │  - Encryption: TLS 1.2+                                                  │
-│  - Auth: Service account JSON key                                        │
-│  - Purpose: Alternative artifact storage                                 │
+│  - Auth: Client ID/Secret                                                │
+│  - Risk: InsecureSkipVerify configurable for OIDC provider              │
 │                                                                          │
-│  [Azure Blob Storage] (Optional)                                         │
-│  - Port: 443/TCP                                                         │
-│  - Protocol: HTTPS                                                       │
-│  - Encryption: TLS 1.2+                                                  │
-│  - Auth: Azure SDK credentials                                           │
-│  - Purpose: Alternative artifact storage                                 │
-│                                                                          │
-│  [HDFS NameNode] (Optional)                                              │
+│  [HDFS] (optional)                                                       │
+│  - Purpose: Hadoop artifact storage                                      │
 │  - Port: 8020/TCP                                                        │
-│  - Protocol: TCP                                                         │
-│  - Encryption: Optional Kerberos                                         │
-│  - Auth: Kerberos keytab (optional)                                      │
-│  - Purpose: Alternative artifact storage                                 │
-│                                                                          │
-│  [Prometheus]                                                            │
-│  - Scrapes workflow-controller 9090/TCP                                  │
-│  - Protocol: HTTP/HTTPS                                                  │
-│  - Encryption: TLS 1.2+ (default enabled)                               │
-│  - Auth: None                                                            │
-│  - Purpose: Metrics collection                                           │
-│                                                                          │
+│  - Protocol: RPC                                                         │
+│  - Encryption: Kerberos                                                  │
+│  - Auth: Kerberos credentials                                            │
 └─────────────────────────────────────────────────────────────────────────┘
 
-================================================================================
-  RBAC SUMMARY
-================================================================================
+RBAC Summary:
 
-ClusterRole: argo-cluster-role
-  Bound to ServiceAccount: argo (install namespace)
-  Via: ClusterRoleBinding argo-binding
+  ClusterRole: argo-cluster-role
+  - API Groups: argoproj.io
+    - Resources: workflows, workflows/finalizers, workflowtasksets,
+                 workflowtasksets/finalizers, workflowartifactgctasks
+    - Verbs: get, list, watch, update, patch, delete, create
+  - API Groups: ""
+    - Resources: pods, pods/exec
+    - Verbs: create, get, list, watch, update, patch, delete
+  - API Groups: ""
+    - Resources: configmaps
+    - Verbs: get, watch, list
+  - API Groups: ""
+    - Resources: persistentvolumeclaims, persistentvolumeclaims/finalizers
+    - Verbs: create, update, delete, get
+  - API Groups: argoproj.io
+    - Resources: workflowtemplates, clusterworkflowtemplates (+ finalizers)
+    - Verbs: get, list, watch
+  - API Groups: argoproj.io
+    - Resources: workflowtaskresults
+    - Verbs: list, watch, deletecollection
+  - API Groups: ""
+    - Resources: serviceaccounts
+    - Verbs: get, list
+  - API Groups: argoproj.io
+    - Resources: cronworkflows, cronworkflows/finalizers
+    - Verbs: get, list, watch, update, patch, delete
+  - API Groups: ""
+    - Resources: events
+    - Verbs: create, patch
+  - API Groups: policy
+    - Resources: poddisruptionbudgets
+    - Verbs: create, get, delete
 
-  Core API (""):
-  - pods, pods/exec                          → create, get, list, watch, update, patch, delete
-  - configmaps                               → get, watch, list
-  - persistentvolumeclaims (+/finalizers)     → create, update, delete, get
-  - serviceaccounts                          → get, list
-  - secrets (argo-workflows-agent-ca-certs)  → get (restricted by resourceName)
-  - events                                   → create, patch
+  ClusterRole: argo-server-cluster-role
+  - API Groups: ""
+    - Resources: configmaps, secrets, pods, pods/exec, pods/log, events, serviceaccounts
+    - Verbs: get, list, watch, create, delete, patch
+  - API Groups: argoproj.io
+    - Resources: eventsources, sensors, workflows, workfloweventbindings,
+                 workflowtemplates, cronworkflows, clusterworkflowtemplates
+    - Verbs: create, get, list, watch, update, patch, delete
 
-  argoproj.io:
-  - workflows, workflows/finalizers          → get, list, watch, update, patch, delete, create
-  - workflowtasksets (+/finalizers)           → get, list, watch, update, patch, delete, create
-  - workflowartifactgctasks                  → get, list, watch, update, patch, delete, create
-  - workflowtemplates (+/finalizers)          → get, list, watch
-  - clusterworkflowtemplates (+/finalizers)   → get, list, watch
-  - workflowtaskresults                      → list, watch, deletecollection
-  - cronworkflows (+/finalizers)              → get, list, watch, update, patch, delete
+  Aggregate ClusterRoles:
+  - argo-aggregate-to-view: get, list, watch
+  - argo-aggregate-to-edit: create, delete, deletecollection, get, list, patch, update, watch
+  - argo-aggregate-to-admin: (same as edit + workflowtasksets)
 
-  policy:
-  - poddisruptionbudgets                    → create, get, delete
+Role Bindings:
+  - argo-binding: argo SA → argo-cluster-role (ClusterRoleBinding)
+  - argo-server-binding: argo-server SA → argo-server-cluster-role (ClusterRoleBinding)
 
-Role: argo-role (namespace-scoped)
-  Bound to ServiceAccount: argo (install namespace)
-  Via: RoleBinding argo-binding
+Secrets:
+  - (TLS cert secret) (kubernetes.io/tls) - TLS cert for argo server, manual or cert-manager
+  - sso (Opaque) - RSA-2048 key for JWT cookie encryption, auto-generated
+  - argo-workflows-webhook-clients (Opaque) - HMAC secrets for GitHub/GitLab/Bitbucket webhooks
+  - argo-workflows-agent-ca-certificates (Opaque) - CA certs for agent pods
+  - (artifact credentials) (Opaque) - S3/GCS/Azure storage credentials
+  - (database credentials) (Opaque) - PostgreSQL/MySQL username and password
 
-  coordination.k8s.io:
-  - leases                                   → create, get, update
+FIPS Compliance:
+  - Build: GOFIPS140=v1.0.0, -tags no_openssl, CGO_ENABLED=0 (static linking)
+  - Runtime: godebug fips140=on in go.mod (Go 1.26 native FIPS 140-3)
+  - TLS: crypto/tls with MinVersion TLS 1.2, NextProtos: ["h2"]
+  - Crypto: stdlib crypto/tls, ECDSA P-256, go-jose (A256GCM + RSA-OAEP-256)
+  - Risk: InsecureSkipVerify=true on loopback gRPC-gateway→gRPC (localhost only)
 
-  Core API (""):
-  - secrets                                  → get
+Authentication Modes:
+  - Client mode: Bearer token (Kubernetes ServiceAccount token)
+  - Server mode: Uses pod's ServiceAccount (bypasses user-level auth)
+  - SSO mode: OIDC JWT v2 with SA mapping via annotations
+  - Webhook: HMAC-SHA256 signature verification
 
-Aggregate Roles:
-  argo-aggregate-to-view   → get, list, watch on all argoproj.io resources
-  argo-aggregate-to-edit   → full CRUD on all argoproj.io resources
-  argo-aggregate-to-admin  → full CRUD on all argoproj.io resources (incl. tasksets)
-
-================================================================================
-  SECRETS & CREDENTIALS
-================================================================================
-
-| Secret                              | Type     | Purpose                             | Provisioned By      | Rotation |
-|-------------------------------------|----------|-------------------------------------|---------------------|----------|
-| workflow-controller-configmap       | ConfigMap| Controller config (parallelism etc) | Operator / manual   | No       |
-| (persistence credentials)           | Opaque   | DB username/password for archiving  | DSP Operator        | No       |
-| (artifact credentials)              | Opaque   | S3/GCS/Azure storage credentials    | DSP Operator        | No       |
-| argo-workflows-agent-ca-certificates| Opaque   | CA certs for executor plugin agents | Manual              | No       |
-
-================================================================================
-  FIPS COMPLIANCE NOTES
-================================================================================
-
-workflow-controller:
-  - Build: CGO_ENABLED=1 GOEXPERIMENT=strictfipsruntime -tags strictfipsruntime
-  - Linking: Dynamic (uses OpenSSL via UBI9)
-  - Single FIPS binary only
-
-argoexec:
-  - FIPS binary: /bin/argoexec-fips (CGO_ENABLED=1, dynamic)
-  - Non-FIPS binary: /bin/argoexec (CGO_ENABLED=0, static) ← DEFAULT ENTRYPOINT
-  - WARNING: FIPS compliance requires explicit command override to /bin/argoexec-fips
-
-TLS Configuration:
-  - Metrics endpoint: TLS 1.2+ default enabled, self-signed ECDSA P-256
-  - InsecureSkipVerify=true in self-signed cert config (util/tls/tls.go:127)
-  - No MD5/RC4/DES usage detected
-
-================================================================================
-  INGRESS / EGRESS SUMMARY
-================================================================================
-
-INGRESS: None
-  - workflow-controller is an internal-only controller
-  - No external-facing endpoints
-  - DSP API Server provides user-facing API
-
-EGRESS:
-  ┌──────────────────────────┬───────────┬──────────────┬───────────┬────────────────────────┐
-  │ Destination              │ Port      │ Protocol     │ Encryption│ Auth                   │
-  ├──────────────────────────┼───────────┼──────────────┼───────────┼────────────────────────┤
-  │ Kubernetes API Server    │ 443/TCP   │ HTTPS (H2)   │ TLS 1.2+  │ SA token (mounted)     │
-  │ S3-compatible storage    │ 443/TCP   │ HTTPS        │ TLS 1.2+  │ Secret (AccessKey)     │
-  │ GCS                      │ 443/TCP   │ HTTPS        │ TLS 1.2+  │ SA JSON key            │
-  │ Azure Blob Storage       │ 443/TCP   │ HTTPS        │ TLS 1.2+  │ Azure SDK creds        │
-  │ HDFS NameNode            │ 8020/TCP  │ TCP          │ Kerberos? │ Kerberos keytab        │
-  │ Alibaba OSS              │ 443/TCP   │ HTTPS        │ TLS 1.2+  │ Secret-based           │
-  │ PostgreSQL               │ 5432/TCP  │ TCP          │ SSL/TLS?  │ Secret (user/pass)     │
-  │ MySQL/MariaDB            │ 3306/TCP  │ TCP          │ TLS?      │ Secret (user/pass)     │
-  └──────────────────────────┴───────────┴──────────────┴───────────┴────────────────────────┘
+Multi-Tenancy:
+  - Tenant boundary: per-namespace
+  - Isolation: K8s RBAC, namespace-scoped CRDs
+  - Gap: No NetworkPolicy in manifests - cross-namespace pod communication possible
+  - Gap: Archived workflows in shared DB may lack namespace-level query isolation
+  - Gap: No ResourceQuota/LimitRange in manifests

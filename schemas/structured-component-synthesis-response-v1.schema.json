@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jctanner/odh.architecture-context/schemas/structured-component-synthesis-response-v1.schema.json",
+  "title": "Bounded structured component synthesis response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "response_id", "input_bundle_identity", "completion_status", "sections", "typed_patches", "limitations", "evidence_requests"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "response_id": {"$ref": "#/$defs/nonEmpty"},
+    "input_bundle_identity": {"$ref": "#/$defs/sha256"},
+    "completion_status": {"enum": ["complete", "needs-evidence", "unresolved"]},
+    "sections": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/section"}},
+    "typed_patches": {"type": "array", "maxItems": 16, "items": {"$ref": "structured-component-patch-v1.schema.json"}},
+    "limitations": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/limitation"}},
+    "evidence_requests": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/request"}}
+  },
+  "$defs": {
+    "nonEmpty": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "inline": {"allOf": [{"$ref": "#/$defs/nonEmpty"}, {"pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029|]+$"}]},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "sectionId": {"enum": ["aipcc-ecosystems-use", "sub-component-details", "deployment-manifests", "security.fips-compliance", "security.build-hermeticity", "multi-tenancy"]},
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "revision"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029]+$"},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "revision": {"type": "string", "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029]+$"}
+      }
+    },
+    "section": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "status", "blocks", "evidence"],
+      "properties": {
+        "id": {"$ref": "#/$defs/sectionId"},
+        "status": {"enum": ["documented", "unresolved", "not-applicable"]},
+        "blocks": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/block"}},
+        "evidence": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/evidence"}},
+        "uncertainty": {"$ref": "#/$defs/inline"}
+      },
+      "allOf": [{"if": {"properties": {"status": {"const": "unresolved"}}, "required": ["status"]}, "then": {"required": ["uncertainty"]}}]
+    },
+    "block": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["type", "text"], "properties": {"type": {"const": "paragraph"}, "text": {"$ref": "#/$defs/inline"}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "items"], "properties": {"type": {"const": "list"}, "items": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/inline"}}}},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "table_id", "rows"],
+          "properties": {
+            "type": {"const": "table"},
+            "table_id": {"$ref": "#/$defs/nonEmpty"},
+            "rows": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 128,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["cells", "evidence"],
+                "properties": {
+                  "cells": {"type": "array", "minItems": 2, "maxItems": 7, "items": {"$ref": "#/$defs/inline"}},
+                  "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}}
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "limitation": {
+      "type": "object", "additionalProperties": false, "required": ["code", "detail"],
+      "properties": {"code": {"$ref": "#/$defs/nonEmpty"}, "detail": {"$ref": "#/$defs/inline"}, "section_id": {"$ref": "#/$defs/sectionId"}}
+    },
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_id", "section_id", "path", "start_line", "end_line", "reason"],
+      "properties": {
+        "request_id": {"$ref": "#/$defs/nonEmpty"}, "section_id": {"$ref": "#/$defs/sectionId"},
+        "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "start_line": {"type": "integer", "minimum": 1}, "end_line": {"type": "integer", "minimum": 1},
+        "reason": {"$ref": "#/$defs/inline"}
+      }
+    }
+  }
+}

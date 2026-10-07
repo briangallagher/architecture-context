@@ -1,0 +1,198 @@
+sequenceDiagram
+    participant User as Data Scientist
+    participant Dashboard as odh-dashboard<br/>(BFF + kube-rbac-proxy)
+    participant K8sAPI as Kubernetes API<br/>(Admission Webhooks)
+    participant KServe as KServe Manager
+    participant ODHModelCtrl as odh-model-controller
+    participant GW as data-science-gateway<br/>(Envoy)
+    participant ModelPod as Model Server Pod
+    participant Client as External Client
+
+    Note over User,Client: Workflow 1: Model Deployment via Dashboard
+
+    User->>Dashboard: Create InferenceService via UI
+    Dashboard->>Dashboard: BFF sidecar validates via<br/>SubjectAccessReview
+    Dashboard->>K8sAPI: Submit InferenceService CR
+    K8sAPI->>K8sAPI: Admission webhooks:<br/>kserve validates/defaults core CRD<br/>odh-model-controller adds platform mutations
+    K8sAPI-->>KServe: InferenceService watch triggers
+    KServe->>K8sAPI: Create Deployment, Service,<br/>HTTPRoute, HPA/KEDA ScaledObject
+    K8sAPI-->>ODHModelCtrl: InferenceService watch triggers
+    ODHModelCtrl->>K8sAPI: Create NetworkPolicy,<br/>ServiceMonitor, PodMonitor,<br/>Route, Kuadrant AuthPolicy
+    Note over KServe: Pod starts, pulls image<br/>from registry.redhat.io
+    KServe->>ModelPod: Model server starts<br/>(vLLM, OpenVINO, etc.)
+    ModelPod->>ModelPod: Downloads model from S3
+    KServe->>GW: HTTPRoute attaches to<br/>data-science-gateway
+
+    Note over Client,GW: Production Inference
+    Client->>GW: POST /v1/models/my-model:predict<br/>(HTTPS/443)
+    GW->>ModelPod: Forward via HTTPRoute<br/>(auth per gateway policy)
+    ModelPod-->>GW: Prediction response
+    GW-->>Client: JSON response (HTTPS)
+
+    User->>Dashboard: View model metrics
+    Dashboard->>K8sAPI: Query InferenceService status
+    K8sAPI-->>Dashboard: Model status + metrics
+    Dashboard-->>User: Show model dashboard
+
+---
+
+sequenceDiagram
+    participant ExtClient as External Client
+    participant MaaSGW as maas-default-gateway<br/>(Envoy)
+    participant Kuadrant as Kuadrant / Authorino<br/>(AuthPolicy)
+    participant MaaSAPI as maas-api<br/>(Port 8443)
+    participant PG as PostgreSQL
+    participant MaaSCtrl as maas-controller
+    participant KServe2 as KServe<br/>(LLMInferenceService)
+    participant DSGW as data-science-gateway
+
+    Note over ExtClient,DSGW: Workflow 2: Models-as-a-Service API Request
+
+    ExtClient->>MaaSGW: Request with API key<br/>(Bearer sk-oai-*)<br/>HTTPS/443
+    MaaSGW->>Kuadrant: AuthPolicy evaluation
+
+    Note over Kuadrant: 3 authentication methods:<br/>1. API key callback<br/>2. K8s TokenReview<br/>3. Optional OIDC JWT
+
+    Kuadrant->>MaaSAPI: API key validation callback<br/>POST /internal/v1/api-keys/validate
+    MaaSAPI-->>Kuadrant: Key valid + subscription info
+
+    Note over Kuadrant: OPA Rego authorization:<br/>subscription/group/binding check
+
+    Kuadrant-->>MaaSGW: Authorized
+    MaaSGW->>MaaSAPI: Forward request<br/>(authenticated context)
+
+    alt Model listing
+        MaaSAPI->>PG: Query available models<br/>for subscription
+        PG-->>MaaSAPI: Model list
+        MaaSAPI-->>MaaSGW: /v1/models response
+    else Subscription management
+        MaaSAPI->>PG: Create/update subscription
+        PG-->>MaaSAPI: Subscription state
+        MaaSAPI-->>MaaSGW: Subscription response
+    else API key lifecycle
+        MaaSAPI->>PG: Create/rotate/revoke API key
+        PG-->>MaaSAPI: Key state
+        MaaSAPI-->>MaaSGW: API key response
+    end
+
+    MaaSGW-->>ExtClient: JSON response (HTTPS)
+
+    Note over MaaSCtrl,DSGW: Background: Model Route Management
+    MaaSCtrl->>KServe2: Watch LLMInferenceService<br/>for model availability
+    KServe2-->>MaaSCtrl: Model available event
+    MaaSCtrl->>DSGW: Create HTTPRoute for<br/>model endpoint
+
+---
+
+sequenceDiagram
+    participant User3 as User / Dashboard
+    participant K8sAPI3 as Kubernetes API
+    participant LLMISVC as kserve llmisvc controller
+    participant K8s3 as Kubernetes
+    participant EPP as llm-d-router (EPP)<br/>Endpoint Picker Plugin
+    participant Prefill as llm-d Prefill Pods
+    participant Decode as llm-d Decode Pods
+    participant KVCache as llm-d-kv-cache<br/>ModelExpress gRPC
+    participant WVA as workload-variant-autoscaler
+    participant Prom as Prometheus
+
+    Note over User3,Prom: Workflow 5: LLM Disaggregated Inference (llm-d)
+
+    User3->>K8sAPI3: Create LLMInferenceService CR
+    K8sAPI3-->>LLMISVC: LLMInferenceService watch triggers
+
+    Note over LLMISVC: Reconciles 13 resource types:<br/>Deployments, InferencePool,<br/>Gateway, HPA, KEDA, LWS
+
+    LLMISVC->>K8s3: Create Prefill Deployment<br/>(separate scaling group)
+    LLMISVC->>K8s3: Create Decode Deployment<br/>(separate scaling group)
+    LLMISVC->>K8s3: Create InferencePool<br/>(Gateway API Inference Extension)
+    LLMISVC->>K8s3: Create Gateway resources<br/>+ DestinationRule (Istio)
+
+    Prefill->>Prefill: Start vLLM server<br/>Download model from S3
+    Decode->>Decode: Start vLLM server<br/>Download model from S3
+
+    Note over EPP,Decode: Runtime: Inference Request Flow
+
+    EPP->>EPP: Select backend pod via<br/>InferencePool (model-aware routing)
+    EPP->>Prefill: Route prefill request<br/>(Envoy sidecar)
+    Prefill->>KVCache: Store KV cache<br/>(ModelExpress gRPC, mTLS STRICT)
+    Prefill-->>EPP: Prefill complete
+
+    EPP->>Decode: Route decode request<br/>(Envoy sidecar)
+    Decode->>KVCache: Retrieve KV cache<br/>(ModelExpress gRPC, mTLS STRICT)
+    Decode-->>EPP: Token stream
+
+    Note over WVA,Prom: Autoscaling Loop
+
+    WVA->>Prom: Query InferencePool metrics
+    Prom-->>WVA: Request rate, queue depth,<br/>latency percentiles
+    WVA->>K8s3: Scale prefill/decode replicas<br/>via KEDA ScaledObjects
+
+---
+
+sequenceDiagram
+    participant User4 as Data Scientist
+    participant Dashboard4 as odh-dashboard
+    participant K8sAPI4 as Kubernetes API
+    participant WBOp as workbenches-operator
+    participant KF as kubeflow notebook-controller
+    participant NB as Notebook Pod<br/>(StatefulSet)
+    participant RhodsOp4 as rhods-operator<br/>Gateway Controller
+    participant Router as OpenShift Router
+
+    Note over User4,Router: Workflow 3: Notebook Workspace Creation
+
+    User4->>Dashboard4: Create notebook via UI<br/>(select image, resources, connections)
+    Dashboard4->>K8sAPI4: Submit Notebook CR
+
+    K8sAPI4->>WBOp: Mutating webhook fires
+    Note over WBOp: Injects HardwareProfile<br/>resources and data-connection<br/>secrets into pod template
+    WBOp-->>K8sAPI4: Mutated Notebook CR
+
+    K8sAPI4-->>KF: Notebook watch triggers
+    KF->>K8sAPI4: Create StatefulSet,<br/>Service, PodDisruptionBudget
+
+    NB->>NB: Pod starts<br/>Jupyter server initializes
+    NB->>NB: Mounts data-connection<br/>secrets for S3 access
+
+    RhodsOp4->>Router: Create Route for notebook<br/>via kube-auth-proxy OIDC
+
+    User4->>Router: Access notebook URL<br/>(HTTPS/443)
+    Router->>NB: Route to notebook pod<br/>(kube-auth-proxy authenticated)
+    NB-->>User4: Jupyter interface
+
+---
+
+sequenceDiagram
+    participant User5 as Data Scientist
+    participant Dashboard5 as odh-dashboard
+    participant DSPOp as data-science-pipelines-operator
+    participant DSPAPI as DSP API Server
+    participant ArgoCtrl as argo-workflows
+    participant StepPod as Pipeline Step Pod
+    participant S3 as Object Storage (S3)
+    participant SWCtrl as Scheduled Workflow Controller
+
+    Note over User5,SWCtrl: Workflow 4: Pipeline Execution
+
+    User5->>Dashboard5: Submit pipeline run<br/>(select pipeline, parameters)
+    Dashboard5->>DSPAPI: Create pipeline run
+
+    Note over DSPOp: Manages DSPA resources:<br/>API server, persistence agent,<br/>scheduled workflow controller
+
+    DSPAPI->>ArgoCtrl: Create Argo Workflow
+
+    loop For each pipeline step
+        ArgoCtrl->>StepPod: Execute step as pod
+        StepPod->>S3: Read input artifacts
+        StepPod->>StepPod: Execute step logic<br/>(training, preprocessing, etc.)
+        StepPod->>S3: Write output artifacts<br/>(SeaweedFS or S3)
+        StepPod-->>ArgoCtrl: Step complete
+    end
+
+    ArgoCtrl-->>DSPAPI: Workflow complete
+    DSPAPI-->>Dashboard5: Pipeline run status
+    Dashboard5-->>User5: Show results
+
+    Note over SWCtrl: Recurring runs managed by<br/>scheduled workflow controller
+    SWCtrl->>DSPAPI: Trigger scheduled run<br/>(cron-based)

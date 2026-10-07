@@ -1,42 +1,46 @@
 workspace {
     model {
-        admin = person "Platform Admin" "Creates VariantAutoscaling resources defining scaling parameters for LLM model variants"
+        admin = person "Platform Admin" "Configures autoscaling via annotated HPAs/ScaledObjects and ConfigMaps"
 
-        wva = softwareSystem "Workload Variant Autoscaler (WVA)" "Kubernetes operator that computes optimal replica counts for LLM inference workloads using saturation metrics, KV cache analysis, and queueing theory" {
-            controllerManager = container "Controller Manager" "Reconciles VariantAutoscaling CRs, manages lifecycle, patches status with scaling decisions" "Go Operator (controller-runtime)"
-            saturationEngine = container "Saturation Engine" "Polls Prometheus every 30s, runs V1/V2/QM analyzers, computes desired replicas per variant" "Go (goroutine)"
-            scaleFromZeroEngine = container "Scale-From-Zero Engine" "Polls EPP pods every 100ms for pending requests on inactive variants, triggers immediate scale-up" "Go (goroutine)"
-            decisionCache = container "Decision Cache" "In-memory shared state between engines and controller for fast decision propagation" "Go (in-memory)"
-            datastore = container "Datastore" "Tracks InferencePool state and namespace-to-resource mappings" "Go (in-memory)"
+        wva = softwareSystem "Workload Variant Autoscaler (WVA)" "Intelligent autoscaler for LLM inference model servers based on saturation, queueing theory, and throughput analysis" {
+            controllerManager = container "WVA Controller Manager" "Main process running reconcilers, engines, and optional coordinator" "Go Controller (controller-runtime)"
+            saturationEngine = container "Saturation Engine" "Collects Prometheus metrics, routes to analyzers, applies optimizer pipeline, emits scaling decisions" "Engine Loop"
+            scaleFromZeroEngine = container "Scale-from-Zero Engine" "100ms polling loop detecting zero-replica variants with pending requests" "Engine Loop"
+            coordinator = container "Coordinator" "Leader-elected 15s ticker dispatching HPAs/ScaledObjects to plugins for GPU rebalance" "Engine Loop (experimental)"
+            hpaReconciler = container "HPA Reconciler" "Tracks namespaces with annotated HPAs" "Reconciler"
+            scaledObjectReconciler = container "ScaledObject Reconciler" "Tracks namespaces with annotated ScaledObjects" "Reconciler"
+            inferencePoolReconciler = container "InferencePool Reconciler" "Watches Gateway API InferencePool CRs" "Reconciler"
+            configMapReconciler = container "ConfigMap Reconciler" "Watches labeled ConfigMaps for dynamic configuration" "Reconciler"
         }
 
-        prometheus = softwareSystem "Prometheus (Thanos Querier)" "Time-series metrics database providing vLLM inference server metrics via PromQL" "External"
-        vllm = softwareSystem "vLLM Inference Servers" "Model serving instances emitting saturation metrics (KV cache, queue depth, token rates)" "External"
-        k8sApi = softwareSystem "Kubernetes API Server" "Cluster API for watching/updating CRs, Deployments, ConfigMaps" "External"
-        hpa = softwareSystem "HPA / KEDA" "External autoscaler that consumes WVA metrics to perform actual scaling" "External"
-        inferencePool = softwareSystem "InferencePool (Gateway API IE)" "CRD for workload pool configuration and EPP discovery" "Internal Platform"
-        eppPods = softwareSystem "EPP (Endpoint Picker) Pods" "Endpoint picker pods providing flow control queue metrics for scale-from-zero" "Internal Platform"
-        gpuOperator = softwareSystem "GPU Operator" "Provides GPU node labels for cost-aware GPU resource allocation" "External"
-        lwsController = softwareSystem "LeaderWorkerSet Controller" "Manages multi-node inference workloads (conditional scale target)" "External"
+        prometheus = softwareSystem "Prometheus / Thanos Querier" "Time-series metrics database for inference engine metrics" "External"
+        gatewayAPIExt = softwareSystem "Gateway API Inference Extension" "InferencePool CRDs for endpoint pool management" "External"
+        keda = softwareSystem "KEDA" "Event-driven autoscaling via ScaledObjects" "External Optional"
+        lws = softwareSystem "LeaderWorkerSet" "Distributed inference scale target" "External Optional"
+        gpuOperator = softwareSystem "GPU Operator" "Node GPU labels for capacity discovery (NVIDIA/AMD/Intel)" "External Optional"
+        k8sAPI = softwareSystem "Kubernetes API" "Cluster control plane for watches, patches, and scale operations" "Infrastructure"
+        inferenceServers = softwareSystem "vLLM / SGLang Inference Servers" "LLM model servers exporting performance metrics" "Internal"
+        epp = softwareSystem "Gateway API EPP" "Endpoint Picker providing flow-control queue metrics" "Internal"
+        kserve = softwareSystem "KServe" "Inference serving platform (manifest sync target)" "Internal"
+        hpa = softwareSystem "HorizontalPodAutoscaler" "Kubernetes native horizontal pod autoscaler reading wva_desired_replicas" "Infrastructure"
 
-        admin -> wva "Creates VariantAutoscaling CRs via kubectl"
-        wva -> prometheus "Queries vLLM metrics via PromQL" "HTTPS/9091"
-        vllm -> prometheus "Emits inference metrics" "Scraped by Prometheus"
-        wva -> k8sApi "Watch/CRUD VariantAutoscaling, Deployment, ConfigMap, InferencePool" "HTTPS/6443"
-        wva -> eppPods "Scrape flow_control_queue_size" "HTTP/configurable"
-        wva -> hpa "Emits wva_desired_replicas, wva_current_replicas, wva_desired_ratio" "HTTPS/8443"
-        hpa -> k8sApi "Scales Deployments based on WVA metrics" "HTTPS/6443"
-        wva -> gpuOperator "Reads GPU node labels for limited mode" "HTTPS/6443 (via API)"
-        wva -> lwsController "Scales LeaderWorkerSet for multi-node inference" "HTTPS/6443 (via API)"
-        inferencePool -> wva "Watched by controller for EPP config discovery" "HTTPS/6443 (via API)"
+        admin -> wva "Configures via annotated HPAs/ScaledObjects and labeled ConfigMaps"
+        wva -> prometheus "Queries inference metrics (KV cache, queue depth, TTFT, ITL)" "HTTPS/443 or 9090, Bearer Token"
+        wva -> k8sAPI "Watches/patches HPAs, ScaledObjects, Deployments, ConfigMaps, Nodes" "HTTPS/443, SA Token"
+        wva -> epp "Scrapes flow-control queue metrics for scale-from-zero" "HTTP(S)/Pod port"
+        wva -> gatewayAPIExt "Watches InferencePool CRs" "K8s API"
+        wva -> kserve "Syncs kustomize manifests (CI workflow)" "GitHub Actions"
+        inferenceServers -> prometheus "Exports KV cache, queue, latency, token metrics" "Prometheus scrape"
+        hpa -> wva "Reads wva_desired_replicas external metric" "HTTPS/8443, Bearer Token"
+        hpa -> k8sAPI "Patches scale subresource" "HTTPS/443"
 
-        saturationEngine -> prometheus "PromQL: kv_cache_usage_perc, num_requests_waiting" "HTTPS/9091"
-        saturationEngine -> decisionCache "Writes scaling decisions"
-        scaleFromZeroEngine -> eppPods "Reads queue size" "HTTP"
-        scaleFromZeroEngine -> decisionCache "Writes scale-up decisions"
-        scaleFromZeroEngine -> k8sApi "Direct /scale subresource PATCH" "HTTPS/6443"
-        decisionCache -> controllerManager "DecisionTrigger channel"
-        controllerManager -> k8sApi "Patches VA status" "HTTPS/6443"
+        controllerManager -> saturationEngine "Runs"
+        controllerManager -> scaleFromZeroEngine "Runs"
+        controllerManager -> coordinator "Runs (optional)"
+        controllerManager -> hpaReconciler "Runs"
+        controllerManager -> scaledObjectReconciler "Runs"
+        controllerManager -> inferencePoolReconciler "Runs"
+        controllerManager -> configMapReconciler "Runs"
     }
 
     views {
@@ -55,8 +59,17 @@ workspace {
                 background #999999
                 color #ffffff
             }
-            element "Internal Platform" {
+            element "External Optional" {
+                background #cccccc
+                color #333333
+                border dashed
+            }
+            element "Internal" {
                 background #7ed321
+                color #ffffff
+            }
+            element "Infrastructure" {
+                background #f5a623
                 color #ffffff
             }
             element "Person" {
@@ -65,12 +78,7 @@ workspace {
                 color #ffffff
             }
             element "Software System" {
-                background #4a90e2
-                color #ffffff
-            }
-            element "Container" {
-                background #6ba5e7
-                color #ffffff
+                shape RoundedBox
             }
         }
     }

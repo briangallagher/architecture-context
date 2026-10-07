@@ -1,63 +1,65 @@
 graph TD
-    subgraph "Guardrails Detectors RBAC"
+    subgraph "Security Model - Guardrails Detectors"
         direction TB
 
-        Note["Note: No ClusterRoles defined.<br/>This component runs as application-level pods<br/>and does not interact with the Kubernetes API."]
-
-        subgraph "Example Role Binding"
-            SA["ServiceAccount<br/>user-one"]
-            RB["RoleBinding<br/>user-one-view"]
-            CR["ClusterRole<br/>view"]
+        subgraph "Application Level (No RBAC)"
+            BuiltInSA["Built-in Detector<br/>UID: 1001 (non-root)<br/>No ServiceAccount RBAC<br/>No K8s API access"]
+            HFSA["HuggingFace Detector<br/>UID: 1001 (non-root)<br/>No ServiceAccount RBAC<br/>No K8s API access"]
+            JudgeSA["LLM Judge Detector<br/>UID: 1001 (non-root)<br/>No ServiceAccount RBAC<br/>No K8s API access"]
         end
 
-        SA -->|"bound via"| RB
-        RB -->|"grants"| CR
+        subgraph "Platform Auth (Delegated to KServe/RHOAI)"
+            direction TB
 
-        subgraph "KServe-Managed Auth"
-            KServeAuth["security.opendatahub.io/enable-auth<br/>(annotation on InferenceService)"]
-            IstioSidecar["Istio Sidecar<br/>sidecar.istio.io/inject=true"]
+            Annotation["InferenceService Annotations"]
+            AuthAnnotation["security.opendatahub.io/<br/>enable-auth: 'true'"]
+            IstioAnnotation["sidecar.istio.io/<br/>inject: 'true'"]
+            DashAnnotation["opendatahub.io/<br/>dashboard: 'true'"]
+
+            Annotation --> AuthAnnotation
+            Annotation --> IstioAnnotation
+            Annotation --> DashAnnotation
         end
 
-        subgraph "Application Endpoints"
-            ContentAPI["POST /api/v1/text/contents<br/>Auth: Platform-managed<br/>(KServe + Istio)"]
-            GenerationAPI["POST /api/v1/text/generation<br/>Auth: Platform-managed<br/>(detector_id header required)"]
-            HealthAPI["GET /health<br/>Auth: None (Open)"]
-            MetricsAPI["GET /metrics<br/>Auth: None (Open)"]
+        subgraph "RHOAI 3.x Auth Enforcement"
+            IstioMTLS["Istio mTLS<br/>(PeerAuthentication STRICT)"]
+            KubeRBAC["kube-rbac-proxy<br/>(AuthN/AuthZ sidecar)"]
         end
 
-        KServeAuth -->|"enforces auth on"| ContentAPI
-        KServeAuth -->|"enforces auth on"| GenerationAPI
-        IstioSidecar -->|"mTLS enforcement"| ContentAPI
-        IstioSidecar -->|"mTLS enforcement"| GenerationAPI
+        subgraph "RHOAI 2.x Auth Enforcement"
+            OAuthProxy["oauth-proxy<br/>(legacy auth sidecar)"]
+        end
 
         subgraph "Secrets"
-            S3Secret["Secret: aws-connection-minio-data-connection-guardrails-guardian<br/>Type: Opaque<br/>Keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,<br/>AWS_S3_BUCKET, AWS_S3_ENDPOINT<br/>Provisioned: Manual | Auto-Rotate: No"]
+            S3Secret["aws-connection-minio-data-<br/>connection-guardrails-guardian<br/>Type: Opaque<br/>Keys: AWS_ACCESS_KEY_ID,<br/>AWS_SECRET_ACCESS_KEY<br/>Provisioned: Manual<br/>Auto-Rotate: No"]
         end
 
-        subgraph "Custom Detector Sandboxing"
-            Sandbox["AST-based Static Code Analysis"]
-            BlockedImports["Blocked Imports:<br/>os, subprocess, sys, shutil"]
-            BlockedFunctions["Blocked Functions:<br/>eval, exec, open, compile, input"]
-            AllowedExceptions["Allowed Exceptions:<br/>os.getenv, os.environ"]
-        end
+        AuthAnnotation -->|"enables on 3.x"| IstioMTLS
+        AuthAnnotation -->|"enables on 3.x"| KubeRBAC
+        AuthAnnotation -->|"enables on 2.x"| OAuthProxy
 
-        Sandbox --> BlockedImports
-        Sandbox --> BlockedFunctions
-        Sandbox --> AllowedExceptions
+        S3Secret -->|"used by"| HFSA
     end
 
-    style Note fill:#fff3cd,stroke:#856404,color:#856404
-    style SA fill:#4a90e2,color:#fff
-    style RB fill:#f5a623,color:#fff
-    style CR fill:#f5a623,color:#fff
-    style KServeAuth fill:#7ed321,color:#fff
-    style IstioSidecar fill:#7ed321,color:#fff
-    style ContentAPI fill:#d5e8d4,stroke:#82b366
-    style GenerationAPI fill:#d5e8d4,stroke:#82b366
-    style HealthAPI fill:#e8e8e8,stroke:#666
-    style MetricsAPI fill:#e8e8e8,stroke:#666
-    style S3Secret fill:#f8cecc,stroke:#b85450
-    style Sandbox fill:#dae8fc,stroke:#6c8ebf
-    style BlockedImports fill:#f8cecc,stroke:#b85450
-    style BlockedFunctions fill:#f8cecc,stroke:#b85450
-    style AllowedExceptions fill:#d5e8d4,stroke:#82b366
+    subgraph "Network Isolation"
+        NoNetPol["No NetworkPolicy defined<br/>in detector manifests"]
+        PlatformIsolation["Relies on platform-level<br/>network isolation"]
+        NamespaceIsolation["Per-namespace deployment<br/>via KServe InferenceService"]
+
+        NoNetPol --> PlatformIsolation
+        PlatformIsolation --> NamespaceIsolation
+    end
+
+    style BuiltInSA fill:#4a90e2,color:#fff
+    style HFSA fill:#4a90e2,color:#fff
+    style JudgeSA fill:#4a90e2,color:#fff
+    style AuthAnnotation fill:#f5a623
+    style IstioAnnotation fill:#f5a623
+    style DashAnnotation fill:#f5a623
+    style IstioMTLS fill:#7ed321,color:#fff
+    style KubeRBAC fill:#7ed321,color:#fff
+    style OAuthProxy fill:#e8e8e8,stroke:#333
+    style S3Secret fill:#e74c3c,color:#fff
+    style NoNetPol fill:#fff2cc,stroke:#d6b656
+    style PlatformIsolation fill:#d5e8d4,stroke:#82b366
+    style NamespaceIsolation fill:#d5e8d4,stroke:#82b366

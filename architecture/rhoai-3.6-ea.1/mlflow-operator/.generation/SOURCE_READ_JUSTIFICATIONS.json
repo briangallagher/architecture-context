@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "component": "mlflow-operator",
+  "reads": [
+    {
+      "path": "Dockerfile.konflux",
+      "line_range": "1-51",
+      "gap_category": ["fips_compliance"],
+      "question": "What build flags, linking mode, and FIPS runtime configuration are used for the operator binary?",
+      "expected_signal": "CGO_ENABLED, GOEXPERIMENT, build tags, base image with OpenSSL",
+      "outcome": "resolved",
+      "sections": ["Security > FIPS Compliance"]
+    },
+    {
+      "path": "cmd/main.go",
+      "line_range": "260-319",
+      "gap_category": ["authentication"],
+      "question": "How is authentication enforced on the metrics endpoint, and what TLS configuration is applied?",
+      "expected_signal": "filter provider, TLS options, certificate configuration",
+      "outcome": "resolved",
+      "sections": ["Security > Authentication & Authorization", "Architectural Analysis"]
+    },
+    {
+      "path": "internal/controller/mlflow_controller.go",
+      "line_range": "525-574",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "How are Gateway API, ConsoleLink, and ServiceMonitor watches conditionally registered?",
+      "expected_signal": "discovery-based boolean flags gating Owns() calls in SetupWithManager",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Internal Platform Dependencies", "Architectural Analysis"]
+    },
+    {
+      "path": "internal/controller/routing.go",
+      "line_range": "1-179",
+      "gap_category": ["integration_points", "internal_dependencies", "authentication"],
+      "question": "How does the operator discover optional CRDs (Gateway API, ConsoleLink, ServiceMonitor, MLflowOperator, Auth) at runtime?",
+      "expected_signal": "discovery client calls checking API group availability",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Internal Platform Dependencies", "Architectural Analysis"],
+      "scope_reason": "File contains six discovery functions each checking a different CRD group; all are needed to document the conditional integration pattern comprehensively"
+    },
+    {
+      "path": "internal/controller/namespace_rbac_controller.go",
+      "line_range": "30-154",
+      "gap_category": ["authentication", "integration_points", "internal_dependencies"],
+      "question": "How does the NamespaceRBACReconciler integrate with the platform Auth CRD and manage workspace-level RBAC?",
+      "expected_signal": "Auth GVK definition, controller watch setup, RBAC marker for services.platform.opendatahub.io/auths",
+      "outcome": "resolved",
+      "sections": ["Internal Platform Dependencies", "Integration Points", "Authentication & Authorization", "Architectural Analysis"]
+    }
+  ]
+}

@@ -1,65 +1,78 @@
 graph LR
-    Provider["llama-stack-provider-<br/>trustyai-garak"]
+    Garak["Llama Stack Provider<br/>TrustyAI Garak"]
 
-    %% External Dependencies (Libraries)
-    Provider -->|"core scanner<br/>0.14.1+rhaiv.8"| Garak["garak"]
-    Provider -->|"client SDK<br/>>=0.5.0"| LLSClient["llama-stack-client"]
-    Provider -->|"API types<br/>>=0.5.0"| LLSAPI["llama-stack-api"]
-    Provider -->|"pipeline SDK<br/>>=2.14.6"| KFP_SDK["kfp"]
-    Provider -->|"K8s integration<br/>>=2.14.6"| KFP_K8s["kfp-kubernetes"]
-    Provider -->|"server API client<br/>>=2.14.6"| KFP_Server["kfp-server-api"]
-    Provider -->|"S3 client<br/>>=1.35.88"| Boto3["boto3"]
-    Provider -->|"adapter SDK<br/>0.1.4"| EvalHubSDK["eval-hub-sdk"]
-    Provider -->|"adversarial SDG<br/>>=0.8.8"| SDGHub["sdg-hub"]
-    Provider -->|"data processing"| Pandas["pandas"]
-    Provider -->|"HTML reports"| Jinja2["Jinja2"]
-    Provider -->|"HTTP client"| HTTPX["httpx"]
+    %% Core External Dependencies
+    Garak -->|"red-teaming framework<br/>probes, detectors, generators"| GarakFW["garak<br/>0.15.0+rhaiv.5"]
+    Garak -->|"adapter interface<br/>JobSpec, OCI, MLflow"| EvalHubSDK["eval-hub-sdk<br/>0.4.2"]
+    Garak -->|"pipeline SDK<br/>definition & submission"| KFP["kfp<br/>2.17.0"]
+    Garak -->|"K8s extensions<br/>secret injection"| KFPKubernetes["kfp-kubernetes<br/>2.17.0"]
+    Garak -->|"S3 client<br/>artifact storage"| Boto3["boto3<br/>1.43.46"]
+    Garak -->|"adversarial prompt<br/>generation"| SDGHub["sdg-hub<br/>0.9.4"]
+
+    %% Transitive Dependencies (via garak)
+    GarakFW -->|"multi-provider LLM client"| LiteLLM["litellm<br/>1.84.0"]
+    GarakFW -->|"probe models"| Torch["torch<br/>2.11.0"]
+    GarakFW -->|"model interaction"| Transformers["transformers<br/>5.13.0"]
+
+    %% Direct Utility Dependencies
+    Garak -->|"DataFrame processing"| Pandas["pandas<br/>3.0.3"]
+    Garak -->|"HTML report templating"| Jinja2["Jinja2<br/>3.1.6+"]
+
+    %% Transitive Security Dependencies
+    Garak -.->|"HTTP client (TLS-aware)"| HTTPX["httpx<br/>0.28.1"]
+    Garak -.->|"TLS/crypto support"| Cryptography["cryptography<br/>49.0.0"]
 
     %% Internal Platform Dependencies
-    Provider -->|"pipeline submission<br/>REST API"| KFP_Service["Kubeflow Pipelines<br/>(DSP)"]
-    Provider -->|"inference, shields,<br/>files, benchmarks"| LLSDist["Llama Stack<br/>Distribution"]
-    Provider -->|"model inference<br/>OpenAI-compatible"| vLLM["vLLM /<br/>Model Serving"]
-    Provider -->|"KFP base image ref"| ConfigMap["trustyai-service-<br/>operator-config"]
+    Garak -->|"sidecar callback<br/>HTTP/8080"| EvalHubSvc["eval-hub Service"]
+    Garak -->|"pipeline runs<br/>HTTPS/443"| KFPServer["Kubeflow Pipelines"]
+    Garak -->|"artifact storage<br/>HTTPS/443"| S3["S3-compatible Storage"]
+    Garak -->|"artifact persistence<br/>HTTPS/443"| OCI["OCI Registry"]
+    Garak -->|"experiment tracking<br/>HTTPS/443"| MLflow["MLflow"]
+    Garak -->|"Secrets, ConfigMaps<br/>HTTPS/443"| K8sAPI["Kubernetes API"]
+    Garak -->|"base image config"| TrustyAIConfig["trustyai-service-operator-config<br/>ConfigMap"]
 
     %% Integration Points (consumers)
-    EvalHub["Eval-Hub<br/>Platform"] -->|"job creation"| Provider
-    LLSServer["Llama Stack<br/>Server"] -->|"provider registration"| Provider
+    OpenDataHubOp["opendatahub-operator"] -->|"creates ConfigMap"| TrustyAIConfig
+    EvalHubSvc -->|"creates Job"| Garak
 
     %% External Services
-    Provider -->|"artifact storage<br/>AWS IAM"| S3["S3-Compatible<br/>Storage"]
-    Provider -->|"experiment tracking<br/>(optional)"| MLflow["MLflow"]
-    Provider -->|"artifact persistence<br/>(eval-hub mode)"| OCI["OCI Registry"]
-    LLSDist -->|"state storage"| PostgreSQL["PostgreSQL"]
+    Garak -->|"probe prompts<br/>HTTPS/443"| TargetLLM["Target LLM"]
+    Garak -->|"intents: judge,<br/>attack, evaluate"| AuxLLMs["Judge/Attacker/<br/>Evaluator LLMs"]
+    Garak -->|"SDG prompts<br/>HTTPS/443"| SDGLLM["SDG LLM"]
+    Garak -->|"model weights<br/>HTTPS/443"| HFHub["HuggingFace Hub"]
 
     %% Styling
-    style Provider fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style Garak fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
-    %% External libraries
-    style Garak fill:#775599,stroke:#333,color:#fff
-    style LLSClient fill:#775599,stroke:#333,color:#fff
-    style LLSAPI fill:#775599,stroke:#333,color:#fff
-    style KFP_SDK fill:#775599,stroke:#333,color:#fff
-    style KFP_K8s fill:#775599,stroke:#333,color:#fff
-    style KFP_Server fill:#775599,stroke:#333,color:#fff
-    style Boto3 fill:#775599,stroke:#333,color:#fff
-    style EvalHubSDK fill:#775599,stroke:#333,color:#fff
-    style SDGHub fill:#775599,stroke:#333,color:#fff
-    style Pandas fill:#775599,stroke:#333,color:#fff
-    style Jinja2 fill:#775599,stroke:#333,color:#fff
-    style HTTPX fill:#775599,stroke:#333,color:#fff
+    %% Core dependencies
+    style GarakFW fill:#e74c3c,stroke:#333,color:#fff
+    style EvalHubSDK fill:#e74c3c,stroke:#333,color:#fff
+    style KFP fill:#e74c3c,stroke:#333,color:#fff
+    style KFPKubernetes fill:#e74c3c,stroke:#333,color:#fff
+    style Boto3 fill:#e74c3c,stroke:#333,color:#fff
+    style SDGHub fill:#e74c3c,stroke:#333,color:#fff
+
+    %% Transitive dependencies
+    style LiteLLM fill:#999,stroke:#333,color:#fff
+    style Torch fill:#999,stroke:#333,color:#fff
+    style Transformers fill:#999,stroke:#333,color:#fff
+    style Pandas fill:#999,stroke:#333,color:#fff
+    style Jinja2 fill:#999,stroke:#333,color:#fff
+    style HTTPX fill:#999,stroke:#333,color:#fff
+    style Cryptography fill:#999,stroke:#333,color:#fff
 
     %% Internal platform
-    style KFP_Service fill:#7ed321,stroke:#333,color:#fff
-    style LLSDist fill:#7ed321,stroke:#333,color:#fff
-    style vLLM fill:#7ed321,stroke:#333,color:#fff
-    style ConfigMap fill:#7ed321,stroke:#333,color:#fff
-
-    %% Consumers
-    style EvalHub fill:#7ed321,stroke:#333,color:#fff
-    style LLSServer fill:#7ed321,stroke:#333,color:#fff
+    style EvalHubSvc fill:#7ed321,stroke:#333,color:#fff
+    style KFPServer fill:#7ed321,stroke:#333,color:#fff
+    style S3 fill:#f5a623,stroke:#333,color:#fff
+    style OCI fill:#f5a623,stroke:#333,color:#fff
+    style MLflow fill:#7ed321,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style TrustyAIConfig fill:#7ed321,stroke:#333,color:#fff
+    style OpenDataHubOp fill:#7ed321,stroke:#333,color:#fff
 
     %% External services
-    style S3 fill:#f5a623,stroke:#333,color:#fff
-    style MLflow fill:#f5a623,stroke:#333,color:#fff
-    style OCI fill:#f5a623,stroke:#333,color:#fff
-    style PostgreSQL fill:#f5a623,stroke:#333,color:#fff
+    style TargetLLM fill:#f5a623,stroke:#333,color:#fff
+    style AuxLLMs fill:#f5a623,stroke:#333,color:#fff
+    style SDGLLM fill:#f5a623,stroke:#333,color:#fff
+    style HFHub fill:#f5a623,stroke:#333,color:#fff

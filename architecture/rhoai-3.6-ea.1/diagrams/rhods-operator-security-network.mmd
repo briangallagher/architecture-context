@@ -1,0 +1,91 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Admin["Platform Admin / kubectl"]
+    end
+
+    subgraph K8sControl["KUBERNETES CONTROL PLANE"]
+        K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token / Client Cert"]
+    end
+
+    subgraph OperatorNS["OPERATOR NAMESPACE (redhat-ods-operator)"]
+        direction TB
+
+        subgraph OperatorPod["Operator Pod"]
+            Manager["opendatahub-operator-<br/>controller-manager<br/>SA: opendatahub-operator-controller-manager<br/>FIPS: CGO_ENABLED=1,<br/>GOEXPERIMENT=strictfipsruntime"]
+        end
+
+        WebhookSvc["Webhook Service<br/>443/TCP → 9443/TCP<br/>TLS (service-ca)<br/>Cert: opendatahub-operator-<br/>controller-webhook-cert"]
+
+        MetricsSvc["Metrics Service<br/>8443/TCP<br/>TLS (service-ca)<br/>K8s Auth + AuthZ<br/>Cert: opendatahub-operator-<br/>metrics-tls"]
+
+        HealthProbes["Health Probes<br/>8081/TCP HTTP<br/>No Auth<br/>/healthz, /readyz"]
+    end
+
+    subgraph MonitoringNS["MONITORING NAMESPACE (redhat-ods-monitoring)"]
+        direction TB
+
+        ClusterProxy["Prometheus Cluster Proxy<br/>SA: data-science-prometheus-cluster-proxy<br/>8443/TCP TLS<br/>kube-rbac-proxy sidecar<br/>Cert: data-science-prometheus-<br/>cluster-proxy-tls"]
+
+        NamespaceProxy["Prometheus Namespace Proxy<br/>SA: data-science-prometheus-namespace-proxy<br/>8443/TCP, 9090/TCP TLS<br/>kube-rbac-proxy + prom-label-proxy<br/>Cert: data-science-prometheus-<br/>namespace-proxy-tls"]
+
+        Collector["Data Science Collector<br/>SA: data-science-collector-collector<br/>8889/TCP<br/>Cert: data-science-collector-tls"]
+
+        Prometheus["prometheus-operated<br/>9090/TCP<br/>Cert: prometheus-operated-tls"]
+    end
+
+    subgraph IngressLayer["INGRESS (External Routes - TLS Terminated)"]
+        PromClusterRoute["data-science-prometheus-<br/>cluster-proxy Route<br/>HTTPS/TLS"]
+        PromRoute["data-science-prometheus-<br/>route<br/>HTTPS/TLS"]
+        ThanosRoute["data-science-thanos-<br/>querier-route<br/>HTTPS/TLS"]
+        GatewayRoutes["Gateway-Provisioned Routes<br/>HTTPS/TLS<br/>OIDC via kube-auth-proxy"]
+    end
+
+    subgraph Conditional["CONDITIONAL INTEGRATIONS"]
+        Istio["Istio Service Mesh<br/>(when CRDs detected)<br/>EnvoyFilter + DestinationRule"]
+        OAuth["OpenShift OAuth<br/>(non-ROSA only)<br/>OAuthClient"]
+        MaaS["models-as-a-service NS<br/>(namespace watch trigger)"]
+        Kuadrant["kuadrant-system NS<br/>(namespace watch trigger)"]
+    end
+
+    %% Flows
+    Admin -->|"HTTPS/6443<br/>TLS 1.2+<br/>kubeconfig creds"| K8sAPI
+    K8sAPI -->|"HTTPS/9443<br/>TLS (service-ca)<br/>Admission requests"| WebhookSvc
+    WebhookSvc --> Manager
+    Manager -->|"HTTPS/6443<br/>TLS 1.2+<br/>ServiceAccount token"| K8sAPI
+
+    K8sAPI --> HealthProbes
+    K8sAPI --> MetricsSvc
+    MetricsSvc --> Manager
+
+    Manager -->|"deploys"| ClusterProxy
+    Manager -->|"deploys"| NamespaceProxy
+    Manager -->|"deploys"| Collector
+
+    ClusterProxy -->|"HTTPS/6443<br/>cluster-monitoring-view"| K8sAPI
+    NamespaceProxy -->|"HTTPS/6443<br/>cluster-monitoring-view"| K8sAPI
+
+    PromClusterRoute --> ClusterProxy
+    PromRoute --> Prometheus
+    ThanosRoute --> Prometheus
+
+    Manager -.->|"conditional"| Istio
+    Manager -.->|"conditional"| OAuth
+    Manager -.->|"watches"| MaaS
+    Manager -.->|"watches"| Kuadrant
+
+    Manager -->|"provisions"| GatewayRoutes
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef k8scontrol fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef operatorns fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef monitoringns fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef conditional fill:#f8cecc,stroke:#b85450,stroke-width:2px,stroke-dasharray: 5 5
+
+    class Admin external
+    class K8sAPI k8scontrol
+    class Manager,WebhookSvc,MetricsSvc,HealthProbes operatorns
+    class ClusterProxy,NamespaceProxy,Collector,Prometheus monitoringns
+    class PromClusterRoute,PromRoute,ThanosRoute,GatewayRoutes ingress
+    class Istio,OAuth,MaaS,Kuadrant conditional

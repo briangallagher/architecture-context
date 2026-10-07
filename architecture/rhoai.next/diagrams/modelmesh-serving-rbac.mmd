@@ -1,122 +1,91 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA_Controller[modelmesh-controller]
-        SA_ModelMesh[modelmesh]
-        SA_ServingSA[modelmesh-serving-sa]
+        SA["modelmesh-serving-sa"]
     end
 
-    subgraph ClusterRoleBindings["Cluster Role Bindings"]
-        CRB_Main[modelmesh-controller-rolebinding<br/>Scope: Cluster]
+    subgraph Bindings["Role Bindings"]
+        CRB["modelmesh-controller-rolebinding"]
+        LEB["leader-election-rolebinding"]
     end
 
-    subgraph RoleBindings["Role Bindings (namespace-scoped)"]
-        RB_Leader[modelmesh-controller-leader-election-rolebinding<br/>Scope: Controller namespace]
-        RB_SCC[modelmesh-controller-restricted-scc-rolebinding<br/>Scope: Controller namespace]
+    subgraph Roles["Cluster Roles"]
+        CR["modelmesh-controller-role<br/>(ClusterRole)"]
+        LER["leader-election-role"]
     end
 
-    subgraph ClusterRoles["Cluster Roles"]
-        CR_Main[modelmesh-controller-role<br/>ClusterRole]
+    subgraph CoreAPI["API Group: core ('')"]
+        ConfigMaps["configmaps"]
+        Secrets["secrets"]
+        Services["services<br/>services/finalizers"]
+        Endpoints["endpoints"]
+        PVCs["persistentvolumeclaims"]
+        Namespaces["namespaces<br/>namespaces/finalizers"]
     end
 
-    subgraph NamespaceRoles["Namespace Roles"]
-        R_Leader[modelmesh-controller-leader-election-role<br/>Role]
-        R_SCC[modelmesh-controller-restricted-scc-role<br/>Role]
+    subgraph AppsAPI["API Group: apps"]
+        Deployments["deployments<br/>deployments/finalizers"]
     end
 
-    subgraph CoreResources["Core API Resources"]
-        ConfigMaps["core<br/>configmaps<br/>create,delete,get,list,<br/>patch,update,watch"]
-        Secrets["core<br/>secrets<br/>create,delete,get,list,<br/>patch,update,watch"]
-        Services["core<br/>services, services/finalizers<br/>create,delete,get,list,<br/>patch,update,watch"]
-        Namespaces["core<br/>namespaces, namespaces/finalizers<br/>get,list,patch,update,watch"]
-        Endpoints["core<br/>endpoints, persistentvolumeclaims<br/>get,list,watch"]
+    subgraph KServeAPI["API Group: serving.kserve.io"]
+        InferenceServices["inferenceservices<br/>+ /finalizers, /status"]
+        Predictors["predictors<br/>+ /finalizers, /status"]
+        ServingRuntimes["servingruntimes<br/>+ /finalizers, /status"]
+        ClusterServingRuntimes["clusterservingruntimes<br/>+ /finalizers, /status"]
     end
 
-    subgraph AppsResources["Apps API Resources"]
-        Deployments["apps<br/>deployments, deployments/finalizers<br/>create,delete,get,list,<br/>patch,update,watch"]
+    subgraph MonitoringAPI["API Group: monitoring.coreos.com"]
+        ServiceMonitors["servicemonitors"]
     end
 
-    subgraph ServingResources["serving.kserve.io Resources"]
-        Predictors["serving.kserve.io<br/>predictors, predictors/finalizers,<br/>predictors/status<br/>create,delete,get,list,<br/>patch,update,watch"]
-        ServingRuntimes["serving.kserve.io<br/>servingruntimes, servingruntimes/finalizers,<br/>servingruntimes/status<br/>create,delete,get,list,<br/>patch,update,watch"]
-        ClusterServingRuntimes["serving.kserve.io<br/>clusterservingruntimes,<br/>clusterservingruntimes/finalizers,<br/>clusterservingruntimes/status<br/>create,delete,get,list,<br/>patch,update,watch"]
-        InferenceServices["serving.kserve.io<br/>inferenceservices,<br/>inferenceservices/finalizers,<br/>inferenceservices/status<br/>create,delete,get,list,<br/>patch,update,watch"]
+    subgraph AutoscalingAPI["API Group: autoscaling"]
+        HPAs["horizontalpodautoscalers<br/>+ /status"]
     end
 
-    subgraph AutoscalingResources["Autoscaling Resources"]
-        HPAs["autoscaling<br/>horizontalpodautoscalers,<br/>horizontalpodautoscalers/status<br/>get,list,watch,create,<br/>delete,update"]
-    end
+    %% Bindings
+    SA -->|bound via| CRB
+    SA -->|bound via| LEB
+    CRB -->|grants| CR
+    LEB -->|grants| LER
 
-    subgraph MonitoringResources["Monitoring Resources"]
-        ServiceMonitors["monitoring.coreos.com<br/>servicemonitors<br/>create,delete,get,list,<br/>patch,update,watch"]
-    end
+    %% Core API permissions
+    CR -->|"get, list, watch,<br/>create, update, patch, delete"| ConfigMaps
+    CR -->|"get, list, watch,<br/>create, update, patch, delete"| Secrets
+    CR -->|"get, list, watch,<br/>create, update, patch, delete"| Services
+    CR -->|"get, list, watch"| Endpoints
+    CR -->|"get, list, watch"| PVCs
+    CR -->|"get, list, watch,<br/>update, patch"| Namespaces
 
-    subgraph LeaderElectionResources["Leader Election Resources"]
-        Leases["coordination.k8s.io<br/>leases<br/>create,get,list,update"]
-        LE_ConfigMaps["core<br/>configmaps<br/>get,list,watch,create,<br/>update,patch,delete"]
-        Events["core<br/>events<br/>create"]
-    end
+    %% Apps API permissions
+    CR -->|"get, list, watch,<br/>create, update, patch, delete"| Deployments
 
-    subgraph SCCResources["Security Context Constraints"]
-        SCC["security.openshift.io<br/>securitycontextconstraints<br/>(restricted)<br/>use"]
-    end
+    %% KServe API permissions
+    CR -->|"get, list, watch,<br/>create, update, patch, delete"| InferenceServices
+    CR -->|"get, list, watch,<br/>create, update, patch, delete"| Predictors
+    CR -->|"get, list, watch,<br/>create, update, patch, delete"| ServingRuntimes
+    CR -->|"get, list, watch,<br/>create, update, patch, delete"| ClusterServingRuntimes
 
-    %% Controller service account bindings
-    SA_Controller -->|bound via| CRB_Main
-    CRB_Main -->|grants| CR_Main
+    %% Monitoring API permissions
+    CR -->|"get, list, watch,<br/>create, update, patch, delete"| ServiceMonitors
 
-    SA_Controller -->|bound via| RB_Leader
-    RB_Leader -->|grants| R_Leader
-
-    %% ModelMesh and Serving SA bindings
-    SA_ModelMesh -->|bound via| RB_SCC
-    SA_ServingSA -->|bound via| RB_SCC
-    RB_SCC -->|grants| R_SCC
-
-    %% ClusterRole permissions
-    CR_Main -->|manages| ConfigMaps
-    CR_Main -->|manages| Secrets
-    CR_Main -->|manages| Services
-    CR_Main -->|reads| Namespaces
-    CR_Main -->|reads| Endpoints
-    CR_Main -->|manages| Deployments
-    CR_Main -->|manages| Predictors
-    CR_Main -->|manages| ServingRuntimes
-    CR_Main -->|manages| ClusterServingRuntimes
-    CR_Main -->|manages| InferenceServices
-    CR_Main -->|manages| HPAs
-    CR_Main -->|manages| ServiceMonitors
-
-    %% Leader election permissions
-    R_Leader -->|manages| Leases
-    R_Leader -->|manages| LE_ConfigMaps
-    R_Leader -->|creates| Events
-
-    %% SCC permissions
-    R_SCC -->|uses| SCC
+    %% Autoscaling API permissions
+    CR -->|"get, list, watch,<br/>create, delete, update"| HPAs
 
     %% Styling
-    style SA_Controller fill:#4a90e2,color:#fff
-    style SA_ModelMesh fill:#4a90e2,color:#fff
-    style SA_ServingSA fill:#4a90e2,color:#fff
-    style CR_Main fill:#f5a623,color:#fff
-    style R_Leader fill:#f5a623,color:#fff
-    style R_SCC fill:#f5a623,color:#fff
-    style CRB_Main fill:#e8e8e8,color:#333
-    style RB_Leader fill:#e8e8e8,color:#333
-    style RB_SCC fill:#e8e8e8,color:#333
-    style Predictors fill:#7ed321,color:#fff
-    style ServingRuntimes fill:#7ed321,color:#fff
-    style ClusterServingRuntimes fill:#7ed321,color:#fff
-    style InferenceServices fill:#7ed321,color:#fff
-    style Deployments fill:#7ed321,color:#fff
-    style Services fill:#7ed321,color:#fff
-    style ConfigMaps fill:#7ed321,color:#fff
-    style Secrets fill:#7ed321,color:#fff
-    style HPAs fill:#7ed321,color:#fff
-    style ServiceMonitors fill:#7ed321,color:#fff
-    style Namespaces fill:#7ed321,color:#fff
-    style Endpoints fill:#7ed321,color:#fff
-    style Leases fill:#ddd,color:#333
-    style LE_ConfigMaps fill:#ddd,color:#333
-    style Events fill:#ddd,color:#333
-    style SCC fill:#ff6b6b,color:#fff
+    style SA fill:#4a90e2,stroke:#333,color:#fff
+    style CRB fill:#e8833a,stroke:#333,color:#fff
+    style LEB fill:#e8833a,stroke:#333,color:#fff
+    style CR fill:#f5a623,stroke:#333
+    style LER fill:#f5a623,stroke:#333
+    style InferenceServices fill:#7ed321,stroke:#333
+    style Predictors fill:#7ed321,stroke:#333
+    style ServingRuntimes fill:#7ed321,stroke:#333
+    style ClusterServingRuntimes fill:#7ed321,stroke:#333
+    style ConfigMaps fill:#85bbf0,stroke:#333
+    style Secrets fill:#85bbf0,stroke:#333
+    style Services fill:#85bbf0,stroke:#333
+    style Endpoints fill:#85bbf0,stroke:#333
+    style PVCs fill:#85bbf0,stroke:#333
+    style Namespaces fill:#85bbf0,stroke:#333
+    style Deployments fill:#85bbf0,stroke:#333
+    style ServiceMonitors fill:#c9a0dc,stroke:#333
+    style HPAs fill:#c9a0dc,stroke:#333

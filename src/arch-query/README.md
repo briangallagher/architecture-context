@@ -273,7 +273,40 @@ rhoai-3.3 -> rhoai-3.4
 
 ## Data Model
 
-`arch-query` parses the structured markdown format used by architecture-context component docs. Each `.md` file is split on `## ` headings and subsections are extracted by `### ` headings. Pipe-delimited markdown tables are parsed by column position.
+`arch-query` supports both accepted structured components and the legacy flat
+format. A valid `<component>/document.json` with schema version `1.0.0` or
+published version `1.1.0` is
+authoritative: typed queries map its validated `rendering_view` plus typed facts
+that are not present in that view. The sibling `<component>.md` is read only for
+raw section search and `component --output raw`; it is never merged back into
+accepted facts. An invalid, unsupported, or identity/version-mismatched accepted
+document is an error and cannot fall back to Markdown.
+
+Published `1.1.0` documents bind the exact nested `analyzer.json` and
+`synthesis.json` bytes. When flat Markdown exists, arch-query verifies it against
+the exact document hash and current producer renderer before raw/grep consumers
+can use its sections. A missing derivative leaves typed queries available but is
+reported as unavailable by `exists` and raw output. Any invalid new-format
+authority or stale present derivative fails the whole version load; it never
+silently produces partial typed answers or falls back to legacy files.
+
+When no `document.json` exists, the current Markdown plus analyzer-JSON
+compatibility path remains explicit. JSON-only accepted component directories
+support typed queries. Raw output for one of those components reports the
+missing sibling Markdown path as an actionable error. JSON-only support is a
+query capability, not a complete-package format: release staging requires and
+validates the flat Markdown derivative.
+
+The prepublication `1.0.0` schema remains an explicit compatibility format. New
+publication uses `1.1.0`. The Go loader and stager validate schemas, exact bytes,
+document reconstruction, evidence revisions, and published cross-artifact
+bindings. They do not independently recompute raw-response identities or
+producing-model eligibility; the Python producer establishes those properties
+and rechecks them before reuse. Hashes alone are not treated as evidence truth.
+
+For legacy components, each `.md` file is split on `## ` headings and
+subsections are extracted by `### ` headings. Pipe-delimited Markdown tables are
+parsed by column position.
 
 ### Parsed Sections
 
@@ -290,7 +323,7 @@ rhoai-3.3 -> rhoai-3.4
 | Network Architecture | Services | Name, type, port, target port, protocol, encryption, auth, exposure |
 | Network Architecture | Ingress | Component, type (Route/HTTPRoute), hosts, port, protocol, encryption, TLS mode, exposure |
 | Network Architecture | Egress | Destination, port, protocol, encryption, auth, purpose |
-| Security | RBAC | Role name, API group, resources, verbs |
+| Security | RBAC | Role name, API group, resources, non-resource URLs, verbs |
 
 ### Version Resolution
 
@@ -321,6 +354,8 @@ src/arch-query/
       table.go                     # pipe-delimited table parser
       metadata.go                  # "- **Key**: value" metadata parser
       platform.go                  # PLATFORM.md parser
+    documentdata/                  # accepted document schema validation and mapping
+    embeddeddata/                  # bounded release-data staging
     loader/
       loader.go                    # loads a version directory into VersionData
       versions.go                  # discovers versions, resolves symlinks
@@ -334,4 +369,5 @@ src/arch-query/
 
 - [cobra](https://github.com/spf13/cobra) -- CLI framework
 - [gopkg.in/yaml.v3](https://pkg.go.dev/gopkg.in/yaml.v3) -- YAML parsing for overlay frontmatter
-- Everything else is Go stdlib
+- [jsonschema](https://github.com/santhosh-tekuri/jsonschema) -- draft 2020-12 accepted-document validation
+- [regexp2](https://github.com/dlclark/regexp2) -- ECMA-262 pattern semantics required by the accepted schema

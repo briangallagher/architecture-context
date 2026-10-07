@@ -1,55 +1,56 @@
 sequenceDiagram
     participant Client as External Client
-    participant Gateway as MaaS Gateway<br/>443/TCP HTTPS<br/>TLS Terminate
-    participant Wasm as Kuadrant Wasm Plugin<br/>(in-process)
-    participant Authorino as Authorino<br/>50051/TCP gRPC mTLS
-    participant MaaSAPI as maas-api<br/>8080/TCP HTTP
-    participant PG as PostgreSQL<br/>5432/TCP
-    participant ExtProc as payload-processing<br/>9004/TCP gRPC TLS
-    participant K8sAPI as Kubernetes API<br/>443/TCP HTTPS
-    participant Backend as Model Backend<br/>(KServe / External)<br/>443/TCP HTTPS
+    participant Gateway as Gateway API Gateway<br/>443/TCP HTTPS TLS 1.2+
+    participant IPPPre as payload-processing<br/>(ipp-pre)<br/>9004/TCP gRPC mTLS
+    participant Authorino as Authorino<br/>(Kuadrant AuthPolicy)<br/>mTLS
+    participant MaaSAPI as maas-api<br/>8443/TCP HTTPS TLS 1.2+
+    participant PostgreSQL as PostgreSQL<br/>5432/TCP TLS
+    participant IPP as payload-processing<br/>(ipp)<br/>9004/TCP gRPC mTLS
+    participant KServe as KServe LLM Endpoint<br/>HTTPS TLS 1.2+
+    participant OIDC as OpenShift/OIDC Provider<br/>443/TCP HTTPS
 
-    Note over Client,Backend: Flow 1: API Key Authentication and Model Inference
+    rect rgb(240, 248, 255)
+        Note over Client,KServe: Flow 1: Model Inference Request (API Key Auth)
+        Client->>Gateway: POST /v1/models/{model}:predict<br/>Auth: Bearer sk-oai-*
+        Gateway->>IPPPre: ext_proc: Extract model name<br/>from headers/body (gRPC mTLS)
+        IPPPre-->>Gateway: Model name + routing headers
+        Gateway->>Authorino: Auth check (gRPC mTLS)
+        Authorino->>MaaSAPI: POST /internal/v1/api-keys/validate<br/>Validate key hash (network-isolated)
+        MaaSAPI->>PostgreSQL: SELECT api_key WHERE hash=SHA256(key)<br/>Password auth
+        PostgreSQL-->>MaaSAPI: Key record + tenant
+        MaaSAPI-->>Authorino: Valid + user identity
+        Authorino->>MaaSAPI: POST /internal/v1/subscriptions/select<br/>Find matching subscription
+        MaaSAPI-->>Authorino: Selected subscription + rate limits
+        Authorino-->>Gateway: Auth success + identity headers<br/>Strip original Authorization
+        Gateway->>IPP: ext_proc: Process body<br/>(post-auth, gRPC mTLS)
+        IPP-->>Gateway: Processed request
+        Gateway->>KServe: Forward to model endpoint<br/>via HTTPRoute (HTTPS, cluster CA)
+        KServe-->>Gateway: Inference response
+        Gateway-->>Client: JSON response (HTTPS TLS 1.2+)
+    end
 
-    Client->>Gateway: POST /v1/models/llama:predict<br/>Authorization: Bearer sk-oai-*<br/>TLS 1.3
-    Gateway->>Wasm: Route match → auth check
-    Wasm->>Authorino: gRPC auth request<br/>mTLS
-    Authorino->>MaaSAPI: POST /internal/v1/api-keys/validate<br/>NetworkPolicy protected
-    MaaSAPI->>PG: SELECT hash, subscription<br/>SHA-256 constant-time compare
-    PG-->>MaaSAPI: API key metadata + subscription
-    MaaSAPI-->>Authorino: 200 OK (user, groups, subscription)
-    Authorino->>MaaSAPI: POST /internal/v1/subscriptions/select<br/>NetworkPolicy protected
-    MaaSAPI-->>Authorino: Selected subscription + rate limit context
-    Authorino-->>Wasm: Auth response (identity + metadata)
-    Wasm-->>Gateway: Auth OK + rate limit check via Limitador
+    rect rgb(255, 248, 240)
+        Note over Client,PostgreSQL: Flow 2: API Key Creation (User Token Auth)
+        Client->>Gateway: POST /v1/api-keys<br/>Auth: Bearer <OIDC token>
+        Gateway->>Authorino: Auth check (gRPC mTLS)
+        Authorino->>OIDC: Validate token<br/>HTTPS TLS 1.2+
+        OIDC-->>Authorino: Token valid + claims
+        Authorino-->>Gateway: Auth success<br/>X-MaaS-Username + X-MaaS-Group headers
+        Gateway->>MaaSAPI: POST /v1/api-keys<br/>HTTPS TLS 1.2+<br/>Headers: X-MaaS-Username, X-MaaS-Group
+        MaaSAPI->>MaaSAPI: Generate sk-oai-* key<br/>SHA-256 hash (null-byte delim)
+        MaaSAPI->>PostgreSQL: INSERT api_key hash<br/>Password auth
+        PostgreSQL-->>MaaSAPI: Stored
+        MaaSAPI-->>Gateway: Plaintext API key (show-once)
+        Gateway-->>Client: API key response (HTTPS TLS 1.2+)
+    end
 
-    Gateway->>ExtProc: ext_proc request body<br/>gRPC TLS SIMPLE :9004
-    Note over ExtProc: Plugin pipeline:<br/>1. Extract model → X-Gateway-Model-Name<br/>2. Resolve provider endpoint<br/>3. Translate API format<br/>4. Inject backend credentials
-    ExtProc->>K8sAPI: GET Secret (backend API key)<br/>ServiceAccount token
-    K8sAPI-->>ExtProc: Secret data
-    ExtProc-->>Gateway: Modified headers + body<br/>(credential injected, API translated)
-
-    Gateway->>Backend: Proxied request<br/>HTTPS TLS 1.2+<br/>Injected API key
-    Backend-->>Gateway: Inference response
-    Gateway-->>Client: JSON response<br/>TLS 1.3
-
-    Note over Client,Backend: Flow 2: Subscription and Policy Lifecycle
-
-    participant Admin as Admin / Platform
-    participant Controller as maas-controller
-
-    Admin->>K8sAPI: Create MaaSSubscription CR<br/>HTTPS TLS 1.2+
-    Admin->>K8sAPI: Create MaaSAuthPolicy CR<br/>HTTPS TLS 1.2+
-    K8sAPI-->>Controller: Informer notification
-    Controller->>K8sAPI: Aggregate → Create AuthPolicy<br/>(per-model, CEL expressions)
-    Controller->>K8sAPI: Aggregate → Create TokenRateLimitPolicy<br/>(per-model, per-subscription limits)
-    K8sAPI-->>Authorino: Kuadrant reconciles AuthPolicy
-    Note over Authorino: Auth rules updated<br/>for model routes
-
-    Note over Client,Backend: Flow 3: Tenant Platform Reconcile
-
-    Admin->>K8sAPI: Enable modelsAsService on DSC
-    K8sAPI-->>Controller: LifecycleReconciler → Config CR
-    Controller->>K8sAPI: TenantReconciler reads Tenant CR
-    Note over Controller: Kustomize pipeline:<br/>render → post-render transforms<br/>→ server-side apply
-    Controller->>K8sAPI: Apply: Deployment, Service,<br/>HTTPRoute, AuthPolicy,<br/>NetworkPolicy, EnvoyFilter,<br/>DestinationRule, Telemetry, ...
+    rect rgb(240, 255, 240)
+        Note over Gateway,PostgreSQL: Flow 3: AITenant Reconciliation
+        Note right of MaaSAPI: maas-controller watches AITenant CRs
+        MaaSAPI->>MaaSAPI: maas-controller: AITenant CR event
+        MaaSAPI->>Gateway: Create/validate Gateway CR<br/>HTTPS 443/TCP ServiceAccount token
+        MaaSAPI->>Gateway: Create Namespace<br/>HTTPS 443/TCP ServiceAccount token
+        MaaSAPI->>Gateway: Create MaasTenantConfig<br/>HTTPS 443/TCP ServiceAccount token
+        MaaSAPI->>Gateway: Create Roles/RoleBindings<br/>HTTPS 443/TCP ServiceAccount token
+        MaaSAPI->>Gateway: Deploy maas-api instance<br/>(Deployment, Service, NetworkPolicy, CronJob)
+    end

@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "component": "argo-workflows",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "argo-workflows-fips-go-native-001",
+      "claim": "Argo Workflows Konflux builds use Go 1.24+ native FIPS 140 module (GOFIPS140=v1.0.0) with static linking and no OpenSSL, which diverges from the traditional check-payload-validated approach of dynamic linking with OpenSSL.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "argo-workflowcontroller/Dockerfile.konflux:25"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "argo-argoexec/Dockerfile.konflux:24"
+        }
+      ],
+      "reasoning": "Both Konflux Dockerfiles set CGO_ENABLED=0, GOFIPS140=v1.0.0, and -tags no_openssl, producing statically linked binaries that use Go's native FIPS 140 cryptographic module. Traditional check-payload validation expects dynamically linked Go binaries with OpenSSL present in the container image. This newer FIPS approach may not pass check-payload without updates to the validation tooling.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "argo-workflows-auth-gatekeeper-002",
+      "claim": "The argo-server centralizes authentication through a gatekeeper interceptor supporting three modes (client, server, SSO), but the /metrics endpoint authentication is conditional on an environment variable, creating a potential exposure when disabled.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "server/apiserver/argoserver.go:397-411"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "server/auth/gatekeeper.go:90-104"
+        }
+      ],
+      "reasoning": "The ARGO_SERVER_METRICS_AUTH environment variable controls whether /metrics requires authentication. When set to 'false', the metrics endpoint is unauthenticated, which could expose operational data. This is a deliberate design trade-off for environments where metrics scraping cannot provide credentials, but it should be documented in security posture assessments.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

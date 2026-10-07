@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "component": "MLServer",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "mlserver-no-app-tls-001",
+      "claim": "MLServer provides no application-level TLS or authentication; both REST (Uvicorn) and gRPC servers bind without encryption, relying entirely on platform-level enforcement via kube-rbac-proxy sidecar and KServe ingress.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "mlserver/grpc/server.py:88 (add_insecure_port)"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "mlserver/rest/server.py:86-90 (uvicorn.Config without ssl_keyfile)"
+        }
+      ],
+      "reasoning": "The gRPC server explicitly uses add_insecure_port and the REST server creates a Uvicorn config without any SSL parameters. No authentication middleware is registered in the FastAPI app. This means any network path that bypasses the kube-rbac-proxy sidecar would have unauthenticated, unencrypted access to the inference endpoints.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "mlserver-trusted-runtimes-002",
+      "claim": "MLServer implements a trusted runtimes allowlist mechanism that restricts which model implementations can be loaded in production, switching between development mode (no file) and production mode (JSON allowlist at /etc/mlserver/trusted-runtimes.json).",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "mlserver/settings.py:42,140-166 (trusted runtimes validation)"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:44-61 (trusted-runtimes.json generation)"
+        }
+      ],
+      "reasoning": "The allowlist file is baked into the container image during build by enumerating explicitly declared runtime import paths. At runtime, _assert_trusted_runtime_import_path enforces that only allowlisted runtimes can be loaded. This is a defense-in-depth pattern against arbitrary code execution via model-settings.json manipulation.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "mlserver-dual-protocol-003",
+      "claim": "MLServer exposes the same V2 Inference Protocol operations over both REST (port 8080) and gRPC (port 8081), sharing a common DataPlane handler layer, which means any model runtime plugin automatically supports both protocols without additional implementation.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "mlserver/rest/app.py:57-58 (Endpoints and ModelRepositoryEndpoints wrapping DataPlane)"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "mlserver/grpc/server.py:34-37 (InferenceServicer and ModelRepositoryServicer wrapping DataPlane)"
+        }
+      ],
+      "reasoning": "Both the REST Endpoints class and gRPC InferenceServicer delegate to the same DataPlane instance. This dual-protocol architecture means all model runtimes get REST and gRPC support automatically, but also means that any DataPlane-level issue affects both surfaces simultaneously.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    }
+  ]
+}

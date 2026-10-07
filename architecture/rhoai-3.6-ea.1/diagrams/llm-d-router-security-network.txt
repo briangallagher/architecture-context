@@ -1,0 +1,145 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [External Client]                                                       │
+│         │                                                                │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS                                                │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INGRESS / GATEWAY                                                      │
+│                                                                          │
+│  [Envoy Proxy]                                                           │
+│  - Role: L7 proxy with ExtProc integration                              │
+│  - TLS Termination: Platform-configured                                 │
+│         │                                                                │
+│         │ Port: 9002/TCP                                                 │
+│         │ Protocol: gRPC (HTTP/2)                                        │
+│         │ Encryption: Optional TLS (SecureServing flag)                  │
+│         │ Auth: None (no application-level interceptor)                  │
+│         │ Note: TLS supports externally provisioned certs                │
+│         │       with hot-reload, or self-signed fallback (RSA-4096)     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL (Service Mesh / Namespace)                            │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────┐            │
+│  │  EPP (Endpoint Picker)                                   │            │
+│  │  - Image: Konflux-built, UBI 9 base                     │            │
+│  │  - CGO_ENABLED=1 (dynamic linking)                       │            │
+│  │  - FIPS: NOT verified (missing strictfipsruntime tag)    │            │
+│  │                                                           │            │
+│  │  [ExternalProcessor gRPC Service]                         │            │
+│  │  - Port: 9002/TCP                                        │            │
+│  │  - Protocol: gRPC (HTTP/2)                               │            │
+│  │  - Encryption: Optional TLS                              │            │
+│  │  - Auth: None                                            │            │
+│  │  - TLS Config: Runtime-configurable MinVersion,          │            │
+│  │    CipherSuites via applyTLSOverrides                    │            │
+│  │  - No hardcoded cipher suites or min TLS version         │            │
+│  │                                                           │            │
+│  │  [Health gRPC Service]                                    │            │
+│  │  - Protocol: gRPC (HTTP/2)                               │            │
+│  │  - Encryption: Optional TLS                              │            │
+│  │  - Auth: None                                            │            │
+│  │                                                           │            │
+│  │  [Metrics HTTP Server]                                    │            │
+│  │  - Port: 9090/TCP                                        │            │
+│  │  - Protocol: HTTP/1.1                                    │            │
+│  │  - Encryption: Unknown                                   │            │
+│  │  - Auth: None                                            │            │
+│  │                                                           │            │
+│  │  [Controller-Runtime Manager]                             │            │
+│  │  - Reconciles: InferencePool, InferenceModelRewrite,     │            │
+│  │    InferenceObjective, Pod                                │            │
+│  └─────────────────────────────────────────────────────────┘            │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS/WSS                                            │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token                                     │
+│         ▼                                                                │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 6443/TCP                                                        │
+│  - Protocol: HTTPS                                                       │
+│  - Resources watched: InferencePool, InferenceModelRewrite,             │
+│    InferenceObjective, Pod                                               │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────┐            │
+│  │  pd-sidecar                                              │            │
+│  │  - Image: Konflux-built, UBI 9 base                     │            │
+│  │  - CGO_ENABLED=1 (dynamic linking)                       │            │
+│  │  - FIPS: Enabled (strictfipsruntime build tag)           │            │
+│  │                                                           │            │
+│  │  [HTTP Proxy]                                             │            │
+│  │  - Path: /                                               │            │
+│  │  - Protocol: HTTP/1.1                                    │            │
+│  │  - Encryption: Unknown                                   │            │
+│  │                                                           │            │
+│  │  [Sidecar Metrics]                                        │            │
+│  │  - Path: /metrics                                        │            │
+│  │  - Protocol: HTTP/1.1                                    │            │
+│  │  - Auth: kubeconfig credential chain                     │            │
+│  └─────────────────────────────────────────────────────────┘            │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────┐            │
+│  │  coordinator                                              │            │
+│  │  - Multi-instance EPP orchestrator                       │            │
+│  │                                                           │            │
+│  │  [Health Endpoints]                                       │            │
+│  │  - GET /healthz                                          │            │
+│  │  - GET /readyz                                           │            │
+│  │  - Protocol: HTTP/1.1                                    │            │
+│  └─────────────────────────────────────────────────────────┘            │
+│                                                                          │
+│         │                                                                │
+│         │ (routing decision returned to Envoy)                           │
+│         ▼                                                                │
+│  [Model-Serving Pod]                                                     │
+│  - Selected by EPP plugin pipeline                                       │
+│  - Traffic forwarded by Envoy                                            │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES (Egress)                                             │
+│                                                                          │
+│  [OpenTelemetry Collector]                                               │
+│  - Protocol: OTLP/gRPC                                                   │
+│  - Encryption: Runtime configured                                        │
+│  - Purpose: Trace export                                                 │
+│                                                                          │
+│  [Prometheus]                                                            │
+│  - Protocol: HTTP                                                        │
+│  - Port: 9090/TCP (scrapes EPP metrics)                                  │
+│  - Purpose: Metrics collection                                           │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No ClusterRoles or RoleBindings defined in the architecture document
+- Authentication to Kubernetes API via ServiceAccount token
+- No application-level authentication interceptors on gRPC services
+- Security delegated to transport TLS and platform infrastructure (Envoy, Istio, Gateway API)
+
+FIPS Compliance Summary:
+┌──────────────┬───────────────────────────┬──────────────────────────────────┐
+│ Component    │ FIPS Build Tag            │ Status                           │
+├──────────────┼───────────────────────────┼──────────────────────────────────┤
+│ EPP          │ None                      │ NOT verified - missing           │
+│              │                           │ strictfipsruntime tag            │
+├──────────────┼───────────────────────────┼──────────────────────────────────┤
+│ pd-sidecar   │ -tags strictfipsruntime   │ FIPS-capable via                 │
+│              │                           │ strictfipsruntime                │
+├──────────────┼───────────────────────────┼──────────────────────────────────┤
+│ Both         │ CGO_ENABLED=1, UBI 9      │ Dynamic linking, OpenSSL         │
+│              │                           │ available in base image          │
+└──────────────┴───────────────────────────┴──────────────────────────────────┘
+
+TLS Configuration:
+- EPP gRPC server: Optional TLS via SecureServing flag
+- Supports externally provisioned certs with filesystem hot-reload
+- Self-signed fallback: RSA-4096, crypto/rand, crypto/rsa
+- Runtime-configurable: MinVersion, CipherSuites (no application defaults enforced)
+- No mTLS enforcement at application level
+
+Secrets:
+- No secrets defined in the architecture document
+- ServiceAccount tokens used for Kubernetes API authentication

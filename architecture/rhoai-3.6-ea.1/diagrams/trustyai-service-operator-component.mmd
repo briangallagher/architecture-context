@@ -1,0 +1,75 @@
+graph TB
+    subgraph OperatorManager["TrustyAI Service Operator (manager)"]
+        direction TB
+        TASController["TrustyAIService Controller"]
+        EvalHubController["EvalHub Controller"]
+        GOrchController["GuardrailsOrchestrator Controller"]
+        NemoController["NemoGuardrails Controller"]
+        LMEvalController["LMEvalJob Controller"]
+        JobController["Job Controller"]
+        WorkloadController["Workload Controller"]
+        TLSConfig["TLS Config<br/>(pkg/tls)"]
+        DSCConfig["DSC Config Reader<br/>(trustyai-dsc-config)"]
+    end
+
+    subgraph PlatformModule["trustyai-operator-module"]
+        TrustyAIModuleController["TrustyAI Module Controller"]
+    end
+
+    subgraph TrustyAIWorkload["TrustyAI Service Workload"]
+        direction LR
+        TrustyAIService["TrustyAI Quarkus Service<br/>:8080 (localhost)"]
+        KubeRBACProxy["kube-rbac-proxy<br/>:8443 (TLS)<br/>:9443 (health)"]
+        KubeRBACProxy -->|proxy to localhost:8080| TrustyAIService
+    end
+
+    %% CRDs
+    TrustyAISvcCR["TrustyAIService CR<br/>(trustyai.opendatahub.io/v1)"]
+    EvalHubCR["EvalHub CR<br/>(trustyai.opendatahub.io/v1)"]
+    GOrchCR["GuardrailsOrchestrator CR<br/>(trustyai.opendatahub.io/v1alpha1)"]
+    NemoCR["NemoGuardrails CR<br/>(trustyai.opendatahub.io/v1alpha1)"]
+    LMEvalCR["LMEvalJob CR<br/>(trustyai.opendatahub.io/v1alpha1)"]
+    TrustyAICR["TrustyAI CR<br/>(components.platform.opendatahub.io/v1alpha1)"]
+
+    %% Controller watches
+    TASController -->|reconciles| TrustyAISvcCR
+    EvalHubController -->|reconciles| EvalHubCR
+    GOrchController -->|reconciles| GOrchCR
+    NemoController -->|reconciles| NemoCR
+    LMEvalController -->|reconciles| LMEvalCR
+    TrustyAIModuleController -->|reconciles| TrustyAICR
+
+    %% Created resources
+    TASController -->|creates| TrustyAIWorkload
+    TASController -->|creates/manages| Deployments["Deployments<br/>Services<br/>ConfigMaps"]
+    EvalHubController -->|creates| EvalDeployments["Deployments<br/>Services<br/>ServiceMonitors"]
+    GOrchController -->|creates| GOrchDeployments["Deployments"]
+
+    %% External watches
+    GOrchController -->|watches| InferenceService["KServe InferenceService"]
+    TASController -->|watches| InferenceService
+    EvalHubController -.->|conditional| ServiceMonitor["ServiceMonitor<br/>(prometheus-operator)"]
+    WorkloadController -.->|conditional| KueueWorkload["Kueue Workload<br/>(kueue.x-k8s.io/v1beta1)"]
+
+    %% Platform integrations
+    TLSConfig -->|reads| APIServer["OpenShift APIServer<br/>(TLS profile)"]
+    DSCConfig -->|reads| DSCConfigMap["trustyai-dsc-config<br/>ConfigMap"]
+
+    %% External clients
+    Client["External Client"] -->|HTTPS :8443<br/>SubjectAccessReview| KubeRBACProxy
+
+    %% Styling
+    style OperatorManager fill:#4a90e2,stroke:#333,color:#fff
+    style PlatformModule fill:#4a90e2,stroke:#333,color:#fff
+    style TrustyAIWorkload fill:#d5e8d4,stroke:#82b366
+    style TrustyAISvcCR fill:#f5a623,stroke:#333
+    style EvalHubCR fill:#f5a623,stroke:#333
+    style GOrchCR fill:#f5a623,stroke:#333
+    style NemoCR fill:#f5a623,stroke:#333
+    style LMEvalCR fill:#f5a623,stroke:#333
+    style TrustyAICR fill:#f5a623,stroke:#333
+    style InferenceService fill:#7ed321,stroke:#333
+    style ServiceMonitor fill:#e8e8e8,stroke:#999
+    style KueueWorkload fill:#e8e8e8,stroke:#999
+    style APIServer fill:#e8e8e8,stroke:#999
+    style Client fill:#f9f9f9,stroke:#999

@@ -1,59 +1,94 @@
 graph LR
     Kueue["Kueue Controller Manager<br/>(opendatahub namespace)"]
 
-    %% External Dependencies
-    Kueue -->|"CRD registration,<br/>controller-runtime"| K8s["Kubernetes 1.27+"]
-    Kueue -.->|"optional TLS cert<br/>management"| CertMgr["cert-manager v1+"]
-    Kueue -.->|"optional node<br/>provisioning"| ClusterAS["Cluster Autoscaler<br/>(ProvisioningRequest)"]
+    %% External Dependencies (Required)
+    Kueue -->|"platform<br/>v1.25+"| K8s["Kubernetes"]
+    Kueue -->|"operator framework<br/>v0.19.4"| ControllerRuntime["controller-runtime"]
 
-    %% Internal Platform Dependencies (Job Frameworks)
-    Kueue -->|"CRD Watch + Webhook<br/>PyTorchJob, TFJob,<br/>MPIJob, XGBoostJob,<br/>PaddleJob"| KubeflowTraining["Kubeflow Training<br/>Operator"]
-    Kueue -->|"CRD Watch + Webhook<br/>RayJob, RayCluster"| RayOp["Ray Operator"]
-    Kueue -->|"CRD Watch + Webhook<br/>JobSet"| JobSetCtrl["JobSet Controller"]
-    Kueue -->|"CRD Watch + Webhook<br/>AppWrapper"| CodeFlare["CodeFlare Operator"]
-    Kueue -->|"CRD Watch<br/>LeaderWorkerSet"| LWS["LeaderWorkerSet<br/>Controller"]
+    %% External Dependencies (Optional)
+    Kueue -.->|"TLS certs<br/>(optional)"| CertManager["cert-manager v1.17.1"]
+    Kueue -.->|"node provisioning<br/>(optional)"| ClusterAutoscaler["Cluster Autoscaler<br/>(ProvisioningRequest)"]
 
-    %% Kubernetes Native Resources
-    Kueue -->|"CRD Watch + Webhook<br/>batch/v1 Job"| BatchJob["Kubernetes Jobs"]
-    Kueue -->|"CRD Watch + Webhook<br/>v1 Pod, apps/v1"| PodIntegration["Pod / Deployment /<br/>StatefulSet"]
-    Kueue -->|"Watch<br/>scheduling.k8s.io"| PriorityClass["PriorityClass"]
-    Kueue -->|"Watch<br/>node.k8s.io"| RuntimeClass["RuntimeClass"]
-    Kueue -->|"Watch<br/>v1"| LimitRange["LimitRange"]
-    Kueue -->|"Watch<br/>v1"| Nodes["Nodes<br/>(TAS topology)"]
+    %% Internal Platform Dependencies
+    RhodsOperator["rhods-operator"] -->|"deploys & configures"| Kueue
 
-    %% Optional Multi-Cluster
-    Kueue -.->|"REST client<br/>kubeconfig Secret<br/>(disabled in RHOAI)"| RemoteKueue["Remote Kueue<br/>Clusters<br/>(MultiKueue)"]
+    %% Job Framework Integrations (14 total)
+    subgraph JobFrameworks["Job Framework Integrations"]
+        BatchJob["batch/Job"]
+        PyTorchJob["Kubeflow PyTorchJob"]
+        TFJob["Kubeflow TFJob"]
+        MPIJob["Kubeflow MPIJob"]
+        PaddleJob["Kubeflow PaddleJob"]
+        XGBoostJob["Kubeflow XGBoostJob"]
+        RayJob["KubeRay RayJob"]
+        RayCluster["KubeRay RayCluster"]
+        JobSet["JobSet"]
+        AppWrapper["CodeFlare AppWrapper"]
+        LWS["LeaderWorkerSet"]
+        Deployment["apps/Deployment"]
+        StatefulSet["apps/StatefulSet"]
+        Pod["Pod (group mode)"]
+    end
 
-    %% Monitoring
-    Prometheus["Prometheus"] -->|"scrape metrics<br/>8443/TCP HTTPS"| Kueue
+    Kueue -->|"suspend/unsuspend<br/>watch + patch"| BatchJob
+    Kueue -->|"watch + patch"| PyTorchJob
+    Kueue -->|"watch + patch"| TFJob
+    Kueue -->|"watch + patch"| MPIJob
+    Kueue -->|"watch + patch"| PaddleJob
+    Kueue -->|"watch + patch"| XGBoostJob
+    Kueue -->|"watch + patch"| RayJob
+    Kueue -->|"watch + patch"| RayCluster
+    Kueue -->|"watch + patch"| JobSet
+    Kueue -->|"watch + patch"| AppWrapper
+    Kueue -->|"watch"| LWS
+    Kueue -->|"watch + patch"| Deployment
+    Kueue -->|"watch + patch"| StatefulSet
+    Kueue -->|"gate + manage"| Pod
 
-    %% API Priority & Fairness
-    Kueue -->|"Watch + Patch<br/>FlowSchemas"| FlowControl["API Priority &<br/>Fairness"]
+    %% Kubernetes API Resources Watched
+    subgraph K8sResources["Kubernetes Resources Watched"]
+        Namespaces["Namespaces<br/>(namespaceSelector)"]
+        LimitRanges["LimitRanges<br/>(resource defaults)"]
+        RuntimeClasses["RuntimeClasses<br/>(overhead calc)"]
+        PriorityClasses["PriorityClasses<br/>(priority resolution)"]
+        Nodes["Nodes<br/>(TAS topology)"]
+    end
+
+    Kueue -->|"watch"| Namespaces
+    Kueue -->|"watch"| LimitRanges
+    Kueue -->|"watch"| RuntimeClasses
+    Kueue -->|"watch"| PriorityClasses
+    Kueue -->|"watch"| Nodes
+
+    %% Monitoring Integration
+    Prometheus["Prometheus /<br/>OpenShift Monitoring"] -->|"scrape metrics<br/>8443/TCP HTTPS"| Kueue
 
     %% Styling
     style Kueue fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
-
-    %% External deps - grey
     style K8s fill:#999,stroke:#333,color:#fff
-    style CertMgr fill:#999,stroke:#333,color:#fff
-    style ClusterAS fill:#999,stroke:#333,color:#fff
-    style RemoteKueue fill:#999,stroke:#333,color:#fff
+    style ControllerRuntime fill:#999,stroke:#333,color:#fff
+    style CertManager fill:#999,stroke:#333,color:#fff
+    style ClusterAutoscaler fill:#999,stroke:#333,color:#fff
+    style RhodsOperator fill:#7ed321,stroke:#333,color:#fff
+    style Prometheus fill:#f5a623,stroke:#333
 
-    %% Internal platform deps - green
-    style KubeflowTraining fill:#7ed321,stroke:#333,color:#fff
-    style RayOp fill:#7ed321,stroke:#333,color:#fff
-    style JobSetCtrl fill:#7ed321,stroke:#333,color:#fff
-    style CodeFlare fill:#7ed321,stroke:#333,color:#fff
-    style LWS fill:#7ed321,stroke:#333,color:#fff
+    style BatchJob fill:#e1d5e7,stroke:#9673a6
+    style PyTorchJob fill:#e1d5e7,stroke:#9673a6
+    style TFJob fill:#e1d5e7,stroke:#9673a6
+    style MPIJob fill:#e1d5e7,stroke:#9673a6
+    style PaddleJob fill:#e1d5e7,stroke:#9673a6
+    style XGBoostJob fill:#e1d5e7,stroke:#9673a6
+    style RayJob fill:#e1d5e7,stroke:#9673a6
+    style RayCluster fill:#e1d5e7,stroke:#9673a6
+    style JobSet fill:#e1d5e7,stroke:#9673a6
+    style AppWrapper fill:#e1d5e7,stroke:#9673a6
+    style LWS fill:#e1d5e7,stroke:#9673a6
+    style Deployment fill:#e1d5e7,stroke:#9673a6
+    style StatefulSet fill:#e1d5e7,stroke:#9673a6
+    style Pod fill:#e1d5e7,stroke:#9673a6
 
-    %% K8s native resources - orange
-    style BatchJob fill:#f5a623,stroke:#333
-    style PodIntegration fill:#f5a623,stroke:#333
-    style PriorityClass fill:#f5a623,stroke:#333
-    style RuntimeClass fill:#f5a623,stroke:#333
-    style LimitRange fill:#f5a623,stroke:#333
-    style Nodes fill:#f5a623,stroke:#333
-    style FlowControl fill:#f5a623,stroke:#333
-
-    %% Monitoring - purple
-    style Prometheus fill:#9b59b6,stroke:#333,color:#fff
+    style Namespaces fill:#fff2cc,stroke:#d6b656
+    style LimitRanges fill:#fff2cc,stroke:#d6b656
+    style RuntimeClasses fill:#fff2cc,stroke:#d6b656
+    style PriorityClasses fill:#fff2cc,stroke:#d6b656
+    style Nodes fill:#fff2cc,stroke:#d6b656

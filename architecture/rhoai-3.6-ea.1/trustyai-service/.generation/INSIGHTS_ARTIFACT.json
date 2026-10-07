@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "trustyai-service",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "trustyai-service-pattern-001",
+      "claim": "TrustyAI Service uses a dual-bind networking model where HTTP is restricted to loopback for kube-rbac-proxy integration, while optional HTTPS is exposed on all interfaces for direct access.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/main.py:257-262"
+        }
+      ],
+      "reasoning": "The service explicitly binds HTTP to 127.0.0.1 with a code comment stating 'kube-rbac-proxy forwards here', while HTTPS binds to 0.0.0.0 when TLS certificates are available. This dual-bind pattern means the service has no application-level authentication and relies entirely on the platform sidecar for access control on the HTTP path.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "trustyai-service-pattern-002",
+      "claim": "The service implements pluggable storage with PVC/HDF5 as default and MariaDB as an optional backend, selected via environment variable at startup.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/service/data/storage/__init__.py:48-119"
+        }
+      ],
+      "reasoning": "The storage backend is selected by SERVICE_STORAGE_FORMAT environment variable. PVC mode uses HDF5 files on a mounted volume. MariaDB mode requires the optional 'mariadb' extra and supports TLS connections via a CA certificate. This dual-mode design allows deployment flexibility from lightweight development setups to production database-backed configurations.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "trustyai-service-risk-001",
+      "claim": "FIPS compliance cannot be verified at the application level; the cryptography library is present but no explicit FIPS provider is selected.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pyproject.toml:22"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:1"
+        }
+      ],
+      "reasoning": "The service depends on cryptography>=48.0.1 and uses Hypercorn's TLS termination, but does not explicitly select a FIPS-validated cryptographic provider. The Dockerfile uses a parameterized CPU_BASE_IMAGE, which may or may not provide a FIPS-validated OpenSSL. Application-level FIPS compliance remains unverifiable without knowledge of the base image's crypto configuration.",
+      "applicability": "component",
+      "confidence": "medium"
+    }
+  ]
+}

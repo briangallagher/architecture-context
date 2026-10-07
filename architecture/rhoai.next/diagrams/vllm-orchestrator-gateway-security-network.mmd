@@ -1,48 +1,47 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Client["Client<br/>(OpenAI-compatible)"]
+        Client["External Client<br/>No auth required by gateway"]
     end
 
-    subgraph ApplicationLayer["APPLICATION LAYER"]
-        Gateway["vLLM Orchestrator Gateway<br/>Container Port: 8090/TCP<br/>Rust / axum 0.7.9<br/>No local auth enforcement"]
+    subgraph Application["APPLICATION LAYER"]
+        Gateway["vllm-orchestrator-gateway<br/>Rust/axum<br/>0.0.0.0:8090/TCP (HTTP plaintext)<br/>No auth enforcement<br/>No RBAC / No K8s API access"]
+    end
 
-        subgraph ConfigMounts["Configuration & Secrets"]
-            Config["config.yaml<br/>(GATEWAY_CONFIG env var)"]
-            TLSCert["/etc/tls/private/tls.crt<br/>X.509 PEM Client Cert"]
-            TLSKey["/etc/tls/private/tls.key<br/>PEM Private Key"]
-            CACert["/etc/tls/ca/service-ca.crt<br/>X.509 PEM CA Cert"]
+    subgraph InternalServices["INTERNAL SERVICES (TrustyAI Ecosystem)"]
+        direction TB
+        Orchestrator["FMS Guardrails Orchestrator<br/>8085/TCP (configurable)<br/>Endpoint: /api/v2/chat/completions-detection<br/>Receives forwarded Authorization"]
+
+        subgraph OrchestratorBackends["Orchestrator Backends (indirect)"]
+            Detectors["Detector Services<br/>(e.g., guardrails-regex-detector)<br/>Called by orchestrator"]
+            vLLM["vLLM Inference Server<br/>Called by orchestrator"]
         end
 
-        Config -->|"read at startup"| Gateway
-        TLSCert -->|"mTLS identity"| Gateway
-        TLSKey -->|"mTLS identity"| Gateway
-        CACert -->|"custom CA trust"| Gateway
+        Orchestrator -->|dispatches| Detectors
+        Orchestrator -->|inference| vLLM
     end
 
-    subgraph BackendServices["BACKEND SERVICES (Internal)"]
-        direction TB
-
-        Orchestrator["FMS Guardrails Orchestrator<br/>Port: 8085/TCP (configurable)<br/>Endpoint: /api/v2/chat/completions-detection"]
-
-        Detectors["Guardrails Detectors<br/>(e.g., regex-detector, PII)<br/>Invoked by Orchestrator only"]
-
-        LLM["vLLM / LLM Inference Server<br/>Invoked by Orchestrator only"]
-
-        Orchestrator -->|"content analysis"| Detectors
-        Orchestrator -->|"text generation"| LLM
+    subgraph CertInfra["CERTIFICATE INFRASTRUCTURE (OpenShift)"]
+        CertSigner["service-serving-cert-signer<br/>/etc/tls/private/tls.crt + tls.key<br/>kubernetes.io/tls<br/>Auto-rotate: Yes"]
+        CAOperator["service-ca-operator<br/>/etc/tls/ca/service-ca.crt<br/>ConfigMap (projected)<br/>Auto-rotate: Yes"]
     end
 
-    %% Network Flows
-    Client -->|"HTTP/8090<br/>Plaintext<br/>Auth: pass-through<br/>POST /{route}/v1/chat/completions"| Gateway
-    Gateway -->|"HTTP or HTTPS/8085<br/>Optional mTLS<br/>Auth: forwarded header + client cert<br/>POST /api/v2/chat/completions-detection"| Orchestrator
+    %% Network flows
+    Client -->|"HTTP/8090<br/>Plaintext<br/>Authorization header (pass-through)"| Gateway
+    Gateway -->|"HTTP or HTTPS/8085<br/>Optional mTLS (PKCS12 identity)<br/>Client cert + forwarded Auth header<br/>+ X-Forwarded-* headers"| Orchestrator
+
+    %% Certificate provisioning
+    CertSigner -.->|"provisions client cert<br/>(mTLS identity)"| Gateway
+    CAOperator -.->|"provisions CA cert<br/>(server validation)"| Gateway
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
-    classDef application fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef backend fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef secrets fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef application fill:#4a90e2,stroke:#2a70c2,stroke-width:2px,color:#fff
+    classDef internal fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef indirect fill:#e8f5e9,stroke:#a5d6a7,stroke-width:1px
+    classDef certinfra fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 
     class Client external
     class Gateway application
-    class Orchestrator,Detectors,LLM backend
-    class Config,TLSCert,TLSKey,CACert secrets
+    class Orchestrator internal
+    class Detectors,vLLM indirect
+    class CertSigner,CAOperator certinfra

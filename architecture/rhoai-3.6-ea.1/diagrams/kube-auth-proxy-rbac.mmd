@@ -1,0 +1,78 @@
+graph TD
+    subgraph "Pod Identity"
+        Pod["kube-auth-proxy Pod"]
+        SA["ServiceAccount<br/>(auto-mounted in-cluster)"]
+    end
+
+    subgraph "Implicit RBAC (In-Cluster)"
+        direction TB
+        Note["No explicit ClusterRoles or RoleBindings<br/>defined in component manifests"]
+    end
+
+    subgraph "TokenReview API Access"
+        TR["authentication.k8s.io/v1<br/>TokenReview"]
+    end
+
+    subgraph "Authentication Methods"
+        direction TB
+        K8sToken["Kubernetes ServiceAccount<br/>Token Validation"]
+        OAuthToken["OpenShift OAuth<br/>sha256~ Token Validation"]
+        JWTToken["JWT/OIDC Bearer<br/>Token Verification"]
+        BasicAuth["htpasswd<br/>Basic Auth"]
+        SessionCookie["OAuth2 Session<br/>Cookie"]
+    end
+
+    subgraph "Auth Decision"
+        Allow["ALLOW → Forward to Upstream<br/>+ X-Forwarded-User<br/>+ X-Forwarded-Email"]
+        Deny["DENY → 401/403<br/>or Redirect to Sign-In"]
+    end
+
+    subgraph "Secrets"
+        Secret["kube-auth-proxy-secret<br/>(Opaque)<br/>Cookie secret<br/>OAuth client credentials"]
+    end
+
+    %% Pod uses ServiceAccount
+    Pod -->|"uses"| SA
+
+    %% SA creates TokenReviews
+    SA -->|"POST (create)"| TR
+
+    %% Auth methods
+    Pod -->|"validates"| K8sToken
+    Pod -->|"validates"| OAuthToken
+    Pod -->|"validates"| JWTToken
+    Pod -->|"validates"| BasicAuth
+    Pod -->|"validates"| SessionCookie
+
+    %% K8s token uses TokenReview
+    K8sToken -->|"TokenReview API call"| TR
+
+    %% Auth decisions
+    K8sToken -->|"valid"| Allow
+    OAuthToken -->|"valid"| Allow
+    JWTToken -->|"valid"| Allow
+    BasicAuth -->|"valid"| Allow
+    SessionCookie -->|"valid"| Allow
+
+    K8sToken -->|"invalid"| Deny
+    OAuthToken -->|"invalid"| Deny
+    JWTToken -->|"invalid"| Deny
+    BasicAuth -->|"invalid"| Deny
+    SessionCookie -->|"no session"| Deny
+
+    %% Secret mounting
+    Secret -.->|"mounted"| Pod
+
+    %% Styling
+    style Pod fill:#4a90e2,stroke:#333,color:#fff
+    style SA fill:#4a90e2,stroke:#333,color:#fff
+    style TR fill:#f5a623,stroke:#333
+    style Note fill:#fff,stroke:#999,stroke-dasharray: 5
+    style K8sToken fill:#dae8fc,stroke:#6c8ebf
+    style OAuthToken fill:#dae8fc,stroke:#6c8ebf
+    style JWTToken fill:#dae8fc,stroke:#6c8ebf
+    style BasicAuth fill:#dae8fc,stroke:#6c8ebf
+    style SessionCookie fill:#dae8fc,stroke:#6c8ebf
+    style Allow fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style Deny fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style Secret fill:#f8cecc,stroke:#b85450,stroke-width:1px,stroke-dasharray: 5

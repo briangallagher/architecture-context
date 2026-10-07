@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "component": "kubeflow",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "kubeflow-central-namespace-httproute-001",
+      "claim": "HTTPRoute resources are created in the controller's central namespace rather than the user's namespace, using label-based matching and finalizers instead of cross-namespace owner references.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "components/odh-notebook-controller/controllers/notebook_route.go:142-193"
+        }
+      ],
+      "reasoning": "The reconcileHTTPRoute function explicitly creates HTTPRoutes in r.Namespace (the controller's namespace) with labels for notebook-name and notebook-namespace. The code comments explain this is for security reasons and that cross-namespace owner references are not supported, so finalizers are used for cleanup. This is an architecturally significant pattern that affects how routing resources are garbage-collected and how namespace-level RBAC scoping works.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "kubeflow-reconciliation-lock-002",
+      "claim": "A reconciliation lock annotation prevents the upstream notebook-controller from starting pods before the ODH controller finishes provisioning authentication sidecars, network policies, and pull secrets.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "components/odh-notebook-controller/controllers/notebook_mutating_webhook.go:106-121"
+        }
+      ],
+      "reasoning": "The mutating webhook injects a stop annotation that the upstream culling controller respects, preventing pod startup. This is a cross-controller coordination mechanism that resolves a documented race condition between the two controllers during initial reconciliation. The lock is removed by the ODH controller after its first reconciliation pass completes.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "kubeflow-dspa-graceful-degradation-003",
+      "claim": "The DSPA pipeline integration degrades gracefully when the CRD is not installed or no instance exists, making it a soft optional dependency rather than a hard requirement.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "components/odh-notebook-controller/controllers/notebook_dspa_secret.go:49-66"
+        }
+      ],
+      "reasoning": "The getDSPAInstance function explicitly handles both IsNotFound and IsNoMatchError (CRD missing) by returning nil without error, allowing the controller to skip pipeline integration entirely. This means the kubeflow component can be deployed independently of the data-science-pipelines-operator, reducing coupling at the cost of runtime feature detection rather than compile-time guarantees.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "kubeflow-platform-tls-profile-004",
+      "claim": "The odh-notebook-controller dynamically fetches the OpenShift APIServer TLS security profile at startup and applies it to webhook and metrics servers, tracking platform-wide cipher suite policy.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "components/odh-notebook-controller/main.go:179-209"
+        }
+      ],
+      "reasoning": "The main function fetches config.openshift.io/v1/APIServer and extracts its TLS profile spec before configuring the controller manager's TLS options. This pattern ensures the controller respects cluster-wide TLS policy changes without redeployment. The fallback to hardened defaults on non-OpenShift clusters or transient API failures makes this resilient while maintaining security posture.",
+      "applicability": "platform",
+      "confidence": "high"
+    }
+  ]
+}

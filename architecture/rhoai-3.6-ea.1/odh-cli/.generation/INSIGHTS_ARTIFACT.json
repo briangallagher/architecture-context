@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "odh-cli",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "odh-cli-pattern-001",
+      "claim": "odh-cli embeds an MCP server that exposes all CLI operations as typed tool calls, creating a programmatic interface for AI agents to manage RHOAI deployments.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/mcp/server.go:35-52"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/mcp/mcp.go:24-34"
+        }
+      ],
+      "reasoning": "The MCP server registers all CLI subcommands as MCP tools and supports both stdio and SSE transports. This pattern enables AI agents (Claude, GPT, Cursor) to programmatically invoke platform operations, which is architecturally significant as it positions the CLI as an agent-accessible management interface rather than just a human-facing tool.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "odh-cli-risk-001",
+      "claim": "The TrustYAI migration HTTP client disables TLS certificate verification (InsecureSkipVerify=true) for in-cluster route connections, which weakens the TLS security posture during migration operations.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/migrate/actions/trustyai/metrics/http.go:60-63"
+        }
+      ],
+      "reasoning": "While the code comment explains this matches the original curl -sk behavior for self-signed in-cluster routes, disabling certificate verification allows potential man-in-the-middle attacks on the migration data path. The risk is bounded because it only applies during explicit migration operations and the data is metric scheduling metadata, not sensitive credentials.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "odh-cli-pattern-002",
+      "claim": "odh-cli has a direct runtime-library dependency on three opendatahub-operator sub-packages (clusterhealth, failureclassifier, mcptools), coupling CLI versioning to operator internals.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/dependencies/external"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/diagnose/format.go:8"
+        }
+      ],
+      "reasoning": "Importing operator packages as Go libraries enables code reuse for diagnostics and MCP tool definitions but creates tight coupling. The CLI must track operator module versions and may break if operator internal APIs change. This is a deliberate trade-off: maintaining separate implementations would risk diagnostic drift, while importing operator code ensures the CLI and operator share identical health classification logic.",
+      "applicability": "cross-component",
+      "confidence": "medium"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+sequenceDiagram
+    participant Client as External Client
+    participant KRP as kube-rbac-proxy<br/>Pod External Interface
+    participant TrustyAI as TrustyAI Service<br/>127.0.0.1:8080 HTTP
+    participant Storage as Storage Backend<br/>(HDF5/PVC or MariaDB)
+    participant Prometheus as Prometheus Scraper
+
+    Note over Client, Storage: Inference Data Ingestion Flow
+
+    rect rgb(230, 245, 255)
+        Client->>KRP: POST /consumer/kserve/v2<br/>KServe v2 Inference Payload
+        KRP->>KRP: Authenticate Request<br/>(OpenShift RBAC)
+        KRP->>TrustyAI: Forward to 127.0.0.1:8080<br/>(Authenticated)
+        TrustyAI->>TrustyAI: Reconcile by Correlation ID<br/>(Join input + output)
+        alt PVC Storage (default)
+            TrustyAI->>Storage: Write HDF5 file<br/>to PVC mount
+        else MariaDB Storage
+            TrustyAI->>Storage: INSERT observation<br/>TCP/3306 (optional TLS)
+        end
+        Storage-->>TrustyAI: Ack
+        TrustyAI-->>KRP: 200 OK
+        KRP-->>Client: 200 OK
+    end
+
+    Note over TrustyAI, Storage: Periodic Metrics Computation (every 30s)
+
+    rect rgb(245, 235, 255)
+        loop Every SERVICE_METRICS_SCHEDULE (default 30s)
+            TrustyAI->>Storage: Read stored observations
+            Storage-->>TrustyAI: Observation data
+            TrustyAI->>TrustyAI: Compute fairness metrics<br/>(SPD, DIR)
+            TrustyAI->>TrustyAI: Compute drift metrics<br/>(KS, Jensen-Shannon, Fourier MMD)
+            TrustyAI->>TrustyAI: Publish as Prometheus gauges
+        end
+    end
+
+    Note over Prometheus, TrustyAI: Prometheus Scraping
+
+    rect rgb(235, 255, 235)
+        Prometheus->>KRP: GET /q/metrics
+        KRP->>TrustyAI: Forward (authenticated)
+        TrustyAI-->>KRP: Prometheus metrics text
+        KRP-->>Prometheus: Metrics response
+    end
+
+    Note over Client, TrustyAI: Explainability Request Flow
+
+    rect rgb(255, 245, 230)
+        Client->>KRP: POST /explainers/local/lime<br/>{model, data}
+        KRP->>TrustyAI: Forward (authenticated)
+        TrustyAI->>Storage: Read model observations
+        Storage-->>TrustyAI: Historical data
+        TrustyAI->>TrustyAI: Compute LIME explanation
+        TrustyAI-->>KRP: Explanation result (JSON)
+        KRP-->>Client: 200 OK + Explanation
+    end
+
+    Note over Client, TrustyAI: Health Check Flow
+
+    rect rgb(235, 235, 235)
+        Client->>KRP: GET /q/health/ready
+        KRP->>TrustyAI: Forward
+        TrustyAI-->>KRP: 200 OK (ready)
+        KRP-->>Client: 200 OK
+    end

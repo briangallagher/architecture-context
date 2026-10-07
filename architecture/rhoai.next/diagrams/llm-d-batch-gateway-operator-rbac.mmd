@@ -1,0 +1,114 @@
+graph TD
+    subgraph ServiceAccounts["Service Accounts"]
+        SA["llm-d-batch-gateway-operator<br/>Namespace: operator namespace"]
+    end
+
+    subgraph ClusterRoleBindings["Cluster Role Bindings"]
+        CRB_Main["llm-d-batch-gateway-operator<br/>(ClusterRoleBinding)"]
+        RB_Leader["llm-d-batch-gateway-leader-election-role-binding<br/>(RoleBinding, namespace-scoped)"]
+    end
+
+    subgraph ClusterRoles["Cluster Roles"]
+        CR_Main["llm-d-batch-gateway-operator<br/>(ClusterRole)"]
+        CR_Admin["llm-d-batch-gateway-admin<br/>(aggregate-to-admin, aggregate-to-edit)"]
+        CR_View["llm-d-batch-gateway-view<br/>(aggregate-to-view)"]
+        R_Leader["llm-d-batch-gateway-leader-election-role<br/>(Role, namespace-scoped)"]
+    end
+
+    subgraph CoreResources["Core API Resources"]
+        ConfigMaps["core<br/>configmaps"]
+        ServiceAcctsRes["core<br/>serviceaccounts"]
+        ServicesRes["core<br/>services"]
+        Events["core<br/>events"]
+        Secrets["core<br/>secrets"]
+    end
+
+    subgraph AppsResources["Apps API Resources"]
+        Deployments["apps<br/>deployments"]
+    end
+
+    subgraph BatchResources["batch.llm-d.ai Resources"]
+        LLMBatchGW["batch.llm-d.ai<br/>llmbatchgateways"]
+        LLMBatchGWStatus["batch.llm-d.ai<br/>llmbatchgateways/status"]
+        LLMBatchGWFinalizers["batch.llm-d.ai<br/>llmbatchgateways/finalizers"]
+    end
+
+    subgraph CertManagerResources["cert-manager.io Resources"]
+        Certificates["cert-manager.io<br/>certificates"]
+    end
+
+    subgraph GatewayAPIResources["gateway.networking.k8s.io Resources"]
+        HTTPRoutes["gateway.networking.k8s.io<br/>httproutes"]
+        ReferenceGrants["gateway.networking.k8s.io<br/>referencegrants"]
+    end
+
+    subgraph MonitoringResources["monitoring.coreos.com Resources"]
+        ServiceMonitors["monitoring.coreos.com<br/>servicemonitors"]
+        PodMonitors["monitoring.coreos.com<br/>podmonitors"]
+        PrometheusRules["monitoring.coreos.com<br/>prometheusrules"]
+    end
+
+    subgraph LeaderElectionResources["Leader Election Resources"]
+        Leases["coordination.k8s.io<br/>leases"]
+        LeaderEvents["core<br/>events"]
+    end
+
+    %% Bindings
+    SA -->|"bound via"| CRB_Main
+    SA -->|"bound via"| RB_Leader
+
+    CRB_Main -->|"grants"| CR_Main
+    RB_Leader -->|"grants"| R_Leader
+
+    %% Main ClusterRole permissions
+    CR_Main -->|"get,list,watch,<br/>create,update,patch,delete"| ConfigMaps
+    CR_Main -->|"get,list,watch,<br/>create,update,patch,delete"| ServiceAcctsRes
+    CR_Main -->|"get,list,watch,<br/>create,update,patch,delete"| ServicesRes
+    CR_Main -->|"create,patch"| Events
+    CR_Main -->|"get,list,watch,<br/>create,patch"| Secrets
+    CR_Main -->|"get,list,watch,<br/>create,update,patch,delete"| Deployments
+    CR_Main -->|"get,list,watch,<br/>update,patch"| LLMBatchGW
+    CR_Main -->|"get,update,patch"| LLMBatchGWStatus
+    CR_Main -->|"update"| LLMBatchGWFinalizers
+    CR_Main -->|"get,list,watch,<br/>create,update,patch,delete"| Certificates
+    CR_Main -->|"get,list,watch,<br/>create,update,patch,delete"| HTTPRoutes
+    CR_Main -->|"get,list,watch"| ReferenceGrants
+    CR_Main -->|"get,list,watch,<br/>create,update,patch,delete"| ServiceMonitors
+    CR_Main -->|"get,list,watch,<br/>create,update,patch,delete"| PodMonitors
+    CR_Main -->|"get,list,watch,<br/>create,update,patch,delete"| PrometheusRules
+
+    %% Aggregate roles
+    CR_Admin -->|"get,list,watch,<br/>create,update,patch,delete"| LLMBatchGW
+    CR_Admin -->|"get"| LLMBatchGWStatus
+    CR_View -->|"get,list,watch"| LLMBatchGW
+    CR_View -->|"get"| LLMBatchGWStatus
+
+    %% Leader election
+    R_Leader -->|"get,list,watch,<br/>create,update,patch,delete"| Leases
+    R_Leader -->|"create,patch"| LeaderEvents
+
+    %% Styling
+    style SA fill:#4a90e2,color:#fff
+    style CR_Main fill:#f5a623,color:#fff
+    style CR_Admin fill:#f5a623,color:#fff
+    style CR_View fill:#f5a623,color:#fff
+    style R_Leader fill:#f5a623,color:#fff
+    style CRB_Main fill:#e8e8e8,color:#333
+    style RB_Leader fill:#e8e8e8,color:#333
+    style LLMBatchGW fill:#7ed321,color:#fff
+    style LLMBatchGWStatus fill:#7ed321,color:#fff
+    style LLMBatchGWFinalizers fill:#7ed321,color:#fff
+    style ConfigMaps fill:#ddd,color:#333
+    style ServiceAcctsRes fill:#ddd,color:#333
+    style ServicesRes fill:#ddd,color:#333
+    style Events fill:#ddd,color:#333
+    style Secrets fill:#ddd,color:#333
+    style Deployments fill:#ddd,color:#333
+    style Certificates fill:#ddd,color:#333
+    style HTTPRoutes fill:#ddd,color:#333
+    style ReferenceGrants fill:#ddd,color:#333
+    style ServiceMonitors fill:#ddd,color:#333
+    style PodMonitors fill:#ddd,color:#333
+    style PrometheusRules fill:#ddd,color:#333
+    style Leases fill:#ddd,color:#333
+    style LeaderEvents fill:#ddd,color:#333

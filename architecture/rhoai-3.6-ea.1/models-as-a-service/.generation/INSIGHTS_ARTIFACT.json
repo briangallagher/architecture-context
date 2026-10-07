@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "models-as-a-service",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "maas-layered-auth-001",
+      "claim": "Models-as-a-Service implements defense-in-depth authentication with both Gateway-level Kuadrant AuthPolicy enforcement and application-level TenantAuthMiddleware, ensuring internal API paths not exposed through the Gateway still receive token validation.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "maas-api/internal/auth/tenant_auth_middleware.go:20-100"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "maas-controller/pkg/controller/maas/maasauthpolicy_controller.go:777-835"
+        }
+      ],
+      "reasoning": "The Gateway AuthPolicy handles external traffic authentication via API keys, TokenReview, and OIDC JWT, while the TenantAuthMiddleware provides independent token validation for direct Service access (e.g., /v1/tenants endpoint excluded from Gateway routing). This layered approach prevents authentication bypass if the Gateway is circumvented.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "maas-kserve-dynamic-watch-002",
+      "claim": "The MaaSModelRefReconciler uses a dynamic CRD watch pattern that allows Models-as-a-Service to operate without KServe installed and automatically integrate when KServe becomes available.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "maas-controller/pkg/controller/maas/maasmodelref_controller.go:517-559"
+        }
+      ],
+      "reasoning": "At startup, the controller checks for the llminferenceservices.serving.kserve.io CRD. If absent, it uses registerWatchWhenCRDAppears to add the watch dynamically using unstructured objects to bypass REST mapper staleness. This pattern enables graceful degradation and optional KServe integration.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "maas-gateway-naming-003",
+      "claim": "The HTTPRoute references maas-default-gateway in openshift-ingress namespace rather than the platform-standard data-science-gateway, indicating MaaS may use a dedicated Gateway instance separate from the shared RHOAI Gateway.",
+      "category": "cross-component implication",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "deployment/base/maas-api/networking/httproute.yaml:6-8"
+        }
+      ],
+      "reasoning": "The parentRef in the HTTPRoute specifies name: maas-default-gateway and namespace: openshift-ingress. Other RHOAI components typically reference data-science-gateway. This may indicate a dedicated gateway deployment for MaaS traffic isolation or a naming convention difference that platform operators should verify.",
+      "applicability": "cross-component",
+      "confidence": "medium"
+    }
+  ]
+}

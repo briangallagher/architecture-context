@@ -1,0 +1,57 @@
+graph TB
+    subgraph "codeflare-sdk (Python Client Library)"
+        direction TB
+
+        subgraph "Authentication Layer"
+            AuthModule["auth.py<br/>Authentication Manager"]
+            KubeAuthKit["kube-authkit<br/>Auto-detection"]
+            LegacyToken["TokenAuthentication<br/>(deprecated)"]
+            LegacyKubeConfig["KubeConfigFileAuthentication<br/>(deprecated)"]
+            AuthModule -->|delegates to| KubeAuthKit
+            AuthModule -.->|backward compat| LegacyToken
+            AuthModule -.->|backward compat| LegacyKubeConfig
+        end
+
+        subgraph "Ray Client Layer"
+            RayJobClient["RayJobClient<br/>Job Submission Wrapper"]
+            KubeRayClient["Vendored KubeRay<br/>Python Client"]
+            RayJobClient -->|submits jobs via| RayDashboard
+            KubeRayClient -->|manages CRDs| K8sCustomObjects
+        end
+
+        subgraph "Kueue Integration"
+            KueueModule["Kueue Module<br/>Queue Management"]
+            KueueModule -->|queries/manages| K8sCustomObjects
+        end
+
+        subgraph "TLS Utilities"
+            CertGen["generate_cert.py<br/>RSA-3072 / SHA-256"]
+            CertGen -->|uses| CryptoLib["cryptography library"]
+        end
+    end
+
+    User["Data Scientist / ML Engineer"] -->|defines workloads| AuthModule
+    AuthModule -->|authenticates| K8sAPI["Kubernetes API Server"]
+
+    K8sCustomObjects["Kubernetes<br/>CustomObjects API"]
+    RayDashboard["Ray Dashboard<br/>HTTP Endpoint"]
+
+    KubeRayClient -->|creates| RayClusterCR["RayCluster CR"]
+    KubeRayClient -->|creates| RayJobCR["RayJob CR"]
+    KueueModule -->|reads| LocalQueue["LocalQueue CR"]
+    KueueModule -->|reads| ClusterQueue["ClusterQueue CR"]
+    CertGen -->|stores certs as| K8sSecrets["Kubernetes Secrets"]
+
+    style AuthModule fill:#4a90e2,color:#fff
+    style RayJobClient fill:#4a90e2,color:#fff
+    style KubeRayClient fill:#4a90e2,color:#fff
+    style KueueModule fill:#4a90e2,color:#fff
+    style CertGen fill:#4a90e2,color:#fff
+    style KubeAuthKit fill:#50c878,color:#fff
+    style RayClusterCR fill:#f5a623,color:#fff
+    style RayJobCR fill:#f5a623,color:#fff
+    style LocalQueue fill:#f5a623,color:#fff
+    style ClusterQueue fill:#f5a623,color:#fff
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style RayDashboard fill:#e8e8e8,stroke:#333
+    style User fill:#b8d4f0,stroke:#333

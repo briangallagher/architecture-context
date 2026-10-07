@@ -1,0 +1,84 @@
+graph TB
+    subgraph Operator["llm-d-batch-gateway-operator"]
+        direction TB
+        Manager["/manager<br/>Go controller-runtime"]
+
+        subgraph Controllers["Controllers"]
+            Reconciler["LLMBatchGateway<br/>Reconciler"]
+            MetricsCtrl["Metrics<br/>Controller"]
+            SecretSync["Secret<br/>Synchronizer"]
+            TLSWatcher["SecurityProfile<br/>Watcher"]
+        end
+
+        subgraph HelmCharts["Embedded Helm Charts"]
+            BGChart["batch-gateway<br/>Chart"]
+            APChart["async-processor<br/>Chart"]
+        end
+
+        Manager --> Reconciler
+        Manager --> MetricsCtrl
+        Manager --> TLSWatcher
+        Reconciler --> SecretSync
+        Reconciler -->|renders| BGChart
+        Reconciler -->|renders| APChart
+    end
+
+    %% CRD
+    User[Platform Admin] -->|creates| LBGCR["LLMBatchGateway CR<br/>batch.llm-d.ai/v1alpha1"]
+    LBGCR -->|watched by| Reconciler
+
+    %% Managed Resources from batch-gateway chart
+    subgraph ManagedBG["Managed: batch-gateway"]
+        APIServer["API Server<br/>Deployment"]
+        GC["Garbage Collector<br/>Deployment"]
+        BGSvc["Service"]
+        BGConfig["ConfigMap"]
+        BGSA["ServiceAccount"]
+    end
+
+    subgraph ManagedAP["Managed: async-processor"]
+        Processor["Async Processor<br/>Deployment"]
+        APConfig["ConfigMap"]
+        APSA["ServiceAccount"]
+    end
+
+    BGChart -->|creates| APIServer
+    BGChart -->|creates| GC
+    BGChart -->|creates| BGSvc
+    BGChart -->|creates| BGConfig
+    BGChart -->|creates| BGSA
+    APChart -->|creates| Processor
+    APChart -->|creates| APConfig
+    APChart -->|creates| APSA
+
+    %% Conditional Resources
+    Reconciler -->|conditional| HTTPRoute["HTTPRoute<br/>Gateway API"]
+    Reconciler -->|conditional| Certificate["Certificate<br/>cert-manager"]
+    MetricsCtrl -->|creates| MetricsSvc["Metrics Service<br/>ClusterIP :8443"]
+    MetricsCtrl -->|creates| ServiceMonitor["ServiceMonitor"]
+    MetricsCtrl -->|creates| PromRule["PrometheusRule"]
+
+    %% External Dependencies
+    Reconciler -->|watches| K8sAPI["Kubernetes API<br/>:6443"]
+    TLSWatcher -->|reads| APIServerCR["OpenShift APIServer CR"]
+    SecretSync -->|gated by| RefGrant["ReferenceGrant"]
+
+    %% Styling
+    style Manager fill:#4a90e2,stroke:#333,color:#fff
+    style Reconciler fill:#4a90e2,stroke:#333,color:#fff
+    style MetricsCtrl fill:#4a90e2,stroke:#333,color:#fff
+    style SecretSync fill:#4a90e2,stroke:#333,color:#fff
+    style TLSWatcher fill:#4a90e2,stroke:#333,color:#fff
+    style BGChart fill:#6c5ce7,stroke:#333,color:#fff
+    style APChart fill:#6c5ce7,stroke:#333,color:#fff
+    style LBGCR fill:#f5a623,stroke:#333
+    style HTTPRoute fill:#e8e8e8,stroke:#333
+    style Certificate fill:#e8e8e8,stroke:#333
+    style ServiceMonitor fill:#e8e8e8,stroke:#333
+    style PromRule fill:#e8e8e8,stroke:#333
+    style APIServerCR fill:#e8e8e8,stroke:#333
+    style RefGrant fill:#e8e8e8,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style APIServer fill:#7ed321,stroke:#333
+    style GC fill:#7ed321,stroke:#333
+    style Processor fill:#7ed321,stroke:#333

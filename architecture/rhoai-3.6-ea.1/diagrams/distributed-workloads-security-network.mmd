@@ -1,0 +1,60 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        User["Data Scientist / CI System"]
+    end
+
+    subgraph ControlPlane["KUBERNETES CONTROL PLANE"]
+        K8sAPI["Kubernetes API Server<br/>6443/TCP<br/>TLS 1.2+<br/>ServiceAccount RBAC"]
+    end
+
+    subgraph Controllers["PLATFORM CONTROLLERS (Trusted)"]
+        direction TB
+        Trainer["Kubeflow Trainer Controller<br/>Watches TrainJob CRs<br/>Resolves ClusterTrainingRuntime"]
+        Kueue["Kueue Admission Controller<br/>LocalQueue/ClusterQueue quotas"]
+        KubeRay["KubeRay Operator<br/>RayCluster/RayJob management"]
+    end
+
+    subgraph TrainingPods["TRAINING PODS (Workload Namespace)"]
+        direction TB
+        Master["Training Pod - Master<br/>SA: controller-managed<br/>No component-level auth"]
+        Workers["Training Pod - Worker(s)<br/>SA: controller-managed<br/>Same runtime image"]
+    end
+
+    subgraph ExampleInfra["EXAMPLE INFRASTRUCTURE (Not Production)"]
+        direction TB
+
+        subgraph MinIOSvc["MinIO Services"]
+            MinIO["MinIO<br/>ClusterIP 9000/TCP (API)<br/>ClusterIP 9001/TCP (console)"]
+        end
+
+        subgraph MinIORoutes["MinIO Ingress Routes"]
+            Routes["4x OpenShift Routes<br/>HTTPS/TLS terminated"]
+        end
+
+        NFS["NFS Server<br/>ClusterIP 2049/TCP<br/>111/UDP (portmapper)<br/>SCC: anyuid + privileged"]
+    end
+
+    %% Flows
+    User -->|"HTTPS/6443<br/>TLS 1.2+<br/>Bearer Token (SA)"| K8sAPI
+    K8sAPI -->|"Watch/Create events"| Trainer
+    K8sAPI -->|"Watch/Create events"| Kueue
+    K8sAPI -->|"Watch/Create events"| KubeRay
+    Trainer -->|"Pod scheduling<br/>via K8s API"| Master
+    Master -->|"SSH/2222 (OpenMPI)<br/>c10d (DDP)<br/>NCCL (DeepSpeed)<br/>Unencrypted pod-to-pod"| Workers
+
+    %% Example flows (dashed)
+    Master -.->|"S3 API/9000<br/>Unencrypted internal"| MinIO
+    Routes -.->|"HTTPS/TLS"| MinIO
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef controlplane fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef controller fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef training fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef example fill:#fff2cc,stroke:#d6b656,stroke-width:1px,stroke-dasharray: 5 5
+
+    class User external
+    class K8sAPI controlplane
+    class Trainer,Kueue,KubeRay controller
+    class Master,Workers training
+    class MinIO,Routes,NFS example

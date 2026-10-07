@@ -1,73 +1,52 @@
 workspace {
     model {
-        datascientist = person "Data Scientist" "Creates and runs ML pipelines via Data Science Pipelines"
-        platformadmin = person "Platform Admin" "Manages RHOAI deployment and configuration"
+        user = person "Data Scientist / ML Engineer" "Creates and runs ML pipeline workflows via Data Science Pipelines"
 
-        argoWorkflows = softwareSystem "Argo Workflows" "Container-native workflow engine for orchestrating parallel jobs on Kubernetes; execution backend for Data Science Pipelines in RHOAI" {
-            workflowController = container "workflow-controller" "Reconciles Workflow CRs, creates/manages Pods for workflow steps, handles cron scheduling, TTL-based GC, artifact GC, and workflow archiving" "Go Operator" {
-                tags "FIPS"
-            }
-            argoexec = container "argoexec" "Executor sidecar injected into workflow step pods; manages artifact download/upload, progress monitoring, container lifecycle, and result reporting" "Go Sidecar Binary" {
-                tags "DualBinary"
-            }
+        argoWorkflows = softwareSystem "Argo Workflows" "Kubernetes-native workflow engine powering DSP execution backend" {
+            workflowController = container "Workflow Controller" "Reconciles Workflow CRDs, creates execution Pods, manages lifecycle, artifacts, caching, and garbage collection" "Go Controller" "Primary"
+            argoexec = container "argoexec" "Executor sidecar injected into workflow pods - manages artifact staging, process proxying (emissary mode), and result reporting" "Go Executor Sidecar"
+            argoServer = container "Argo Server" "gRPC + HTTP/1.1 API gateway with web UI, SSO/OIDC auth, webhook support (bundled in DSP, not separate Konflux image)" "Go API Server"
         }
 
-        dspOperator = softwareSystem "Data Science Pipelines Operator" "Deploys and manages DSP components including workflow-controller" "Internal RHOAI"
-        dspAPIServer = softwareSystem "Data Science Pipelines API Server" "Compiles pipelines into Workflow CRs, provides user-facing API" "Internal RHOAI"
+        kubernetes = softwareSystem "Kubernetes" "Container orchestration platform providing CRD hosting, Pod execution, and RBAC" "External"
+        dspOperator = softwareSystem "Data Science Pipelines Operator" "Deploys and configures workflow-controller and argoexec as part of DSP stack" "Internal RHOAI"
+        dspAPIServer = softwareSystem "Data Science Pipelines API Server" "Submits Workflow CRDs for pipeline execution" "Internal RHOAI"
+        s3Storage = softwareSystem "S3-compatible Storage" "Artifact repository for workflow artifacts (MinIO, AWS S3, GCS, Azure Blob)" "External"
+        postgresql = softwareSystem "PostgreSQL" "Workflow archival and node status offloading (optional)" "External"
+        containerRegistry = softwareSystem "Container Registry" "Stores workflow container images; controller performs entrypoint lookup" "External"
+        oidcProvider = softwareSystem "OIDC Provider" "SSO authentication via Dex, Keycloak, etc. (optional)" "External"
+        gitProviders = softwareSystem "Git Providers" "GitHub, GitLab, Bitbucket - trigger workflows via webhooks" "External"
 
-        kubernetes = softwareSystem "Kubernetes" "Container orchestration platform providing API server, scheduling, RBAC" "External" {
-            tags "External"
-        }
-        objectStorage = softwareSystem "S3-compatible Storage" "MinIO or AWS S3 for pipeline artifact persistence" "External" {
-            tags "External"
-        }
-        database = softwareSystem "PostgreSQL / MariaDB" "Optional workflow archiving and node status offloading" "External" {
-            tags "External"
-        }
-        prometheus = softwareSystem "Prometheus" "Metrics collection from workflow-controller" "External" {
-            tags "External"
-        }
+        # Relationships
+        user -> dspAPIServer "Submits pipeline runs" "HTTPS/443"
+        dspAPIServer -> argoWorkflows "Creates Workflow CRDs" "HTTPS/443"
+        dspOperator -> argoWorkflows "Deploys and configures"
 
-        # Relationships - User level
-        datascientist -> dspAPIServer "Submits pipeline runs via"
-        platformadmin -> dspOperator "Configures DSP deployment via"
+        workflowController -> kubernetes "CRD reconciliation, Pod CRUD, ConfigMap/Secret access, leader election" "HTTPS/443"
+        workflowController -> s3Storage "Artifact garbage collection" "HTTPS/443"
+        workflowController -> postgresql "Archives workflows (optional)" "TCP/5432 SSL"
+        workflowController -> containerRegistry "Image entrypoint lookup" "HTTPS/443"
 
-        # Relationships - System level
-        dspOperator -> argoWorkflows "Deploys workflow-controller, configures argoexec image"
-        dspAPIServer -> argoWorkflows "Creates Workflow CRs" "HTTPS/443"
-        argoWorkflows -> kubernetes "Manages CRs, creates Pods, leader election" "HTTPS (HTTP/2)/443"
-        argoWorkflows -> objectStorage "Downloads/uploads pipeline artifacts" "HTTPS/443"
-        argoWorkflows -> database "Archives completed workflows" "TCP/5432 or 3306"
-        prometheus -> argoWorkflows "Scrapes metrics" "HTTP(S)/9090"
+        argoexec -> kubernetes "Patches WorkflowTaskResult CRDs, reads pod annotations" "HTTPS/443"
+        argoexec -> s3Storage "Uploads/downloads workflow artifacts" "HTTPS/443"
 
-        # Container-level relationships
-        dspAPIServer -> workflowController "Workflow CRs created in K8s API" "HTTPS/443"
-        workflowController -> kubernetes "Watch CRs, Create Pods, Leases, Events" "HTTPS (HTTP/2)/443"
-        workflowController -> database "Archive workflow data" "TCP/5432 or 3306"
-        workflowController -> argoexec "Injects as sidecar in step pods"
-        argoexec -> kubernetes "Patch annotations, Create WorkflowTaskResult" "HTTPS/443"
-        argoexec -> objectStorage "Download/upload artifacts" "HTTPS/443"
-        prometheus -> workflowController "Scrape metrics" "HTTP(S)/9090"
+        argoServer -> kubernetes "CRUD operations on CRDs" "HTTPS/443"
+        argoServer -> oidcProvider "SSO token exchange and JWKS verification" "HTTPS/443"
+        gitProviders -> argoServer "Webhook event submission" "HTTPS/2746 HMAC-SHA256"
     }
 
     views {
         systemContext argoWorkflows "SystemContext" {
             include *
             autoLayout
-            description "System context diagram showing Argo Workflows in the RHOAI ecosystem"
         }
 
         container argoWorkflows "Containers" {
             include *
             autoLayout
-            description "Container diagram showing workflow-controller and argoexec components"
         }
 
         styles {
-            element "Software System" {
-                background #438DD5
-                color #ffffff
-            }
             element "External" {
                 background #999999
                 color #ffffff
@@ -76,22 +55,20 @@ workspace {
                 background #7ed321
                 color #ffffff
             }
-            element "Person" {
-                background #08427B
-                color #ffffff
-                shape person
-            }
-            element "Container" {
-                background #438DD5
-                color #ffffff
-            }
-            element "FIPS" {
+            element "Primary" {
                 background #4a90e2
                 color #ffffff
             }
-            element "DualBinary" {
-                background #f5a623
+            element "Person" {
+                shape Person
+                background #08427b
                 color #ffffff
+            }
+            element "Software System" {
+                shape RoundedBox
+            }
+            element "Container" {
+                shape RoundedBox
             }
         }
     }

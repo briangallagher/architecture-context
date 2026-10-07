@@ -1,0 +1,27 @@
+{
+  "component": "typed-only",
+  "repo": "https://github.com/example/typed-only.git",
+  "commit_sha": "abcdef0123456789",
+  "extracted_at": "2026-09-06T00:00:00Z",
+  "analyzer_version": "arch-analyzer/test",
+  "schema_version": "1",
+  "summary": "Typed-only mapper fixture.",
+  "controller_watches": [
+    {"type": "Owns", "gvk": "apps/v1.Deployment", "controller": "TypedController", "source": "controllers/typed.go:12", "resource_ops": []}
+  ],
+  "webhooks": [
+    {
+      "name": "vtyped.example.io", "type": "validating", "service_ref": "typed-webhook",
+      "path": "/validate", "port": 9443, "failure_policy": "Fail",
+      "rules": [{"apiGroups": ["example.io"], "apiVersions": ["v1"], "resources": ["typed"], "operations": ["CREATE"]}],
+      "sources": [{"type": "webhook_manifest", "file": "config/webhook.yaml", "repo": "example/typed-only", "line": 7}],
+      "purpose": "Validate typed resources"
+    }
+  ],
+  "external_webhooks": [{"component": "external-policy", "webhook": "check"}],
+  "dockerfiles": [{"path": "Dockerfile", "base_image": "registry.example/base:1", "user": "1001", "issues": ["none"]}],
+  "cross_cutting_evidence": {
+    "fips": [{"claim": "uses system crypto", "status": "literal", "sources": ["go.mod:3"]}]
+  },
+  "data_coverage": {"typed": "complete"}
+}

@@ -1,49 +1,49 @@
 graph LR
-    SparkOp["Spark Operator<br/>(v2.3.0)"]
+    SparkOp["Spark Operator<br/>v2.5.0-rc.0"]
 
-    %% Required External Dependencies
-    SparkOp -->|"app submission<br/>(bundled)"| ApacheSpark["Apache Spark 4.0.1<br/>(Required)"]
-    SparkOp -->|"JVM runtime"| Java17["Java 17 OpenJDK<br/>(Required)"]
-    SparkOp -->|"PID 1 init"| Tini["tini<br/>(Required)"]
+    %% External Dependencies (Required)
+    SparkOp -->|"container orchestration"| K8s["Kubernetes 1.16+"]
+    SparkOp -->|"controller framework"| CR["controller-runtime v0.23.3"]
+    SparkOp -->|"distributed computing"| Spark["Apache Spark 3.0+<br/>(4.0.1 bundled)"]
+    SparkOp -->|"JVM runtime"| Java["Java 17 (OpenJDK)"]
 
-    %% Core Platform Dependencies
-    SparkOp -->|"CRUD: pods, services,<br/>ingresses, configmaps,<br/>secrets, CRDs<br/>443/TCP HTTPS"| K8sAPI["Kubernetes API Server<br/>(Required)"]
-
-    %% Optional Batch Schedulers
-    SparkOp -->|"gang scheduling<br/>PodGroup CRD<br/>443/TCP HTTPS"| Volcano["Volcano v1.10.0+<br/>(Optional)"]
-    SparkOp -->|"gang scheduling<br/>task group annotations"| Yunikorn["Yunikorn<br/>(Optional)"]
-    SparkOp -->|"coscheduling<br/>PodGroup CRD<br/>443/TCP HTTPS"| SchedPlugins["scheduler-plugins v0.32.7<br/>(Optional)"]
-    SparkOp -->|"workload queuing<br/>pod labels"| Kueue["Kueue<br/>(Optional)"]
-
-    %% Optional Infrastructure
-    SparkOp -->|"TLS cert provisioning<br/>(alternative to self-signed)"| CertManager["cert-manager<br/>(Optional)"]
-    SparkOp -->|"metrics scrape<br/>8080/TCP HTTP"| Prometheus["Prometheus<br/>(Optional)"]
+    %% External Dependencies (Optional)
+    SparkOp -.->|"TLS cert mgmt"| CertManager["cert-manager"]
+    SparkOp -.->|"gang scheduling<br/>(PodGroup CR)"| Volcano["Volcano v1/v1beta1"]
+    SparkOp -.->|"gang scheduling<br/>(scheduler-plugins PodGroup)"| KubeSched["kube-scheduler-plugins"]
+    SparkOp -.->|"gang scheduling<br/>(pod annotations)"| YuniKorn["YuniKorn"]
+    SparkOp -.->|"metrics collection"| Prometheus["Prometheus"]
+    SparkOp -.->|"external submission<br/>(RestSubmitter gate, mTLS)"| RESTSubmitter["REST Spark Submitter"]
 
     %% Internal Platform Dependencies
-    ODHOp["ODH Operator"] -->|"kustomize deploy<br/>overlays/odh"| SparkOp
-    RHOAIOp["RHOAI Operator"] -->|"kustomize deploy<br/>overlays/rhoai"| SparkOp
+    RhodsOp["rhods-operator /<br/>opendatahub-operator"] -->|"creates SparkOperator CR"| SparkOp
+    Dashboard["ODH Dashboard"] -.->|"NetworkPolicy allows<br/>SparkConnect gRPC/15002"| SparkOp
 
-    %% JMX Integration
-    SparkOp -.->|"JMX metrics sidecar<br/>8090/TCP HTTP"| JMXExporter["JMX Exporter<br/>(Optional)"]
+    %% Control Plane Dependencies
+    SparkOp -->|"CRD watches,<br/>pod CRUD, RBAC"| K8sAPI["Kubernetes API Server"]
+    SparkOp -->|"TLS security profile"| OpenShiftAPI["OpenShift APIServer"]
 
     %% Styling
     style SparkOp fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
-    %% Required (dark gray)
-    style ApacheSpark fill:#666,stroke:#333,color:#fff
-    style Java17 fill:#666,stroke:#333,color:#fff
-    style Tini fill:#666,stroke:#333,color:#fff
-    style K8sAPI fill:#666,stroke:#333,color:#fff
+    %% Required external (gray)
+    style K8s fill:#999,stroke:#333,color:#fff
+    style CR fill:#999,stroke:#333,color:#fff
+    style Spark fill:#999,stroke:#333,color:#fff
+    style Java fill:#999,stroke:#333,color:#fff
 
     %% Optional external (light gray)
-    style Volcano fill:#999,stroke:#333,color:#fff
-    style Yunikorn fill:#999,stroke:#333,color:#fff
-    style SchedPlugins fill:#999,stroke:#333,color:#fff
-    style CertManager fill:#999,stroke:#333,color:#fff
-    style Prometheus fill:#999,stroke:#333,color:#fff
-    style Kueue fill:#999,stroke:#333,color:#fff
-    style JMXExporter fill:#999,stroke:#333,color:#fff
+    style CertManager fill:#bbb,stroke:#333
+    style Volcano fill:#bbb,stroke:#333
+    style KubeSched fill:#bbb,stroke:#333
+    style YuniKorn fill:#bbb,stroke:#333
+    style Prometheus fill:#bbb,stroke:#333
+    style RESTSubmitter fill:#bbb,stroke:#333
 
     %% Internal platform (green)
-    style ODHOp fill:#7ed321,stroke:#333,color:#fff
-    style RHOAIOp fill:#7ed321,stroke:#333,color:#fff
+    style RhodsOp fill:#7ed321,stroke:#333,color:#fff
+    style Dashboard fill:#7ed321,stroke:#333,color:#fff
+
+    %% Control plane (orange)
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style OpenShiftAPI fill:#f5a623,stroke:#333,color:#fff

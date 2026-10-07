@@ -1,0 +1,57 @@
+graph LR
+    MCPModuleOp["MCP Lifecycle<br/>Module Operator"]
+
+    %% Runtime Framework Dependencies
+    MCPModuleOp -->|"runtime framework"| ControllerRuntime["controller-runtime<br/>v0.24.1"]
+    MCPModuleOp -->|"runtime integration"| K8sAPI["k8s.io/api<br/>v0.36.2"]
+    MCPModuleOp -->|"runtime integration"| K8sApimachinery["k8s.io/apimachinery<br/>v0.36.2"]
+    MCPModuleOp -->|"runtime integration"| K8sClientGo["k8s.io/client-go<br/>v0.36.2"]
+    MCPModuleOp -->|"CRD support"| K8sApiExt["k8s.io/apiextensions-apiserver<br/>v0.36.2"]
+
+    %% Internal Platform Dependencies
+    MCPModuleOp -->|"manifest rendering,<br/>SSA deployment,<br/>platform detection"| ODHPlatformUtils["odh-platform-utilities<br/>v0.2.0"]
+    MCPModuleOp -->|"manifest handling"| Manifestival["manifestival<br/>v0.7.2"]
+
+    %% OpenShift Dependencies
+    MCPModuleOp -->|"OpenShift API types"| OpenShiftAPI["openshift/api"]
+    MCPModuleOp -->|"controller helpers"| OpenShiftCRCommon["openshift/controller-<br/>runtime-common"]
+    MCPModuleOp -->|"library utilities"| OpenShiftLibGo["openshift/library-go"]
+
+    %% Infrastructure Dependencies
+    MCPModuleOp -->|"6443/HTTPS<br/>SA token auth"| KubeAPIServer["Kubernetes API Server"]
+    MCPModuleOp -->|"creates ServiceMonitor"| PrometheusOp["prometheus-operator"]
+
+    %% Operand (deployed by module operator)
+    MCPModuleOp ==>|"deploys via SSA"| Operand["MCP Lifecycle Operator<br/>(Operand)"]
+    Operand -->|"6443/HTTPS"| KubeAPIServer
+
+    %% Test Dependencies
+    MCPModuleOp -.->|"testing"| Ginkgo["ginkgo/v2<br/>v2.32.0"]
+    MCPModuleOp -.->|"testing"| Gomega["gomega<br/>v1.42.1"]
+
+    %% Build Dependency
+    MCPModuleOp -.->|"build toolchain"| GoLang["Go 1.26.3"]
+
+    %% Styling
+    style MCPModuleOp fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style Operand fill:#7ed321,stroke:#333,stroke-width:3px,color:#000
+
+    style ControllerRuntime fill:#999,stroke:#333
+    style K8sAPI fill:#999,stroke:#333
+    style K8sApimachinery fill:#999,stroke:#333
+    style K8sClientGo fill:#999,stroke:#333
+    style K8sApiExt fill:#999,stroke:#333
+
+    style ODHPlatformUtils fill:#7ed321,stroke:#333
+    style Manifestival fill:#999,stroke:#333
+
+    style OpenShiftAPI fill:#ee0000,stroke:#333,color:#fff
+    style OpenShiftCRCommon fill:#ee0000,stroke:#333,color:#fff
+    style OpenShiftLibGo fill:#ee0000,stroke:#333,color:#fff
+
+    style KubeAPIServer fill:#f5a623,stroke:#333
+    style PrometheusOp fill:#7ed321,stroke:#333
+
+    style Ginkgo fill:#e8e8e8,stroke:#999
+    style Gomega fill:#e8e8e8,stroke:#999
+    style GoLang fill:#e8e8e8,stroke:#999

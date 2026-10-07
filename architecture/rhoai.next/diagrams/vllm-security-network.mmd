@@ -1,65 +1,63 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Client["External Client"]
+        Client["Client / Application"]
     end
 
-    subgraph Ingress["INGRESS (Platform-Managed)"]
-        Gateway["RHOAI Gateway / HTTPRoute<br/>443/TCP → 8000/TCP<br/>TLS 1.2+ (SIMPLE)<br/>Model Endpoint Hostname"]
+    subgraph Ingress["INGRESS (Gateway API)"]
+        Gateway["Gateway API (Envoy)<br/>443/TCP → 8443/TCP<br/>TLS 1.2+<br/>HTTPRoute / OpenShift Route"]
     end
 
-    subgraph PodBoundary["POD BOUNDARY (KServe-Managed)"]
+    subgraph AuthBoundary["AUTH BOUNDARY (Pod-level)"]
+        KubeRBAC["kube-rbac-proxy Sidecar<br/>8443/TCP TLS<br/>SubjectAccessReview<br/>Injected by RHOAI Platform"]
+    end
+
+    subgraph VLLMPod["APPLICATION (vLLM Pod - UID 2000)"]
         direction TB
 
-        Proxy["kube-rbac-proxy Sidecar<br/>Auth Enforcement<br/>Bearer Token Validation"]
+        HTTPServer["vLLM HTTP Server<br/>Port 8000/TCP plaintext<br/>/v1/completions<br/>/v1/chat/completions<br/>/v1/models, /v1/embeddings<br/>/health"]
 
-        subgraph Container["vLLM Container (User 2000)"]
-            direction TB
-            HTTPAPI["OpenAI HTTP API<br/>8000/TCP<br/>/v1/completions<br/>/v1/chat/completions<br/>/v1/models<br/>/v1/embeddings<br/>/health"]
-            GRPCAPI["TGIS gRPC Service<br/>8033/TCP<br/>GenerationService"]
-            VLLMEngine["vLLM Engine<br/>PagedAttention<br/>Continuous Batching"]
-        end
+        TGISServer["TGIS gRPC Adapter<br/>Port 8033/TCP plaintext<br/>GenerationService<br/>(vllm_tgis_adapter)"]
 
-        GPU["NVIDIA GPU<br/>CUDA Compute"]
-
-        Proxy -->|"HTTP/8000<br/>Plaintext<br/>Pre-verified"| HTTPAPI
-        HTTPAPI --> VLLMEngine
-        GRPCAPI --> VLLMEngine
-        VLLMEngine -->|"CUDA API"| GPU
+        Engine["vLLM Inference Engine<br/>(in-process)"]
     end
 
-    subgraph ClusterInternal["CLUSTER-INTERNAL (Trusted)"]
-        InternalSvc["Internal Service"]
-        KServe["KServe Operator<br/>ServingRuntime CR<br/>InferenceService CR"]
+    subgraph Compute["COMPUTE"]
+        GPU["NVIDIA GPU<br/>CUDA Runtime<br/>cuDNN, cuBLAS, NCCL<br/>Device Plugin Allocated"]
     end
 
-    subgraph ExternalServices["EGRESS (External Services)"]
-        ModelStorage["Model Storage<br/>S3 / HuggingFace Hub<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token / AWS IAM"]
+    subgraph ExternalServices["EXTERNAL SERVICES (Egress)"]
+        S3["S3 Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>AWS IAM / HMAC"]
+        HFHub["Hugging Face Hub<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token (optional)"]
+        PVC["PVC Mount<br/>Filesystem<br/>No network egress"]
     end
 
-    %% External flows
-    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| Gateway
-    Gateway -->|"HTTP/8000<br/>TLS Terminated<br/>Auth Header"| Proxy
+    %% Ingress flows
+    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token (OAuth/OIDC)"| Gateway
+    Gateway -->|"HTTPS/8443<br/>TLS<br/>SubjectAccessReview"| KubeRBAC
+    KubeRBAC -->|"HTTP/8000<br/>plaintext (pod-internal)<br/>pre-authorized"| HTTPServer
+    KubeRBAC -->|"gRPC/8033<br/>plaintext (pod-internal)<br/>pre-authorized"| TGISServer
 
     %% Internal flows
-    InternalSvc -->|"gRPC/8033<br/>Plaintext<br/>No Auth (cluster-internal)"| GRPCAPI
-    KServe -.->|"Kubernetes API<br/>Manages lifecycle"| Container
+    HTTPServer -->|in-process| Engine
+    TGISServer -->|in-process| Engine
+    Engine -->|CUDA runtime| GPU
 
     %% Egress flows
-    VLLMEngine -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer / AWS IAM<br/>Model download at startup"| ModelStorage
+    Engine -->|"HTTPS/443<br/>TLS 1.2+<br/>AWS IAM / HMAC"| S3
+    Engine -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| HFHub
+    Engine -->|"Filesystem mount"| PVC
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
     classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
-    classDef pod fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef container fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef gpu fill:#f5a623,stroke:#333,stroke-width:2px,color:#fff
-    classDef internal fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef auth fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef application fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef compute fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
     classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 
     class Client external
     class Gateway ingress
-    class Proxy pod
-    class HTTPAPI,GRPCAPI,VLLMEngine container
-    class GPU gpu
-    class InternalSvc,KServe internal
-    class ModelStorage externalservice
+    class KubeRBAC auth
+    class HTTPServer,TGISServer,Engine application
+    class GPU compute
+    class S3,HFHub,PVC externalservice

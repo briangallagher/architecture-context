@@ -1,0 +1,84 @@
+graph TB
+    subgraph External["EXTERNAL AI PROVIDERS (Untrusted)"]
+        OpenAI["OpenAI API<br/>api.openai.com<br/>443/HTTPS"]
+        Anthropic["Anthropic API<br/>api.anthropic.com<br/>443/HTTPS"]
+        Azure["Azure OpenAI<br/>*.openai.azure.com<br/>443/HTTPS"]
+        VertexAI["Vertex AI<br/>*.googleapis.com<br/>443/HTTPS"]
+    end
+
+    subgraph Mesh["SERVICE MESH (Istio)"]
+        direction TB
+
+        subgraph IstioResources["Istio Networking Resources"]
+            ServiceEntry["Istio ServiceEntry<br/>MESH_EXTERNAL<br/>DNS Resolution<br/>HTTPS/443"]
+            DestRule["Istio DestinationRule<br/>TLS Mode: SIMPLE<br/>(TLS origination)"]
+        end
+
+        subgraph GatewayLayer["INGRESS (Gateway API)"]
+            Gateway["maas-default-gateway<br/>Namespace: openshift-ingress<br/>HTTPRoute routing"]
+        end
+    end
+
+    subgraph Operator["OPERATOR NAMESPACE (Trusted)"]
+        direction TB
+
+        subgraph OperatorPod["ai-gateway-payload-processing<br/>Binary: /bbr<br/>FIPS: strictfipsruntime"]
+            EPCtrl["ExternalProvider<br/>Controller"]
+            EMCtrl["ExternalModel<br/>Controller"]
+        end
+
+        subgraph CRDs["Custom Resources"]
+            EProv["ExternalProvider CR<br/>inference.opendatahub.io/v1alpha1"]
+            EModel["ExternalModel CR<br/>inference.opendatahub.io/v1alpha1"]
+        end
+
+        subgraph Secrets["Credential Secrets"]
+            OpenAICred["openai-credentials<br/>Opaque"]
+            AnthropicCred["anthropic-credentials<br/>Opaque"]
+            AzureCred["azure-credentials<br/>Opaque"]
+            VertexCred["vertex-credentials<br/>Opaque"]
+        end
+    end
+
+    subgraph ClusterServices["CLUSTER SERVICES"]
+        K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>ServiceAccount Auth"]
+    end
+
+    %% Operator → Kubernetes API
+    EPCtrl -->|HTTPS/6443<br/>TLS 1.2+<br/>ServiceAccount| K8sAPI
+    EMCtrl -->|HTTPS/6443<br/>TLS 1.2+<br/>ServiceAccount| K8sAPI
+
+    %% Controller watches
+    EProv -.->|watched by| EPCtrl
+    EModel -.->|watched by| EMCtrl
+
+    %% Secret validation
+    EPCtrl -.->|validates existence| Secrets
+
+    %% Controller creates Istio resources
+    EPCtrl -->|creates| ServiceEntry
+    EPCtrl -->|creates| DestRule
+
+    %% Controller creates HTTPRoute
+    EMCtrl -->|creates HTTPRoute| Gateway
+
+    %% Mesh → External providers
+    ServiceEntry -->|HTTPS/443<br/>SIMPLE TLS origination<br/>apikey/sigv4/oauth2| OpenAI
+    ServiceEntry -->|HTTPS/443<br/>SIMPLE TLS origination<br/>apikey/sigv4/oauth2| Anthropic
+    ServiceEntry -->|HTTPS/443<br/>SIMPLE TLS origination<br/>apikey/sigv4/oauth2| Azure
+    ServiceEntry -->|HTTPS/443<br/>SIMPLE TLS origination<br/>apikey/sigv4/oauth2| VertexAI
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef mesh fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef operator fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef cluster fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef crd fill:#f5a623,stroke:#333,stroke-width:1px
+    classDef secret fill:#e8e8e8,stroke:#666,stroke-width:1px
+
+    class OpenAI,Anthropic,Azure,VertexAI external
+    class ServiceEntry,DestRule,Gateway mesh
+    class EPCtrl,EMCtrl operator
+    class K8sAPI cluster
+    class EProv,EModel crd
+    class OpenAICred,AnthropicCred,AzureCred,VertexCred secret

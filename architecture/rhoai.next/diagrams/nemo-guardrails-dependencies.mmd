@@ -1,75 +1,106 @@
 graph LR
     NemoGuardrails["NeMo Guardrails<br/>Server"]
 
-    %% LLM Provider Dependencies (External, Egress)
-    NemoGuardrails -->|"HTTPS/443<br/>Bearer Token"| OpenAI["OpenAI API<br/>api.openai.com"]
-    NemoGuardrails -->|"HTTPS/443<br/>API Key"| AzureOpenAI["Azure OpenAI<br/>{endpoint}.openai.azure.com"]
-    NemoGuardrails -->|"HTTPS/443<br/>API Key"| Anthropic["Anthropic API<br/>api.anthropic.com"]
-    NemoGuardrails -->|"HTTPS/443<br/>Bearer Token"| Cohere["Cohere API<br/>api.cohere.com"]
-    NemoGuardrails -->|"HTTPS/443<br/>Bearer Token"| NIM["NVIDIA NIM<br/>(configurable)"]
-    NemoGuardrails -->|"HTTP/HTTPS<br/>Bearer Token"| VLLM["vLLM Server<br/>(configurable)"]
+    %% External Dependencies (Libraries/Frameworks)
+    subgraph CoreDeps["Core Dependencies"]
+        FastAPI["FastAPI >=0.103.0"]
+        Uvicorn["Uvicorn >=0.23"]
+        Pydantic["Pydantic >=2.5,<3.0"]
+        httpx["httpx >=0.24.1"]
+        aiohttp["aiohttp >=3.10.11"]
+        Lark["Lark >=1.1.7"]
+        Jinja2["Jinja2 >=3.1.6"]
+    end
 
-    %% Build-Time Dependencies
-    NemoGuardrails -.->|"HTTPS/443<br/>build-time only"| HuggingFace["HuggingFace Hub<br/>huggingface.co"]
+    subgraph MLDeps["ML/Embedding Dependencies"]
+        FastEmbed["FastEmbed >=0.2.2"]
+        ONNXRuntime["ONNX Runtime >=1.17.0"]
+        PyTorch["PyTorch >=2.0.0 (CPU)"]
+        SentenceTransformers["sentence-transformers >=2.2.0"]
+        NLTK["NLTK >=3.8"]
+    end
 
-    %% Optional Infrastructure
-    NemoGuardrails -.->|"Redis/6379<br/>optional"| Redis["Redis"]
-    NemoGuardrails -.->|"OTLP/4317-4318<br/>optional"| OTel["OpenTelemetry<br/>Collector"]
+    subgraph SecurityDeps["Security/NLP Dependencies"]
+        spaCy["spaCy >=3.4.4<br/>+ en_core_web_lg"]
+        Presidio["Presidio Analyzer/<br/>Anonymizer >=2.2"]
+        YARA["YARA Python >=4.5.1"]
+    end
 
-    %% Core Framework Dependencies
-    NemoGuardrails -->|"core framework"| FastAPI["FastAPI >=0.103.0"]
-    NemoGuardrails -->|"LLM abstraction"| LangChain["LangChain >=0.2.14"]
-    NemoGuardrails -->|"DSL parsing"| Lark["Lark >=1.1.7"]
+    subgraph OptionalDeps["Optional Dependencies"]
+        OpenTelemetry["OpenTelemetry >=1.27.0"]
+    end
 
-    %% Embedded ML Models (In-Process)
-    NemoGuardrails -->|"NER<br/>(in-process)"| SpaCy["spaCy >=3.4.4<br/>en_core_web_lg"]
-    NemoGuardrails -->|"embeddings<br/>(in-process)"| SentTrans["Sentence<br/>Transformers >=2.2.0"]
-    NemoGuardrails -->|"fast embeddings<br/>(in-process)"| FastEmbed["FastEmbed >=0.2.2<br/>(ONNX)"]
-    NemoGuardrails -->|"tokenization<br/>(in-process)"| NLTK["NLTK >=3.8"]
+    NemoGuardrails --> FastAPI
+    NemoGuardrails --> Uvicorn
+    NemoGuardrails --> Pydantic
+    NemoGuardrails --> httpx
+    NemoGuardrails --> aiohttp
+    NemoGuardrails --> Lark
+    NemoGuardrails --> Jinja2
+    NemoGuardrails --> FastEmbed
+    NemoGuardrails --> ONNXRuntime
+    NemoGuardrails --> PyTorch
+    NemoGuardrails --> SentenceTransformers
+    NemoGuardrails --> NLTK
+    NemoGuardrails --> spaCy
+    NemoGuardrails --> Presidio
+    NemoGuardrails -.-> YARA
+    NemoGuardrails -.-> OpenTelemetry
 
-    %% Optional Guardrail Dependencies
-    NemoGuardrails -.->|"PII detection<br/>(optional)"| Presidio["Presidio<br/>Analyzer/Anonymizer"]
-    NemoGuardrails -.->|"jailbreak patterns<br/>(optional)"| Yara["yara-python >=4.5.1"]
+    %% Internal Platform Dependencies
+    subgraph PlatformDeps["Internal Platform Dependencies"]
+        UpstreamLLM["Upstream LLM Service<br/>(vLLM / NVIDIA NIM)"]
+        OTelCollector["OpenTelemetry Collector"]
+    end
 
-    %% Runtime Dependencies
-    NemoGuardrails -->|"ML inference"| ONNXRuntime["ONNX Runtime >=1.17.0"]
-    NemoGuardrails -->|"ASGI server"| Uvicorn["uvicorn >=0.23"]
-    NemoGuardrails -->|"async HTTP"| Aiohttp["aiohttp >=3.10.11"]
-    NemoGuardrails -->|"ANN search"| Annoy["Annoy >=1.17.3"]
+    NemoGuardrails -->|"REST API (HTTPS/443)<br/>Bearer Token"| UpstreamLLM
+    NemoGuardrails -.->|"OTLP (gRPC/HTTP)"| OTelCollector
+
+    %% Integration Points (services that integrate WITH NeMo Guardrails)
+    subgraph Integrations["Integration Points"]
+        JailbreakSvc["Jailbreak Detection<br/>Service"]
+        AlignScoreSvc["AlignScore Service"]
+        Redis["Redis"]
+        LangChain["LangChain<br/>(in-process)"]
+    end
+
+    NemoGuardrails -->|"HTTP/1337"| JailbreakSvc
+    NemoGuardrails -->|"HTTP/5000"| AlignScoreSvc
+    NemoGuardrails -.->|"TCP/6379"| Redis
+    NemoGuardrails -.->|"Library API"| LangChain
+
+    %% External Services
+    subgraph ExtServices["External Services"]
+        HFHub["HuggingFace Hub"]
+        NVTelemetry["NVIDIA Telemetry"]
+    end
+
+    NemoGuardrails -.->|"HTTPS/443<br/>(pre-fetched at build)"| HFHub
+    NemoGuardrails -.->|"HTTPS/443<br/>(disabled via DO_NOT_TRACK)"| NVTelemetry
 
     %% Styling
     style NemoGuardrails fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
-
-    %% External LLM Providers
-    style OpenAI fill:#f5a623,stroke:#333
-    style AzureOpenAI fill:#f5a623,stroke:#333
-    style Anthropic fill:#f5a623,stroke:#333
-    style Cohere fill:#f5a623,stroke:#333
-    style NIM fill:#f5a623,stroke:#333
-    style VLLM fill:#f5a623,stroke:#333
-    style HuggingFace fill:#f5a623,stroke:#333
-
-    %% Optional Infrastructure
-    style Redis fill:#e1d5e7,stroke:#9673a6
-    style OTel fill:#e1d5e7,stroke:#9673a6
-
-    %% Core Frameworks
-    style FastAPI fill:#7ed321,stroke:#333
-    style LangChain fill:#7ed321,stroke:#333
-    style Lark fill:#7ed321,stroke:#333
-
-    %% ML Models
-    style SpaCy fill:#d5e8d4,stroke:#82b366
-    style SentTrans fill:#d5e8d4,stroke:#82b366
-    style FastEmbed fill:#d5e8d4,stroke:#82b366
-    style NLTK fill:#d5e8d4,stroke:#82b366
-
-    %% Optional Guardrail Deps
-    style Presidio fill:#e1d5e7,stroke:#9673a6
-    style Yara fill:#e1d5e7,stroke:#9673a6
-
-    %% Runtime Deps
-    style ONNXRuntime fill:#dae8fc,stroke:#6c8ebf
-    style Uvicorn fill:#dae8fc,stroke:#6c8ebf
-    style Aiohttp fill:#dae8fc,stroke:#6c8ebf
-    style Annoy fill:#dae8fc,stroke:#6c8ebf
+    style FastAPI fill:#e8e8e8,stroke:#333
+    style Uvicorn fill:#e8e8e8,stroke:#333
+    style Pydantic fill:#e8e8e8,stroke:#333
+    style httpx fill:#e8e8e8,stroke:#333
+    style aiohttp fill:#e8e8e8,stroke:#333
+    style Lark fill:#e8e8e8,stroke:#333
+    style Jinja2 fill:#e8e8e8,stroke:#333
+    style FastEmbed fill:#e8e8e8,stroke:#333
+    style ONNXRuntime fill:#e8e8e8,stroke:#333
+    style PyTorch fill:#e8e8e8,stroke:#333
+    style SentenceTransformers fill:#e8e8e8,stroke:#333
+    style NLTK fill:#e8e8e8,stroke:#333
+    style spaCy fill:#e8e8e8,stroke:#333
+    style Presidio fill:#e8e8e8,stroke:#333
+    style YARA fill:#e8e8e8,stroke:#333
+    style OpenTelemetry fill:#e8e8e8,stroke:#333
+    style UpstreamLLM fill:#7ed321,stroke:#333,color:#fff
+    style OTelCollector fill:#7ed321,stroke:#333,color:#fff
+    style JailbreakSvc fill:#f5a623,stroke:#333
+    style AlignScoreSvc fill:#f5a623,stroke:#333
+    style Redis fill:#f5a623,stroke:#333
+    style LangChain fill:#f5a623,stroke:#333
+    style HFHub fill:#f5a623,stroke:#333
+    style NVTelemetry fill:#f5a623,stroke:#333

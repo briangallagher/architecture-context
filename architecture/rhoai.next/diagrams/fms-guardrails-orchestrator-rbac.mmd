@@ -1,59 +1,61 @@
 graph TD
-    subgraph "FMS Guardrails Orchestrator - RBAC & Auth Model"
+    subgraph ServiceInfo["FMS Guardrails Orchestrator - Auth & Access Model"]
+        direction TB
+        Note["This is a standalone service, not a Kubernetes operator.<br/>No ClusterRoles, Roles, or RoleBindings defined.<br/>RBAC is managed by the deploying operator."]
+    end
+
+    subgraph AuthMechanisms["Authentication Mechanisms"]
         direction TB
 
-        subgraph NoK8sRBAC["Kubernetes RBAC"]
-            NoRBAC["No RBAC defined<br/><i>This service does not interact<br/>with the Kubernetes API</i>"]
+        subgraph ClientAuth["Client → Orchestrator"]
+            HeaderPass["Header Passthrough<br/>(configurable via passthrough_headers)"]
+            TokenRewrite["X-Forwarded-Access-Token<br/>→ Authorization: Bearer rewrite"]
         end
 
-        subgraph AuthModel["Authentication Model"]
-            direction TB
-
-            subgraph Inbound["Inbound Authentication (8033/TCP)"]
-                InboundAuth["No direct authentication<br/>Header passthrough only"]
-                PassthroughHeaders["passthrough_headers config<br/>X-Forwarded-Access-Token → Bearer"]
-                InboundAuth --> PassthroughHeaders
-            end
-
-            subgraph OutboundGRPC["Outbound Auth - gRPC Services"]
-                TGISAuth["TGIS: No auth<br/>TLS optional (per config)"]
-                NLPAuth["Caikit NLP: No auth<br/>TLS optional (per config)"]
-                ChunkerAuth["Chunkers: No auth<br/>TLS optional (per config)"]
-            end
-
-            subgraph OutboundHTTP["Outbound Auth - HTTP Services"]
-                DetectorAuth["Detectors: Bearer token<br/>(optional, from env var<br/>via api_token config)"]
-                OpenAIAuth["OpenAI server: Bearer token<br/>(optional, from env var<br/>via api_token config)"]
-            end
+        subgraph BackendAuth["Orchestrator → Backend Services"]
+            DetectorAuth["Detector Services<br/>Bearer token (api_token config)<br/>+ detector-id header<br/>+ x-model-name header"]
+            ChunkerAuth["Chunker Services<br/>mTLS client certificates<br/>+ mm-model-id header"]
+            TGISAuth["TGIS Generation<br/>mTLS client certificates<br/>+ header passthrough"]
+            NLPAuth["Caikit NLP<br/>mTLS client certificates<br/>+ mm-model-id header"]
+            OpenAIAuth["OpenAI-compatible LLM<br/>Bearer token (api_token env var)"]
         end
 
-        subgraph TLSConfig["TLS Configuration"]
-            direction TB
-            ServerTLS["Server TLS (inbound)<br/>rustls + ring<br/>Cert: --tls-cert-path<br/>Key: --tls-key-path<br/>mTLS CA: --tls-client-ca-cert-path"]
-            ClientTLS["Client TLS (outbound)<br/>Named profiles in YAML<br/>cert_path, key_path, ca_cert_path<br/>per-service configuration"]
-            InsecureMode["⚠ Insecure Mode<br/>NoVerifier disables cert verification<br/>Supports legacy SHA1 schemes<br/>Development only"]
-        end
-
-        subgraph Secrets["Secrets Management"]
-            direction TB
-            TLSServerSecret["TLS server cert/key<br/>(kubernetes.io/tls)<br/>Manual provisioning<br/>No auto-rotation"]
-            TLSClientCA["TLS client CA cert<br/>(Opaque)<br/>Manual provisioning<br/>No auto-rotation"]
-            PerServiceTLS["Per-service TLS certs<br/>(Opaque)<br/>Manual via YAML config<br/>No auto-rotation"]
-            APITokens["API tokens<br/>(Opaque)<br/>Env var indirection<br/>No auto-rotation"]
+        subgraph NoAuth["Unauthenticated Endpoints"]
+            HealthEndpoint["/health (8034/TCP)<br/>No auth required"]
+            InfoEndpoint["/info (8034/TCP)<br/>No auth required"]
         end
     end
 
-    style NoK8sRBAC fill:#e8e8e8,stroke:#999,stroke-dasharray: 5 5
-    style NoRBAC fill:#f9f9f9,stroke:#ccc,color:#999
-    style Inbound fill:#4a90e2,stroke:#2c5aa0,color:#fff
-    style InboundAuth fill:#6ba3d6,stroke:#2c5aa0,color:#fff
-    style PassthroughHeaders fill:#6ba3d6,stroke:#2c5aa0,color:#fff
-    style OutboundGRPC fill:#d5e8d4,stroke:#82b366
-    style OutboundHTTP fill:#fff2cc,stroke:#d6b656
-    style TLSConfig fill:#dae8fc,stroke:#6c8ebf
-    style InsecureMode fill:#f8cecc,stroke:#b85450
-    style Secrets fill:#e1d5e7,stroke:#9673a6
-    style TLSServerSecret fill:#d4c4e0,stroke:#9673a6
-    style TLSClientCA fill:#d4c4e0,stroke:#9673a6
-    style PerServiceTLS fill:#d4c4e0,stroke:#9673a6
-    style APITokens fill:#d4c4e0,stroke:#9673a6
+    subgraph Secrets["Secrets Used"]
+        direction TB
+        TLSServerCert["TLS server cert/key<br/>(kubernetes.io/tls)<br/>Provisioned: cert-manager or manual"]
+        TLSClientCA["TLS client CA cert<br/>(Opaque)<br/>Provisioned: manual"]
+        NamedTLS["Named TLS configs<br/>(Opaque, per-service)<br/>Provisioned: manual"]
+        APITokens["API tokens<br/>(Opaque, via env vars)<br/>Provisioned: manual"]
+    end
+
+    HeaderPass -->|"forwarded to"| DetectorAuth
+    HeaderPass -->|"forwarded to"| TGISAuth
+    TokenRewrite -->|"rewritten for"| DetectorAuth
+    TokenRewrite -->|"rewritten for"| OpenAIAuth
+
+    TLSServerCert -->|"used by"| ClientAuth
+    TLSClientCA -->|"used by"| ClientAuth
+    NamedTLS -->|"used by"| BackendAuth
+    APITokens -->|"used by"| DetectorAuth
+    APITokens -->|"used by"| OpenAIAuth
+
+    style Note fill:#fff3cd,stroke:#856404,color:#856404
+    style HeaderPass fill:#4a90e2,stroke:#333,color:#fff
+    style TokenRewrite fill:#4a90e2,stroke:#333,color:#fff
+    style DetectorAuth fill:#7ed321,stroke:#333
+    style ChunkerAuth fill:#7ed321,stroke:#333
+    style TGISAuth fill:#7ed321,stroke:#333
+    style NLPAuth fill:#7ed321,stroke:#333
+    style OpenAIAuth fill:#f5a623,stroke:#333
+    style HealthEndpoint fill:#e8e8e8,stroke:#333
+    style InfoEndpoint fill:#e8e8e8,stroke:#333
+    style TLSServerCert fill:#f8d7da,stroke:#721c24
+    style TLSClientCA fill:#f8d7da,stroke:#721c24
+    style NamedTLS fill:#f8d7da,stroke:#721c24
+    style APITokens fill:#f8d7da,stroke:#721c24

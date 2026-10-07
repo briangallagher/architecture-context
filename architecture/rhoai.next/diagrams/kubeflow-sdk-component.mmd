@@ -1,0 +1,97 @@
+graph TB
+    subgraph KubeflowSDK["Kubeflow SDK (Python Client Library)"]
+        direction TB
+
+        subgraph Common["kubeflow.common"]
+            Utils[Utils & Constants<br/>Namespace Detection]
+            Types[Shared Types<br/>KubernetesBackendConfig]
+        end
+
+        subgraph Trainer["kubeflow.trainer"]
+            TrainerClient[TrainerClient]
+            TrainerClient --> K8sBackend[Kubernetes Backend]
+            TrainerClient --> ContainerBackend[Container Backend]
+            TrainerClient --> LocalBackend[LocalProcess Backend]
+
+            K8sBackend -->|creates| TrainJobCR[TrainJob CR]
+
+            subgraph ContainerAdapters["Container Adapters"]
+                ContainerBackend --> DockerAdapter[Docker Adapter]
+                ContainerBackend --> PodmanAdapter[Podman Adapter]
+            end
+
+            subgraph RHAI["kubeflow.trainer.rhai (Red Hat AI)"]
+                TransformersTrainer[TransformersTrainer<br/>Progress Tracking<br/>Checkpoint Mgmt]
+                TrainingHubTrainer[TrainingHubTrainer<br/>SFT / OSFT / LoRA]
+            end
+
+            K8sBackend -.->|isinstance dispatch| RHAI
+        end
+
+        subgraph Optimizer["kubeflow.optimizer"]
+            OptimizerClient[OptimizerClient]
+            OptimizerBackend[Kubernetes Backend]
+            OptimizerClient --> OptimizerBackend
+            OptimizerBackend -->|creates| ExperimentCR[Experiment CR]
+            OptimizerBackend -.->|uses| K8sBackend
+        end
+
+        subgraph Spark["kubeflow.spark"]
+            SparkClient[SparkClient]
+            SparkBackend[Kubernetes Backend]
+            SparkClient --> SparkBackend
+            SparkBackend -->|creates| SparkConnectCR[SparkConnect CR]
+        end
+
+        subgraph Hub["kubeflow.hub"]
+            ModelRegistryClient[ModelRegistryClient]
+        end
+
+        TrainerClient --> Utils
+        OptimizerClient --> Utils
+        SparkClient --> Utils
+    end
+
+    %% External Dependencies (Server-Side)
+    TrainJobCR -->|watched by| TrainerOperator[Trainer Operator]
+    ExperimentCR -->|watched by| KatibController[Katib Controller]
+    SparkConnectCR -->|watched by| SparkOperator[Spark Operator]
+    ModelRegistryClient -->|REST API| ModelRegistry[Model Registry Server]
+
+    %% External Services
+    TransformersTrainer -.->|checkpoint storage| S3[S3-Compatible Storage]
+    TransformersTrainer -.->|model/dataset download| HuggingFace[HuggingFace Hub]
+    K8sBackend -->|CRD CRUD| K8sAPI[Kubernetes API Server]
+    OptimizerBackend -->|CRD CRUD| K8sAPI
+    SparkBackend -->|CRD CRUD| K8sAPI
+
+    %% PySpark Connection
+    SparkClient -.->|gRPC 15002| SparkConnectSvc[SparkConnect Service]
+
+    %% Styling
+    style KubeflowSDK fill:#e8f0fe,stroke:#4a90e2,stroke-width:2px
+    style Trainer fill:#dceefb,stroke:#4a90e2
+    style Optimizer fill:#dceefb,stroke:#4a90e2
+    style Spark fill:#dceefb,stroke:#4a90e2
+    style Hub fill:#dceefb,stroke:#4a90e2
+    style Common fill:#f0f0f0,stroke:#999
+    style RHAI fill:#fce4ec,stroke:#e53935
+    style ContainerAdapters fill:#f5f5f5,stroke:#999
+
+    style TrainerClient fill:#4a90e2,color:#fff
+    style OptimizerClient fill:#4a90e2,color:#fff
+    style SparkClient fill:#4a90e2,color:#fff
+    style ModelRegistryClient fill:#4a90e2,color:#fff
+
+    style TrainJobCR fill:#f5a623
+    style ExperimentCR fill:#f5a623
+    style SparkConnectCR fill:#f5a623
+
+    style TrainerOperator fill:#e8e8e8,stroke:#333
+    style KatibController fill:#e8e8e8,stroke:#333
+    style SparkOperator fill:#e8e8e8,stroke:#333
+    style ModelRegistry fill:#7ed321,stroke:#333
+    style S3 fill:#fff2cc,stroke:#d6b656
+    style HuggingFace fill:#fff2cc,stroke:#d6b656
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style SparkConnectSvc fill:#e8e8e8,stroke:#333

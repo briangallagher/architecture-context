@@ -1,63 +1,66 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Client["External Client"]
-        KServe["KServe / ModelMesh"]
+        Client["External Client / KServe Router"]
     end
 
-    subgraph Pod["POD BOUNDARY (InferenceService Pod)"]
+    subgraph AuthBoundary["AUTH SIDECAR (Trust Boundary)"]
+        KRBAC["kube-rbac-proxy<br/>8443/TCP HTTPS<br/>TLS 1.2+<br/>Platform RBAC AuthN/AuthZ"]
+    end
+
+    subgraph PodInternal["APPLICATION (Pod-Internal, Non-Root USER 2000)"]
         direction TB
 
-        subgraph Sidecar["Platform-Injected Sidecar"]
-            RBACProxy["kube-rbac-proxy<br/>8443/TCP<br/>TLS 1.2+<br/>Bearer Token (JWT)<br/>SubjectAccessReview AuthZ"]
+        subgraph HTTPPort["HTTP API - 8000/TCP"]
+            HTTP_API["OpenAI-compatible API<br/>POST /v1/completions<br/>POST /v1/chat/completions<br/>GET /v1/models<br/>GET /health<br/>GET /metrics"]
         end
 
-        subgraph AppContainer["Application Container (UID 2000, restricted SCC)"]
-            direction TB
-
-            subgraph Adapter["vllm-tgis-adapter"]
-                HTTPApi["HTTP API<br/>8000/TCP<br/>POST /v1/completions<br/>POST /v1/chat/completions<br/>GET /v1/models<br/>GET /health"]
-                GRPCApi["gRPC API<br/>8033/TCP<br/>TGIS GenerationService"]
-            end
-
-            subgraph EngineLayer["vLLM Engine"]
-                VLLMEngine["vLLM Engine<br/>+ vllm-spyre Plugin<br/>HF_HUB_OFFLINE=1"]
-            end
-
-            HTTPApi -->|"in-process<br/>Python call"| VLLMEngine
-            GRPCApi -->|"in-process<br/>Python call"| VLLMEngine
+        subgraph GRPCPort["gRPC API - 8033/TCP"]
+            GRPC_API["TGIS GenerationService<br/>unary/streaming"]
         end
 
-        RBACProxy -->|"HTTP/8000<br/>localhost<br/>No TLS<br/>Pre-authenticated"| HTTPApi
-        RBACProxy -->|"gRPC/8033<br/>localhost<br/>No TLS<br/>Pre-authenticated"| GRPCApi
+        VLLMEngine["vLLM Engine<br/>IBM Spyre accelerated<br/>Image: rhaiis/vllm-spyre-rhel9:3.2.2"]
+
+        HTTP_API --> VLLMEngine
+        GRPC_API --> VLLMEngine
     end
 
-    subgraph Hardware["HARDWARE"]
-        SpyreAccel["IBM Spyre AI Accelerator<br/>VFIO Passthrough<br/>Device I/O"]
+    subgraph ModelStorage["MODEL STORAGE"]
+        PVC["PVC Mount<br/>Filesystem<br/>Per-InferenceService"]
+        HFHub["HuggingFace Hub<br/>huggingface.co<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>HF_TOKEN"]
     end
 
-    subgraph Storage["STORAGE (Pre-provisioned)"]
-        ModelPVC["Model Weights PVC<br/>HuggingFace Artifacts<br/>Filesystem Mount"]
+    subgraph PlatformServices["PLATFORM SERVICES"]
+        KServe["KServe Controller<br/>ServingRuntime CR"]
+        Prometheus["Prometheus<br/>(Optional)"]
     end
 
-    %% External flows
-    Client -->|"HTTPS/8443<br/>TLS 1.2+<br/>Bearer Token (JWT)"| RBACProxy
-    KServe -->|"HTTPS/8443<br/>TLS 1.2+<br/>Bearer Token"| RBACProxy
+    subgraph HW["HARDWARE"]
+        Spyre["IBM Spyre Accelerator<br/>ppc64le, s390x, x86_64"]
+    end
 
-    %% Hardware flow
-    VLLMEngine -->|"VFIO Passthrough<br/>Device I/O<br/>No Network"| SpyreAccel
+    %% Flows
+    Client -->|"HTTPS/8443<br/>TLS 1.2+<br/>Bearer Token"| KRBAC
+    KRBAC -->|"HTTP/8000<br/>plaintext (localhost)<br/>pre-authorized"| HTTP_API
+    KRBAC -->|"gRPC/8033<br/>plaintext (localhost)<br/>pre-authorized"| GRPC_API
 
-    %% Storage flow
-    ModelPVC -.->|"Volume Mount<br/>Filesystem<br/>Read-Only"| VLLMEngine
+    VLLMEngine -->|"filesystem mount"| PVC
+    VLLMEngine -->|"HTTPS/443<br/>TLS 1.2+<br/>HF_TOKEN (optional)"| HFHub
+    VLLMEngine -->|"hardware accel"| Spyre
+
+    KServe -.->|"deploys & manages"| PodInternal
+    Prometheus -->|"scrapes /metrics<br/>HTTP/8000"| HTTP_API
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
-    classDef sidecar fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
-    classDef app fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef hardware fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef auth fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef internal fill:#d5e8d4,stroke:#82b366,stroke-width:2px
     classDef storage fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef platform fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef hardware fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
 
-    class Client,KServe external
-    class RBACProxy sidecar
-    class HTTPApi,GRPCApi,VLLMEngine app
-    class SpyreAccel hardware
-    class ModelPVC storage
+    class Client external
+    class KRBAC auth
+    class HTTP_API,GRPC_API,VLLMEngine internal
+    class PVC,HFHub storage
+    class KServe,Prometheus platform
+    class Spyre hardware

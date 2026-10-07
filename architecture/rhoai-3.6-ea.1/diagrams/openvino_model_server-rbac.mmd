@@ -1,0 +1,35 @@
+graph TD
+    subgraph Note["RBAC Configuration"]
+        direction TB
+        Info["OVMS does not define its own<br/>ClusterRoles or RoleBindings.<br/><br/>RBAC is managed externally by:<br/>- KServe (ServingRuntime lifecycle)<br/>- Platform Operator (namespace access)<br/>- Istio (optional service mesh AuthZ)"]
+    end
+
+    subgraph AuthMechanisms["Authentication Mechanisms"]
+        direction TB
+        Default["Default Mode<br/>No Authentication<br/>OVMS exposes all endpoints<br/>without access control"]
+        APIKey["API Key Mode (Optional)<br/>Bearer API key validation<br/>HttpRestApiHandler::isAuthorized<br/>In-process enforcement"]
+        MTLS["mTLS Sidecar Mode (Optional)<br/>nginx reverse proxy<br/>TLS 1.2 + client certificate<br/>Restricted cipher suites"]
+    end
+
+    subgraph ServingRuntimeRBAC["Serving Runtime Scope"]
+        ClusterRT["kserve-openvino<br/>ClusterServingRuntime<br/>Scope: Cluster-wide"]
+        NamespacedRT["kserve-ovms-2026-2<br/>ServingRuntime<br/>Scope: Namespaced"]
+    end
+
+    KServe["KServe Controller<br/>(manages RBAC for pods)"] -->|"creates/manages"| ClusterRT
+    KServe -->|"creates/manages"| NamespacedRT
+    ClusterRT -->|"deploys with<br/>pod SA"| OVMSPod["OVMS Pod"]
+    NamespacedRT -->|"deploys with<br/>pod SA"| OVMSPod
+
+    OVMSPod -->|"serves via"| Default
+    OVMSPod -.->|"optional"| APIKey
+    OVMSPod -.->|"optional"| MTLS
+
+    style Info fill:#fff3cd,stroke:#856404,color:#856404
+    style Default fill:#f8d7da,stroke:#721c24,color:#721c24
+    style APIKey fill:#d4edda,stroke:#155724,color:#155724
+    style MTLS fill:#d4edda,stroke:#155724,color:#155724
+    style KServe fill:#7ed321,stroke:#333
+    style ClusterRT fill:#9e9ac8,stroke:#333
+    style NamespacedRT fill:#9e9ac8,stroke:#333
+    style OVMSPod fill:#4a90e2,stroke:#333,color:#fff

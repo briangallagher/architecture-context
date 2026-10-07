@@ -25,17 +25,80 @@ type ComponentDoc struct {
 	Egresses     []Egress        `json:"egresses,omitempty"`
 	RBACRoles    []RBACRole      `json:"rbac_roles,omitempty"`
 
-	ControllerWatches []ControllerWatch `json:"controller_watches,omitempty"`
-	Webhooks          []Webhook         `json:"webhooks,omitempty"`
-	PlatformWebhooks  []WebhookRef      `json:"platform_webhooks,omitempty"`
-	ExternalWebhooks  []WebhookRef      `json:"external_webhooks,omitempty"`
-	NetworkPolicies   []NetworkPolicy   `json:"network_policies,omitempty"`
-	Dockerfiles       []Dockerfile      `json:"dockerfiles,omitempty"`
+	ControllerWatches    []ControllerWatch                 `json:"controller_watches,omitempty"`
+	Webhooks             []Webhook                         `json:"webhooks,omitempty"`
+	PlatformWebhooks     []WebhookRef                      `json:"platform_webhooks,omitempty"`
+	ExternalWebhooks     []WebhookRef                      `json:"external_webhooks,omitempty"`
+	NetworkPolicies      []NetworkPolicy                   `json:"network_policies,omitempty"`
+	Dockerfiles          []Dockerfile                      `json:"dockerfiles,omitempty"`
+	CrossCuttingEvidence map[string][]CrossCuttingEvidence `json:"cross_cutting_evidence,omitempty"`
 
 	CommitSHA       string `json:"commit_sha,omitempty"`
 	AnalyzerVersion string `json:"analyzer_version,omitempty"`
 
+	// Accepted-document fields are populated only by the authoritative
+	// document.json path. They keep identity, provenance, citations, and patch
+	// dispositions queryable without treating sibling Markdown as fact input.
+	DocumentSchemaVersion string                `json:"document_schema_version,omitempty"`
+	SourceComponent       string                `json:"source_component,omitempty"`
+	VersionScope          string                `json:"version_scope,omitempty"`
+	IntegrationStatus     string                `json:"integration_status,omitempty"`
+	Aliases               []string              `json:"aliases,omitempty"`
+	BundleFingerprint     string                `json:"bundle_fingerprint,omitempty"`
+	SourceCitations       []SourceCitation      `json:"source_citations,omitempty"`
+	ProvenanceGaps        []ProvenanceGap       `json:"provenance_gaps,omitempty"`
+	ProposalDispositions  []ProposalDisposition `json:"proposal_dispositions,omitempty"`
+
 	RawSections map[string]string `json:"-"`
+}
+
+type SourceCitation struct {
+	FactID     string `json:"fact_id,omitempty"`
+	FactType   string `json:"fact_type,omitempty"`
+	SectionID  string `json:"section_id,omitempty"`
+	TableID    string `json:"table_id,omitempty"`
+	Path       string `json:"path"`
+	StartLine  int    `json:"start_line,omitempty"`
+	EndLine    int    `json:"end_line,omitempty"`
+	Revision   string `json:"revision"`
+	OriginKind string `json:"origin_kind,omitempty"`
+	OriginID   string `json:"origin_id,omitempty"`
+	ClaimClass string `json:"claim_class,omitempty"`
+}
+
+type ProvenanceGap struct {
+	FactID   string `json:"fact_id"`
+	FactType string `json:"fact_type"`
+	Reason   string `json:"reason"`
+}
+
+type ProposalDisposition struct {
+	PatchID             string           `json:"patch_id"`
+	ProposalFingerprint string           `json:"proposal_fingerprint"`
+	BundleFingerprint   string           `json:"bundle_fingerprint"`
+	OperationID         string           `json:"operation_id"`
+	Action              string           `json:"action"`
+	FactType            string           `json:"fact_type"`
+	OriginKind          string           `json:"origin_kind"`
+	OriginID            string           `json:"origin_id"`
+	ClaimClass          string           `json:"claim_class"`
+	Status              string           `json:"status"`
+	TargetFactID        string           `json:"target_fact_id,omitempty"`
+	ResultingFactID     string           `json:"resulting_fact_id,omitempty"`
+	Evidence            []SourceCitation `json:"evidence"`
+	ProposalReason      string           `json:"proposal_reason"`
+	PolicyID            string           `json:"policy_id"`
+	AuthorizedBy        string           `json:"authorized_by"`
+	AllowedFactTypes    []string         `json:"allowed_fact_types"`
+	DecisionID          string           `json:"decision_id"`
+	DecidedBy           string           `json:"decided_by"`
+	DecisionReason      string           `json:"decision_reason"`
+}
+
+type CrossCuttingEvidence struct {
+	Claim   string   `json:"claim"`
+	Status  string   `json:"status"`
+	Sources []string `json:"sources,omitempty"`
 }
 
 type ArchComponent struct {
@@ -112,10 +175,11 @@ type Egress struct {
 }
 
 type RBACRole struct {
-	RoleName  string `json:"role_name"`
-	APIGroup  string `json:"api_group"`
-	Resources string `json:"resources"`
-	Verbs     string `json:"verbs"`
+	RoleName        string `json:"role_name"`
+	APIGroup        string `json:"api_group"`
+	Resources       string `json:"resources"`
+	NonResourceURLs string `json:"non_resource_urls,omitempty"`
+	Verbs           string `json:"verbs"`
 }
 
 type ControllerWatch struct {
@@ -250,4 +314,109 @@ type VersionData struct {
 	Platform   *PlatformDoc             `json:"platform,omitempty"`
 	Overlays   []*OverlayDoc            `json:"overlays,omitempty"`
 	BuildInfo  *BuildInfo               `json:"build_info,omitempty"`
+	Provenance *Provenance              `json:"provenance,omitempty"`
+}
+
+type ProvenanceRepo struct {
+	Org                 string   `json:"org"`
+	Repo                string   `json:"repo"`
+	IsFork              bool     `json:"is_fork"`
+	Upstream            *string  `json:"upstream"`
+	UpstreamDetection   *string  `json:"upstream_detection"`
+	Downstream          []string `json:"downstream"`
+	DownstreamDetection *string  `json:"downstream_detection"`
+	SyncMechanism       *string  `json:"sync_mechanism"`
+	SyncBranch          string   `json:"sync_branch,omitempty"`
+	SyncWorkflows       []string `json:"sync_workflows"`
+}
+
+type ProvenanceMetadata struct {
+	GeneratedAt         string   `json:"generated_at"`
+	CheckoutsDirs       []string `json:"checkouts_dirs"`
+	GitHubAPIAvailable  bool     `json:"github_api_available"`
+	TotalRepos          int      `json:"total_repos"`
+	ReposWithUpstream   int      `json:"repos_with_upstream"`
+	ReposWithDownstream int      `json:"repos_with_downstream"`
+}
+
+type Provenance struct {
+	Metadata ProvenanceMetadata        `json:"metadata"`
+	Repos    map[string]ProvenanceRepo `json:"repos"`
+}
+
+// Correction proposal contract v1.
+// Proposals represent candidate corrections to generated architecture documents.
+// They are reviewable artifacts that never mutate generated output directly.
+
+const ProposalContractVersion = "v1"
+
+type CorrectionProposal struct {
+	ContractVersion string   `json:"contract_version"`
+	ID              string   `json:"id"`
+	Component       string   `json:"component"`
+	Category        string   `json:"category"`
+	Status          string   `json:"status"`
+	Claim           string   `json:"claim"`
+	Replacement     string   `json:"replacement,omitempty"`
+	Provenance      []string `json:"provenance"`
+	Author          string   `json:"author"`
+	Releases        []string `json:"releases,omitempty"`
+	CreatedDate     string   `json:"created_date,omitempty"`
+	LastVerified    string   `json:"last_verified,omitempty"`
+	SupersededBy    string   `json:"superseded_by,omitempty"`
+	Notes           string   `json:"notes,omitempty"`
+}
+
+type ProposalSet struct {
+	ContractVersion string               `json:"contract_version"`
+	GeneratedAt     string               `json:"generated_at"`
+	Proposals       []CorrectionProposal `json:"proposals"`
+}
+
+const ReportContractVersion = "v1"
+
+type CorrectionFrequencyReport struct {
+	ContractVersion string               `json:"contract_version"`
+	GeneratedAt     string               `json:"generated_at,omitempty"`
+	InputIdentity   ReportInputIdentity  `json:"input_identity"`
+	Summary         ReportSummary        `json:"summary"`
+	ByComponent     []ComponentFrequency `json:"by_component"`
+	ByCategory      []CategoryFrequency  `json:"by_category"`
+	ByStatus        []StatusFrequency    `json:"by_status"`
+	ByRelease       []ReleaseFrequency   `json:"by_release,omitempty"`
+	SupersededCount int                  `json:"superseded_count"`
+}
+
+type ReportInputIdentity struct {
+	ProposalContractVersion string `json:"proposal_contract_version"`
+	ProposalGeneratedAt     string `json:"proposal_generated_at,omitempty"`
+	TotalProposals          int    `json:"total_proposals"`
+}
+
+type ReportSummary struct {
+	ActiveProposals int `json:"active_proposals"`
+	Components      int `json:"components"`
+	Categories      int `json:"categories"`
+	Releases        int `json:"releases"`
+}
+
+type ComponentFrequency struct {
+	Component string         `json:"component"`
+	Total     int            `json:"total"`
+	ByStatus  map[string]int `json:"by_status"`
+}
+
+type CategoryFrequency struct {
+	Category string `json:"category"`
+	Total    int    `json:"total"`
+}
+
+type StatusFrequency struct {
+	Status string `json:"status"`
+	Total  int    `json:"total"`
+}
+
+type ReleaseFrequency struct {
+	Release string `json:"release"`
+	Total   int    `json:"total"`
 }

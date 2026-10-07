@@ -1,0 +1,79 @@
+graph TB
+    subgraph "feast-module-operator"
+        direction TB
+        CLI["Cobra CLI<br/>(feast-module-operator)"]
+        Controller["FeastOperator Controller<br/>(Reconciler)"]
+        Webhook["Health/Readiness Probes<br/>:8081"]
+        Metrics["Metrics Server<br/>:8443 HTTPS<br/>TokenReview Auth"]
+        Kustomize["Kustomize Renderer<br/>(/manifests/)"]
+        PlatformVersion["Platform Version<br/>Handshake"]
+
+        CLI -->|operator subcommand| Controller
+        CLI -->|chartgen subcommand| Kustomize
+        Controller -->|renders| Kustomize
+        Controller -->|checks| PlatformVersion
+    end
+
+    %% CRDs
+    FeastOperatorCR["FeastOperator CR<br/>components.platform.opendatahub.io/v1alpha1<br/>(Cluster-scoped)"]
+    FeatureStoreCR["FeatureStore CR<br/>feast.dev"]
+
+    %% Platform Integration
+    PlatformConfigMap["odh-feastoperator-config<br/>ConfigMap"]
+    RHOAIOperator["RHOAI Platform Operator<br/>(opendatahub-operator)"]
+
+    %% Managed Resources
+    subgraph "Managed Feast Resources"
+        direction TB
+        Deployments["Deployments"]
+        Services["Services"]
+        RBAC["Roles / ClusterRoles<br/>RoleBindings / ClusterRoleBindings"]
+        Jobs["Jobs / CronJobs"]
+        ServiceMonitors["ServiceMonitors"]
+        PDBs["PodDisruptionBudgets"]
+        HPAs["HorizontalPodAutoscalers"]
+        SAs["ServiceAccounts"]
+    end
+
+    %% Watched Resources
+    Notebooks["Kubeflow Notebooks<br/>kubeflow.org"]
+    Routes["OpenShift Routes<br/>route.openshift.io"]
+
+    %% Flows
+    RHOAIOperator -->|creates| FeastOperatorCR
+    RHOAIOperator -->|updates| PlatformConfigMap
+    FeastOperatorCR -->|watched by| Controller
+    PlatformConfigMap -->|watched by| PlatformVersion
+    FeatureStoreCR -->|watched by| Controller
+    Notebooks -->|watched by| Controller
+    Routes -->|watched by| Controller
+
+    Controller -->|deploys| Deployments
+    Controller -->|deploys| Services
+    Controller -->|deploys| RBAC
+    Controller -->|deploys| Jobs
+    Controller -->|deploys| ServiceMonitors
+    Controller -->|deploys| PDBs
+    Controller -->|deploys| HPAs
+    Controller -->|deploys| SAs
+
+    Prometheus["Prometheus"] -->|scrapes| Metrics
+
+    %% External
+    Controller -->|API calls| K8sAPI["Kubernetes API<br/>:6443"]
+
+    %% Styling
+    style CLI fill:#4a90e2,stroke:#333,color:#fff
+    style Controller fill:#4a90e2,stroke:#333,color:#fff
+    style Metrics fill:#4a90e2,stroke:#333,color:#fff
+    style Webhook fill:#4a90e2,stroke:#333,color:#fff
+    style Kustomize fill:#4a90e2,stroke:#333,color:#fff
+    style PlatformVersion fill:#4a90e2,stroke:#333,color:#fff
+    style FeastOperatorCR fill:#f5a623,stroke:#333
+    style FeatureStoreCR fill:#f5a623,stroke:#333
+    style PlatformConfigMap fill:#f5a623,stroke:#333
+    style RHOAIOperator fill:#7ed321,stroke:#333
+    style Notebooks fill:#e8e8e8,stroke:#333
+    style Routes fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333

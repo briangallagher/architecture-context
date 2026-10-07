@@ -1,71 +1,56 @@
 graph LR
-    GD["Guardrails Detectors<br/>(3 microservices)"]
+    GD["Guardrails<br/>Detectors"]
 
-    %% Internal Platform Dependencies
-    GD -->|"inbound REST API<br/>8080/8000 TCP"| Orchestrator["FMS Guardrails<br/>Orchestrator"]
-    GD -->|"deployment platform<br/>InferenceService"| KServe["KServe"]
-    GD -->|"sidecar mTLS<br/>network security"| Istio["Istio Service Mesh"]
+    %% Internal RHOAI Platform Dependencies
+    GD -->|"deployed as InferenceService"| KServe["KServe"]
+    GD -->|"mTLS sidecar injection"| Istio["Istio Service Mesh"]
+    GD -->|"auth sidecar (3.x)"| KRBAC["kube-rbac-proxy"]
 
-    %% External Service Dependencies
-    GD -->|"model storage<br/>9000/TCP HTTP"| S3["S3/Minio Storage"]
-    GD -->|"LLM evaluation<br/>HTTP"| vLLM["vLLM Server"]
-    GD -->|"model download<br/>443/TCP HTTPS"| HFHub["HuggingFace Hub"]
+    %% Consumer (calls detectors)
+    Orchestrator["FMS Guardrails<br/>Orchestrator"] -->|"POST /api/v1/text/contents<br/>HTTP/8080, 8000"| GD
 
-    %% Integration Points (inbound)
-    Prometheus["Prometheus"] -->|"metrics scrape<br/>/metrics"| GD
+    %% Upstream Dependencies (detectors call these)
+    GD -->|"model download (init)<br/>HTTP/9000"| S3["S3/Minio<br/>Model Storage"]
+    GD -->|"LLM evaluation<br/>HTTP/8080"| vLLM["vLLM Server"]
 
-    %% Python Framework Dependencies
-    subgraph "Python Dependencies (All Detectors)"
-        FastAPI["FastAPI 0.121.2"]
-        Uvicorn["uvicorn 0.30.5"]
-        PromClient["prometheus_client >= 0.18.0"]
-        PromFastAPI["prometheus-fastapi-instrumentator >= 7.0.0"]
-        PyYAML["PyYAML 6.0.2"]
-        HTTPX["httpx 0.27.0"]
+    %% Observability
+    Prometheus["Prometheus"] -.->|"scrape /metrics"| GD
+
+    %% UI Integration
+    Dashboard["RHOAI Dashboard"] -.->|"InferenceService visibility<br/>opendatahub.io/dashboard: true"| GD
+
+    %% Build Dependencies (AIPCC)
+    GD -.->|"base images"| AIPCC["AIPCC Base Images<br/>CPU + CUDA 13.0"]
+    GD -.->|"package index"| RHAI["RHAI PyPI Index"]
+
+    %% Key Python Libraries
+    subgraph "External Libraries"
+        FastAPI["FastAPI 0.136.3"]
+        Transformers["transformers 4.57.3<br/>(HF only)"]
+        PyTorch["torch 2.11.0<br/>(HF only)"]
+        VllmJudge["vllm-judge 0.1.8<br/>(Judge only)"]
+        PromClient["prometheus-client"]
     end
 
-    subgraph "Python Dependencies (HuggingFace)"
-        Transformers["transformers 4.57.1"]
-        PyTorch["torch 2.6.0 (Konflux)"]
-        SentencePiece["sentencepiece 0.2.1"]
-        TikToken["tiktoken 0.12.0"]
-    end
-
-    subgraph "Python Dependencies (Built-in)"
-        JSONSchema["jsonschema 4.24.0"]
-        XMLSchema["xmlschema 4.1.0"]
-    end
-
-    subgraph "Python Dependencies (LLM Judge)"
-        VLLMJudge["vllm-judge 0.1.8"]
-    end
-
-    GD -.-> FastAPI
-    GD -.-> Uvicorn
-    GD -.-> PromClient
-    GD -.-> Transformers
-    GD -.-> PyTorch
-    GD -.-> JSONSchema
-    GD -.-> VLLMJudge
+    GD -->|"HTTP framework"| FastAPI
+    GD -->|"model loading"| Transformers
+    GD -->|"inference runtime"| PyTorch
+    GD -->|"judge evaluation"| VllmJudge
+    GD -->|"metrics"| PromClient
 
     style GD fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
-    style Orchestrator fill:#7ed321,stroke:#333,color:#fff
     style KServe fill:#7ed321,stroke:#333,color:#fff
     style Istio fill:#7ed321,stroke:#333,color:#fff
-    style S3 fill:#f5a623,stroke:#333,color:#fff
-    style vLLM fill:#f5a623,stroke:#333,color:#fff
-    style HFHub fill:#f5a623,stroke:#333,color:#fff
-    style Prometheus fill:#999,stroke:#333,color:#fff
-    style FastAPI fill:#e8e8e8,stroke:#666
-    style Uvicorn fill:#e8e8e8,stroke:#666
-    style PromClient fill:#e8e8e8,stroke:#666
-    style PromFastAPI fill:#e8e8e8,stroke:#666
-    style PyYAML fill:#e8e8e8,stroke:#666
-    style HTTPX fill:#e8e8e8,stroke:#666
-    style Transformers fill:#e8e8e8,stroke:#666
-    style PyTorch fill:#e8e8e8,stroke:#666
-    style SentencePiece fill:#e8e8e8,stroke:#666
-    style TikToken fill:#e8e8e8,stroke:#666
-    style JSONSchema fill:#e8e8e8,stroke:#666
-    style XMLSchema fill:#e8e8e8,stroke:#666
-    style VLLMJudge fill:#e8e8e8,stroke:#666
+    style KRBAC fill:#7ed321,stroke:#333,color:#fff
+    style Orchestrator fill:#7ed321,stroke:#333,color:#fff
+    style Prometheus fill:#7ed321,stroke:#333,color:#fff
+    style Dashboard fill:#7ed321,stroke:#333,color:#fff
+    style S3 fill:#f5a623,stroke:#333
+    style vLLM fill:#7ed321,stroke:#333,color:#fff
+    style AIPCC fill:#e8e8e8,stroke:#333
+    style RHAI fill:#e8e8e8,stroke:#333
+    style FastAPI fill:#999,stroke:#333,color:#fff
+    style Transformers fill:#999,stroke:#333,color:#fff
+    style PyTorch fill:#999,stroke:#333,color:#fff
+    style VllmJudge fill:#999,stroke:#333,color:#fff
+    style PromClient fill:#999,stroke:#333,color:#fff

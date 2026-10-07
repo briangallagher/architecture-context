@@ -1,143 +1,157 @@
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  EXTERNAL (Untrusted)                                                        │
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                       │
 │                                                                              │
 │  [FMS Guardrails Orchestrator]                                               │
-│  - Purpose: Calls detector endpoints for content analysis                    │
 │         │                                                                    │
-│         │ Port: 8080/TCP (built-in), 8000/TCP (HF, LLM Judge)               │
-│         │ Protocol: HTTP                                                     │
-│         │ Encryption: None (application-level); Istio mTLS when in mesh      │
-│         │ Auth: None (application-level); platform-managed via KServe        │
+│         │ Port: 443/TCP                                                      │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS (managed by KServe/Istio)                          │
+│         │ Auth: Platform-managed (kube-rbac-proxy)                           │
 │         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  INGRESS (Istio Service Mesh - mTLS PASSTHROUGH)                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Platform Gateway)                                                  │
 │                                                                              │
-│  [KServe InferenceService - HuggingFace Detector]                            │
-│  - Ingress Type: KServe RawDeployment                                        │
-│  - Istio sidecar: inject=true (PASSTHROUGH mode)                             │
-│  - Port: 8000/TCP (external) → 8000/TCP (container)                         │
-│  - Auth annotation: security.opendatahub.io/enable-auth                     │
-│                                                                              │
-│  [KServe InferenceService - LLM Judge Detector]                              │
-│  - Ingress Type: KServe RawDeployment                                        │
-│  - Istio sidecar: inject=true (PASSTHROUGH mode)                             │
-│  - Port: 8000/TCP (external) → 8000/TCP (container)                         │
-│  - Auth annotation: security.opendatahub.io/enable-auth                     │
-│                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  SERVICE MESH (Internal - Istio mTLS when configured)                        │
-│                                                                              │
-│  [Built-in Detector]                                                         │
-│  - Service: ClusterIP                                                        │
-│  - Namespace: (deployment ns)                                                │
-│  - Port: 8080/TCP                                                            │
-│  - Protocol: HTTP                                                            │
-│  - Encryption: None (configurable via ssl_ca_certs in config)                │
-│  - Auth: None                                                                │
-│  - Endpoints:                                                                │
-│    POST /api/v1/text/contents (content analysis)                             │
-│    GET  /health (liveness/readiness)                                         │
-│    GET  /metrics (Prometheus)                                                │
-│    GET  /registry (list detectors)                                           │
-│                                                                              │
-│  [HuggingFace Detector]                                                      │
-│  - Service: ClusterIP (via KServe InferenceService)                          │
-│  - Namespace: (deployment ns)                                                │
-│  - Port: 8000/TCP                                                            │
-│  - Protocol: HTTP                                                            │
-│  - Encryption: None (Istio sidecar mTLS)                                     │
-│  - Auth: KServe auth (security.opendatahub.io/enable-auth)                  │
-│  - Image: rhoai/odh-guardrails-detector-huggingface-runtime-rhel9           │
-│  - Endpoints:                                                                │
-│    POST /api/v1/text/contents (ML content analysis)                          │
-│    GET  /health (liveness/readiness)                                         │
-│    GET  /metrics (Prometheus)                                                │
+│  [KServe InferenceService Gateway]                                           │
+│  - Port: 443/TCP (external) → internal service ports                        │
+│  - TLS Termination: TLS (SIMPLE mode via KServe/Istio)                      │
+│  - AuthN: security.opendatahub.io/enable-auth: 'true'                      │
 │         │                                                                    │
-│         │ (in-process PyTorch inference - no network call)                    │
-│         │                                                                    │
-│  [LLM Judge Detector] (upstream only - no Konflux build)                     │
-│  - Service: ClusterIP (via KServe InferenceService)                          │
-│  - Namespace: (deployment ns)                                                │
-│  - Port: 8000/TCP                                                            │
-│  - Protocol: HTTP                                                            │
-│  - Encryption: None (Istio sidecar mTLS)                                     │
-│  - Auth: KServe auth (security.opendatahub.io/enable-auth)                  │
-│  - Image: quay.io/trustyai/guardrails-detector-llm-judge                    │
-│  - Endpoints:                                                                │
-│    POST /api/v1/text/contents (LLM judge analysis)                           │
-│    POST /api/v1/text/generation (prompt+response evaluation)                 │
-│    GET  /api/v1/metrics (list evaluation metrics)                            │
-│    GET  /health (liveness/readiness)                                         │
-│    GET  /metrics (Prometheus)                                                │
-│         │                                                                    │
-│         │ Port: configurable                                                 │
+│         │ Port: internal                                                     │
 │         │ Protocol: HTTP                                                     │
-│         │ Encryption: None                                                   │
-│         │ Auth: None                                                         │
+│         │ Encryption: mTLS (Istio sidecar, sidecar.istio.io/inject: 'true') │
+│         │ Auth: kube-rbac-proxy sidecar                                      │
 │         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  EXTERNAL SERVICES                                                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  SERVICE MESH (Trusted - Istio mTLS)                                         │
 │                                                                              │
-│  [vLLM-compatible LLM Server]                                                │
-│  - Purpose: LLM-as-a-judge evaluation (OpenAI-compatible API)                │
-│  - Port: configurable                                                        │
-│  - Protocol: HTTP                                                            │
-│  - Encryption: None                                                          │
-│  - Auth: None                                                                │
+│  ┌─────────────────────────────────────────────┐                             │
+│  │  [Built-in Detector]                         │                             │
+│  │  - Namespace: {user-namespace}                │                             │
+│  │  - Port: 8080/TCP                             │                             │
+│  │  - Protocol: HTTP (plaintext)                 │                             │
+│  │  - UID: 1001 (non-root)                       │                             │
+│  │  - No Kubernetes API access                   │                             │
+│  │  - Image: rhoai/odh-built-in-detector-rhel9   │                             │
+│  │  - Detectors: regex, file_type, custom         │                             │
+│  │  - Endpoints:                                  │                             │
+│  │    POST /api/v1/text/contents                  │                             │
+│  │    GET  /health                                │                             │
+│  │    GET  /metrics                               │                             │
+│  │    GET  /registry                              │                             │
+│  │  - No upstream dependencies (self-contained)   │                             │
+│  └─────────────────────────────────────────────┘                             │
 │                                                                              │
-│  [S3/Minio Storage - Model Artifacts]                                        │
-│  - Purpose: HuggingFace model file storage                                   │
-│  - Port: 9000/TCP                                                            │
-│  - Protocol: HTTP                                                            │
-│  - Encryption: None                                                          │
-│  - Auth: AWS-style credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)    │
+│  ┌─────────────────────────────────────────────────────────────────┐         │
+│  │  [HuggingFace Detector]                                          │         │
+│  │  - Namespace: {user-namespace}                                    │         │
+│  │  - Port: 8000/TCP                                                 │         │
+│  │  - Protocol: HTTP (plaintext)                                     │         │
+│  │  - UID: 1001 (non-root)                                           │         │
+│  │  - No Kubernetes API access                                       │         │
+│  │  - Image: rhoai/odh-guardrails-detector-huggingface-runtime-rhel9│         │
+│  │  - Models: AutoModelForSequenceClassification,                    │         │
+│  │            AutoModelForTokenClassification,                        │         │
+│  │            GraniteForCausalLM                                      │         │
+│  │  - Resources: requests 18Gi, limits 20Gi memory                   │         │
+│  │  - Workers: 1 (GPU memory constraint)                              │         │
+│  │  - Endpoints:                                                      │         │
+│  │    POST /api/v1/text/contents                                      │         │
+│  │    GET  /health                                                    │         │
+│  │    GET  /metrics                                                   │         │
+│  │  - Init container: KServe storage initializer                      │         │
+│  │         │                                                          │         │
+│  │         │ Port: 9000/TCP                                           │         │
+│  │         │ Protocol: HTTP                                           │         │
+│  │         │ Encryption: None (example config)                        │         │
+│  │         │ Auth: AWS credentials (Secret)                           │         │
+│  │         ▼                                                          │         │
+│  │    [S3/Minio Model Storage - init phase only]                      │         │
+│  └─────────────────────────────────────────────────────────────────┘         │
 │                                                                              │
-│  [HuggingFace Hub - huggingface.co]                                          │
-│  - Purpose: Model download via huggingface-cli (build-time/init)             │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS                                                           │
-│  - Auth: HuggingFace token (optional)                                        │
+│  ┌─────────────────────────────────────────────────────────────────┐         │
+│  │  [LLM Judge Detector]                                             │         │
+│  │  - Namespace: {user-namespace}                                     │         │
+│  │  - Port: 8000/TCP                                                  │         │
+│  │  - Protocol: HTTP (plaintext)                                      │         │
+│  │  - UID: 1001 (non-root)                                            │         │
+│  │  - No Kubernetes API access                                        │         │
+│  │  - Image: community only (no Konflux build)                        │         │
+│  │  - NOT GA for RHOAI (no Konflux Dockerfile)                        │         │
+│  │  - Endpoints:                                                      │         │
+│  │    POST /api/v1/text/contents                                      │         │
+│  │    POST /api/v1/text/generation                                    │         │
+│  │    GET  /api/v1/metrics                                            │         │
+│  │    GET  /health                                                    │         │
+│  │    GET  /metrics                                                   │         │
+│  │         │                                                          │         │
+│  │         │ Port: 8080/TCP                                           │         │
+│  │         │ Protocol: HTTP                                           │         │
+│  │         │ Encryption: None (in-cluster)                            │         │
+│  │         │ Auth: None                                               │         │
+│  │         ▼                                                          │         │
+│  │    [vLLM Server - OpenAI-compatible]                               │         │
+│  └─────────────────────────────────────────────────────────────────┘         │
 │                                                                              │
 │  [Prometheus]                                                                │
-│  - Purpose: Metrics collection                                               │
-│  - Scrape ports: 8080/TCP (built-in), 8000/TCP (HF, LLM Judge)              │
+│  - Scrapes /metrics from all detectors                                       │
+│  - Metric prefix: trustyai_guardrails_*                                      │
+│  - Port: 8080/TCP (built-in), 8000/TCP (HF, Judge)                         │
 │  - Protocol: HTTP                                                            │
 │  - Encryption: None                                                          │
-│  - Auth: None                                                                │
-│  - Annotation: prometheus.io/port                                            │
 │                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+├─────────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                           │
+│                                                                              │
+│  [S3/Minio - Model Storage]                                                  │
+│  - Purpose: HuggingFace model artifact storage                               │
+│  - Port: 9000/TCP                                                            │
+│  - Protocol: HTTP                                                            │
+│  - Encryption: None (example config; production should use HTTPS)            │
+│  - Auth: AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)          │
+│  - Access: Init phase only (KServe storage initializer)                      │
+│                                                                              │
+│  [vLLM Server - OpenAI-compatible]                                           │
+│  - Purpose: LLM-as-a-judge content evaluation                               │
+│  - Port: 8080/TCP                                                            │
+│  - Protocol: HTTP                                                            │
+│  - Encryption: None (in-cluster)                                             │
+│  - Auth: None                                                                │
+│  - Access: Runtime (Judge detector calls Judge.from_url())                   │
+└─────────────────────────────────────────────────────────────────────────────┘
 
 RBAC Summary:
-- No ClusterRoles defined (application-level pods, no Kubernetes API interaction)
-- RoleBinding (example): user-one-view → ClusterRole:view → SA:user-one
+  No RBAC resources defined. All detectors run as non-root user (UID 1001)
+  with no Kubernetes API access. Security is delegated entirely to the
+  KServe/RHOAI platform.
+
+Authentication & Authorization:
+  - Application level: None (detectors perform no authentication)
+  - Platform level: Controlled by InferenceService annotations:
+    - security.opendatahub.io/enable-auth: 'true'
+    - sidecar.istio.io/inject: 'true'
+  - RHOAI 3.x enforcement: Istio sidecar (mTLS) + kube-rbac-proxy
+  - RHOAI 2.x enforcement: oauth-proxy
 
 Service Mesh Configuration:
-- Istio sidecar injection: sidecar.istio.io/inject=true
-- TLS mode: PASSTHROUGH (Istio sidecar handles mTLS)
-- Auth: security.opendatahub.io/enable-auth annotation (KServe-managed)
+  - Istio sidecar injection: Enabled (per annotation)
+  - mTLS: Platform-managed (STRICT expected)
+  - No NetworkPolicy defined within detector manifests
+  - Relies on platform-level network isolation
 
 Secrets:
-- aws-connection-minio-data-connection-guardrails-guardian (Opaque)
-  - Keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_S3_BUCKET, AWS_S3_ENDPOINT
-  - Purpose: S3 credentials for model storage access
-  - Provisioned by: Manual
-  - Auto-rotate: No
-
-TLS Configuration:
-- Application-level: Optional SSL via uvicorn (ssl_ca_certs config key)
-- No hardcoded cipher suites
-- System trust store (UBI9 OpenSSL)
-- OpenSSL pinned in HF Konflux Dockerfile: openssl-libs-3.5.1-5.el9_7
+  - aws-connection-minio-data-connection-guardrails-guardian (Opaque)
+    Purpose: S3 credentials for HF model storage
+    Provisioned by: Manual (example manifest)
+    Auto-Rotate: No
 
 FIPS Compliance:
-- Python services inherit FIPS from UBI9 base image OpenSSL
-- No application-level crypto code detected
-- No Go binaries (N/A for GOEXPERIMENT/strictfipsruntime)
+  - Python application on RHEL 9 AIPCC base images
+  - OpenSSL: Inherited from base image (FIPS mode when host FIPS enabled)
+  - Application crypto: Minimal - optional TLS via stdlib ssl module
+  - No non-FIPS algorithms detected (no MD5, RC4)
 
-Custom Detector Security:
-- AST-based static code analysis sandboxing
-- Blocked imports: os, subprocess, sys, shutil
-- Blocked functions: eval, exec, open, compile, input
-- Allowed exception: os.getenv, os.environ (read-only env access)
+Build Hermeticity:
+  - Built-in detector: Konflux hermetic build with hash-pinned pip deps
+  - HuggingFace detector: Konflux hermetic build with hash-pinned pip deps
+  - LLM Judge detector: No Konflux build (community only)
+  - All Konflux builds use AIPCC base images with RHAI package index

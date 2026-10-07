@@ -1,0 +1,87 @@
+graph TD
+    subgraph "Pipeline Service Account"
+        SA["Pipeline ServiceAccount<br/>(inherited by step containers)"]
+    end
+
+    subgraph "Authentication Methods"
+        InCluster["load_incluster_config()<br/>In-cluster ServiceAccount token"]
+        AWSCreds["AWS Credentials<br/>(env var injection)"]
+        HFToken["HuggingFace Token<br/>(env var injection)"]
+        LLMKey["LLM API Key<br/>(env var injection)"]
+    end
+
+    subgraph "Required API Permissions (Inferred)"
+        InferSvc["serving.kserve.io<br/>InferenceService<br/>create, get, list"]
+        ServingRT["serving.kserve.io<br/>ServingRuntime<br/>get, list"]
+        RayJobs["ray.io<br/>RayJob<br/>create, get, list, watch"]
+        ConfigMaps["core<br/>ConfigMaps<br/>get"]
+        Secrets["core<br/>Secrets<br/>get"]
+    end
+
+    subgraph "Credential Secrets (Environment Variables)"
+        AWSKey["AWS_SECRET_ACCESS_KEY"]
+        TestAWSKey["TEST_DATA_AWS_SECRET_ACCESS_KEY"]
+        InputAWSKey["INPUT_DATA_AWS_SECRET_ACCESS_KEY"]
+        S3Key["S3_SECRET_KEY"]
+        HF["HF_TOKEN"]
+        LLM["LLM_API_KEY"]
+        OCI["OCI_PULL_SECRET_MODEL_DOWNLOAD"]
+        K8sToken["KUBERNETES_AUTH_TOKEN"]
+    end
+
+    subgraph "Target Services"
+        K8sAPI["Kubernetes API Server"]
+        S3Svc["S3-Compatible Storage"]
+        HFSvc["HuggingFace Hub"]
+        KServeSvc["KServe Runtime"]
+    end
+
+    %% Auth flows
+    SA -->|"mounts"| InCluster
+    SA -->|"env vars"| AWSCreds
+    SA -->|"env vars"| HFToken
+    SA -->|"env vars"| LLMKey
+
+    InCluster -->|"authenticates to"| K8sAPI
+    AWSCreds -->|"authenticates to"| S3Svc
+    HFToken -->|"authenticates to"| HFSvc
+    InCluster -->|"authenticates to"| KServeSvc
+
+    %% RBAC permissions
+    K8sAPI -->|"authorizes"| InferSvc
+    K8sAPI -->|"authorizes"| ServingRT
+    K8sAPI -->|"authorizes"| RayJobs
+    K8sAPI -->|"authorizes"| ConfigMaps
+    K8sAPI -->|"authorizes"| Secrets
+
+    %% Credential mapping
+    AWSCreds --- AWSKey
+    AWSCreds --- TestAWSKey
+    AWSCreds --- InputAWSKey
+    AWSCreds --- S3Key
+    HFToken --- HF
+    LLMKey --- LLM
+
+    %% Styling
+    style SA fill:#4a90e2,color:#fff
+    style InCluster fill:#f5a623,color:#fff
+    style AWSCreds fill:#f5a623,color:#fff
+    style HFToken fill:#f5a623,color:#fff
+    style LLMKey fill:#f5a623,color:#fff
+    style InferSvc fill:#7ed321,color:#fff
+    style ServingRT fill:#7ed321,color:#fff
+    style RayJobs fill:#7ed321,color:#fff
+    style ConfigMaps fill:#7ed321,color:#fff
+    style Secrets fill:#7ed321,color:#fff
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style S3Svc fill:#e8e8e8,stroke:#333
+    style HFSvc fill:#e8e8e8,stroke:#333
+    style KServeSvc fill:#e8e8e8,stroke:#333
+    style AWSKey fill:#f8cecc,stroke:#b85450
+    style TestAWSKey fill:#f8cecc,stroke:#b85450
+    style InputAWSKey fill:#f8cecc,stroke:#b85450
+    style S3Key fill:#f8cecc,stroke:#b85450
+    style HF fill:#f8cecc,stroke:#b85450
+    style LLM fill:#f8cecc,stroke:#b85450
+    style OCI fill:#f8cecc,stroke:#b85450
+    style K8sToken fill:#f8cecc,stroke:#b85450

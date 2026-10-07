@@ -1,46 +1,38 @@
 sequenceDiagram
     participant Client as External Client
-    participant OAuthProxy as oauth-proxy Sidecar<br/>8443/TCP HTTPS TLS
-    participant RESTProxy as REST Proxy<br/>8008/TCP HTTP
+    participant OAuth as oauth-proxy Sidecar<br/>8443/TCP HTTPS
+    participant REST as REST Proxy<br/>8008/TCP HTTP
     participant MM as ModelMesh Container<br/>8033/TCP gRPC
-    participant Runtime as Model Runtime<br/>UDS/TCP gRPC
-    participant etcd as etcd Cluster<br/>2379/TCP gRPC TLS
-    participant Puller as Storage Puller<br/>8086/TCP gRPC
-    participant S3 as Object Storage<br/>443/TCP HTTPS
+    participant Runtime as Model Runtime<br/>(Triton/MLServer/OVMS)
+    participant Puller as Puller Sidecar<br/>8086/TCP gRPC
+    participant S3 as Object Storage<br/>(S3/GCS) 443/TCP
+    participant etcd as etcd<br/>2379/TCP gRPC
+    participant Controller as modelmesh-serving-controller
+    participant K8sAPI as Kubernetes API<br/>443/TCP HTTPS
 
-    Note over Client,S3: Flow 1: gRPC Inference Request
-    Client->>MM: gRPC inference<br/>8033/TCP TLS (optional)<br/>mTLS (optional)
-    MM->>Runtime: Forward to model server<br/>UDS or TCP gRPC<br/>pod-internal (no encryption)
-    Runtime-->>MM: Prediction result
-    MM-->>Client: gRPC response
-    MM->>etcd: State sync<br/>2379/TCP gRPC TLS<br/>Username/password + client certs
+    Note over Client,Runtime: Flow 1: Model Inference Request
 
-    Note over Client,S3: Flow 2: REST Inference Request (RHOAI)
-    Client->>OAuthProxy: POST /v2/models/{model}/infer<br/>8443/TCP HTTPS TLS<br/>OpenShift OAuth Bearer Token
-    OAuthProxy->>RESTProxy: Forward (authenticated)<br/>8008/TCP HTTP<br/>pod-internal (no encryption)
-    RESTProxy->>MM: Translate REST to gRPC<br/>8033/TCP gRPC TLS (optional)<br/>pod-internal
-    MM->>Runtime: Forward to model server<br/>UDS or TCP gRPC<br/>pod-internal
-    Runtime-->>MM: Prediction result
-    MM-->>RESTProxy: gRPC response
-    RESTProxy-->>OAuthProxy: HTTP JSON response
-    OAuthProxy-->>Client: HTTPS JSON response
+    Client->>OAuth: HTTPS/8443<br/>TLS (serving cert)<br/>OpenShift SAR auth
+    OAuth->>REST: HTTP/8008<br/>localhost (no TLS)
+    REST->>MM: gRPC/8033<br/>REST→gRPC translation<br/>Optional TLS
+    MM->>Runtime: gRPC/UDS<br/>pod-local<br/>No encryption
+    Runtime-->>MM: Prediction Result
+    MM-->>REST: gRPC Response
+    REST-->>OAuth: HTTP Response
+    OAuth-->>Client: HTTPS Response
 
-    Note over Client,S3: Flow 3: Model Registration (Predictor Reconciliation)
-    participant Controller as modelmesh-controller<br/>443/TCP HTTPS
-    participant K8sAPI as Kubernetes API<br/>443/TCP HTTPS TLS
+    Note over Controller,etcd: Flow 2: Model Registration
 
-    Controller->>K8sAPI: Watch Predictor CR<br/>443/TCP HTTPS TLS<br/>ServiceAccount token
-    K8sAPI-->>Controller: Predictor created/updated
-    Controller->>MM: registerModel (SetVModel)<br/>8033/TCP gRPC TLS (optional)<br/>kube:// resolver
-    MM->>etcd: Store model registration<br/>2379/TCP gRPC TLS<br/>Credentials from Secret
-    MM->>Puller: Download model<br/>8086/TCP gRPC<br/>pod-internal
-    Puller->>S3: Fetch model artifacts<br/>443/TCP HTTPS TLS<br/>Storage credentials
+    Controller->>K8sAPI: Watch Predictor CRs<br/>HTTPS/443<br/>ServiceAccount Token
+    K8sAPI-->>Controller: Predictor CR Event
+    Controller->>MM: gRPC/8033<br/>SetVModel / RegisterModel<br/>Optional TLS/mTLS
+    MM->>etcd: gRPC/2379<br/>Store model placement<br/>TLS (client cert)
+    etcd-->>MM: Placement confirmed
+
+    Note over MM,S3: Flow 3: Model Download
+
+    MM->>Puller: gRPC/8086<br/>Download request<br/>pod-local (no TLS)
+    Puller->>S3: HTTPS/443<br/>TLS 1.2+<br/>Storage credentials<br/>(from storage-config Secret)
     S3-->>Puller: Model artifacts
-    Puller-->>MM: Model cached locally
+    Puller-->>MM: Download complete
     MM->>Runtime: Load model
-    Runtime-->>MM: Model loaded
-
-    Note over Client,S3: Flow 4: etcd Event Streaming
-    Controller->>etcd: EtcdRangeWatcher<br/>2379/TCP gRPC TLS mTLS<br/>Username/password + client certs
-    etcd-->>Controller: Model state change events<br/>(vmodels/ and registry/ prefixes)
-    Controller->>Controller: Update Predictor status

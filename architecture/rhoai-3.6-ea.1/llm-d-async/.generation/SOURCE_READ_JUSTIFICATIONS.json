@@ -1,0 +1,185 @@
+{
+  "component": "llm-d-async",
+  "reads": [
+    {
+      "expected_signal": "imports, server initialization, transport setup",
+      "gap_category": [
+        "integration_points",
+        "internal_dependencies"
+      ],
+      "line_range": "1-32",
+      "outcome": "resolved",
+      "path": "cmd/main.go",
+      "question": "What is the main entrypoint structure and which packages does it integrate?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "import list showing redis, pubsub, flowcontrol, health, metrics integrations",
+      "gap_category": [
+        "integration_points",
+        "internal_dependencies"
+      ],
+      "line_range": "1-80",
+      "outcome": "resolved",
+      "path": "pkg/server/runner.go",
+      "question": "What packages are imported and what is the runner initialization structure?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis",
+        "Integration Points"
+      ]
+    },
+    {
+      "expected_signal": "loadFlow switch on transport type, initHealthServer, startMetricsServer, initInferenceClient",
+      "gap_category": [
+        "integration_points",
+        "services"
+      ],
+      "line_range": "80-200",
+      "outcome": "resolved",
+      "path": "pkg/server/runner.go",
+      "question": "How are transport backends, health server, metrics server, and inference client initialized?",
+      "sections": [
+        "Data Flows",
+        "Integration Points",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "switch on redis-pubsub/redis-sortedset/gcp-pubsub, buildTLSConfig with MinVersion TLS 1.2, startMetricsServer with WithAuthenticationAndAuthorization",
+      "gap_category": [
+        "integration_points",
+        "fips_compliance",
+        "authentication"
+      ],
+      "line_range": "277-432",
+      "outcome": "resolved",
+      "path": "pkg/server/runner.go",
+      "question": "What transport backends are supported, how is TLS configured, and what authentication is on the metrics server?",
+      "sections": [
+        "Integration Points",
+        "Security",
+        "Authentication & Authorization",
+        "FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "HealthPort 8081, MetricsPort 9090, MetricsEndpointAuth true, transport type redis-pubsub default",
+      "gap_category": [
+        "services",
+        "authentication",
+        "fips_compliance",
+        "integration_points"
+      ],
+      "line_range": "1-159",
+      "outcome": "resolved",
+      "path": "pkg/server/options.go",
+      "question": "What are the default ports, auth settings, and transport configuration options?",
+      "sections": [
+        "Architectural Analysis",
+        "Authentication & Authorization",
+        "Integration Points"
+      ]
+    },
+    {
+      "expected_signal": "GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, UBI 9 base image",
+      "gap_category": [
+        "fips_compliance"
+      ],
+      "line_range": "1-37",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux",
+      "question": "What FIPS build flags and base images are used in the Konflux build?",
+      "sections": [
+        "FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "HandleFunc for /healthz and /readyz, no middleware, no auth, plain HTTP",
+      "gap_category": [
+        "authentication",
+        "services"
+      ],
+      "line_range": "1-109",
+      "outcome": "resolved",
+      "path": "internal/health/health.go",
+      "question": "How are health endpoints registered and is any authentication applied?",
+      "sections": [
+        "Authentication & Authorization",
+        "HTTP Endpoints"
+      ]
+    },
+    {
+      "expected_signal": "containerPort, service definitions, probes",
+      "gap_category": [
+        "services"
+      ],
+      "line_range": "1-39",
+      "outcome": "resolved",
+      "path": "docs/guides/e2e-deploy/modelserver/base/decode-deployment.yaml",
+      "question": "Does the deployment manifest define Kubernetes Services or only Deployment resources?",
+      "sections": [
+        "Services",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance",
+        "grpc_services",
+        "services"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "docs/guides/e2e-deploy/modelserver/base/kustomization.yaml",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance",
+        "grpc_services",
+        "services"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "docs/guides/e2e-deploy/modelserver/kustomization.yaml",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance",
+        "grpc_services",
+        "services"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "docs/guides/e2e-deploy/modelserver/patch-vllm.yaml",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    }
+  ],
+  "schema_version": 1
+}

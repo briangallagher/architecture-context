@@ -1,0 +1,53 @@
+graph TB
+    subgraph ModuleOperator["MCP Lifecycle Module Operator"]
+        direction TB
+        Entrypoint["/manager<br/>Container Entrypoint"]
+        Controller["MCPLifecycleOperatorReconciler<br/>controller-runtime"]
+        ManifestProvider["KustomizeProvider<br/>Embedded FS Manifests"]
+        SSADeployer["SSA Deployer<br/>odh-platform-utilities<br/>Field Owner: mcp-lifecycle-operator"]
+        Entrypoint --> Controller
+        Controller --> ManifestProvider
+        ManifestProvider --> SSADeployer
+    end
+
+    subgraph Operand["MCP Lifecycle Operator (Operand)"]
+        direction TB
+        OperandDeploy["mcp-lifecycle-operator-<br/>controller-manager<br/>Deployment"]
+        OperandSA["ServiceAccount<br/>mcp-lifecycle-operator-<br/>controller-manager"]
+        OperandDeploy --- OperandSA
+    end
+
+    %% CRDs
+    MCPLifecycleOperatorCR["MCPLifecycleOperator CR<br/>Cluster-scoped<br/>components.platform.opendatahub.io/v1alpha1"]
+    MCPServerCR["MCPServer CR<br/>Namespaced<br/>mcp.x-k8s.io/v1alpha1"]
+
+    %% Flows
+    MCPLifecycleOperatorCR -->|"watched by (For)"| Controller
+    SSADeployer -->|"deploys via SSA"| OperandDeploy
+    SSADeployer -->|"creates RBAC,<br/>NetworkPolicy,<br/>ServiceMonitor"| OperandResources["Operand Resources<br/>ClusterRoles, Bindings,<br/>NetworkPolicy, ServiceMonitor"]
+    OperandDeploy -->|"watches & reconciles"| MCPServerCR
+    Controller -->|"reports status"| MCPLifecycleOperatorCR
+
+    %% External dependencies
+    Controller -->|"watches"| K8sResources["Kubernetes Resources<br/>Deployments, ConfigMaps,<br/>Services, ServiceAccounts,<br/>CRDs, RBAC"]
+    Controller -->|"API calls<br/>6443/HTTPS"| KubeAPI["Kubernetes API Server"]
+
+    %% Metrics
+    MetricsService["Metrics Service<br/>8443/TCP ClusterIP"]
+    OperandDeploy --> MetricsService
+    Prometheus["Prometheus<br/>(via ServiceMonitor)"] -->|"scrapes<br/>8443/TCP"| MetricsService
+
+    %% Styling
+    style Controller fill:#4a90e2,stroke:#333,color:#fff
+    style SSADeployer fill:#4a90e2,stroke:#333,color:#fff
+    style ManifestProvider fill:#4a90e2,stroke:#333,color:#fff
+    style Entrypoint fill:#4a90e2,stroke:#333,color:#fff
+    style MCPLifecycleOperatorCR fill:#f5a623,stroke:#333,color:#000
+    style MCPServerCR fill:#f5a623,stroke:#333,color:#000
+    style OperandDeploy fill:#7ed321,stroke:#333,color:#000
+    style OperandSA fill:#7ed321,stroke:#333,color:#000
+    style OperandResources fill:#7ed321,stroke:#333,color:#000
+    style KubeAPI fill:#e8e8e8,stroke:#333
+    style K8sResources fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style MetricsService fill:#d5e8d4,stroke:#333

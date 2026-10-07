@@ -1,0 +1,66 @@
+graph TB
+    subgraph WVA["Workload Variant Autoscaler"]
+        direction TB
+        subgraph Controllers["Reconciliation Loops"]
+            ConfigMapCtrl["ConfigMap Controller<br/>Bootstraps & propagates config"]
+            HPACtrl["HPA Controller<br/>Reconciles HorizontalPodAutoscaler"]
+            InferencePoolCtrl["InferencePool Controller<br/>Reconciles InferencePool resources"]
+            ScaledObjectCtrl["ScaledObject Controller<br/>Reconciles KEDA ScaledObjects"]
+        end
+
+        subgraph Engine["Optimization Engine"]
+            KalmanFilter["Kalman Filter<br/>Prediction engine"]
+            Coordinator["Coordinator<br/>Scaling decision logic"]
+            DirectActuator["Direct Actuator<br/>Scale subresource updates"]
+        end
+
+        subgraph Plugins["Plugins"]
+            GPURebalance["GPU Rebalance Plugin<br/>ResourceQuota inspection"]
+        end
+
+        subgraph Observability["Observability"]
+            MetricsEndpoint[":8443/metrics<br/>TokenReview + SAR auth<br/>TLS (self-signed/cert-manager)"]
+            HealthProbe[":8081/healthz<br/>Unauthenticated"]
+            ReadyProbe[":8081/readyz<br/>Unauthenticated"]
+        end
+
+        ConfigMapCtrl -->|config updates| Coordinator
+        HPACtrl -->|HPA targets| Coordinator
+        InferencePoolCtrl -->|pool targets| Coordinator
+        ScaledObjectCtrl -->|KEDA targets| Coordinator
+        Coordinator -->|scaling decisions| KalmanFilter
+        KalmanFilter -->|predictions| Coordinator
+        Coordinator -->|scale actions| DirectActuator
+        GPURebalance -->|GPU topology| Coordinator
+    end
+
+    %% External Resources Watched
+    ConfigMapCR["ConfigMap<br/>(configuration)"] -->|watched by| ConfigMapCtrl
+    HPACR["HorizontalPodAutoscaler<br/>(autoscaling/v2)"] -->|watched by| HPACtrl
+    InferencePoolCR["InferencePool<br/>(inference.networking.k8s.io)"] -->|watched by| InferencePoolCtrl
+    ScaledObjectCR["ScaledObject<br/>(keda.sh/v1alpha1)"] -->|watched by| ScaledObjectCtrl
+
+    %% Scaling Targets
+    DirectActuator -->|scales| Deployments["Deployments<br/>(apps/v1)"]
+    DirectActuator -->|scales| LWS["LeaderWorkerSets<br/>(leaderworkerset.x-k8s.io)"]
+
+    %% External Dependencies
+    Coordinator -->|queries metrics| Prometheus["Prometheus<br/>HTTP/HTTPS TLS 1.2+<br/>Bearer/mTLS auth"]
+    GPURebalance -->|lists| Nodes["Kubernetes Nodes<br/>GPU discovery"]
+    GPURebalance -->|reads| ResourceQuotas["ResourceQuotas"]
+
+    %% Styling
+    style WVA fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style Controllers fill:#d5e8d4,stroke:#82b366
+    style Engine fill:#fff2cc,stroke:#d6b656
+    style Plugins fill:#f8cecc,stroke:#b85450
+    style Observability fill:#e1d5e7,stroke:#9673a6
+    style ConfigMapCR fill:#f5a623,stroke:#333
+    style HPACR fill:#f5a623,stroke:#333
+    style InferencePoolCR fill:#f5a623,stroke:#333
+    style ScaledObjectCR fill:#f5a623,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style Nodes fill:#e8e8e8,stroke:#333
+    style ResourceQuotas fill:#e8e8e8,stroke:#333
+    style Deployments fill:#7ed321,stroke:#333
+    style LWS fill:#7ed321,stroke:#333

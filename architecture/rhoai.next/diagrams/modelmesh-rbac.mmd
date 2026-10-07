@@ -1,56 +1,33 @@
 graph TD
-    subgraph Legend["Legend"]
-        direction LR
-        L1["Note: ModelMesh is a service, not a Kubernetes operator.<br/>It does NOT interact with the Kubernetes API.<br/>No RBAC manifests are defined in this repository.<br/>RBAC for the parent controller (modelmesh-serving) is in a separate repo."]
-    end
-
-    subgraph TLSAuth["TLS / mTLS Authentication"]
+    subgraph Note["ModelMesh RBAC"]
         direction TB
-
-        subgraph ExternalGRPC["External gRPC API (8033/TCP)"]
-            TLSSecret["Secret: model-mesh-tls-secret<br/>(kubernetes.io/tls)<br/>PKCS8 key + certificate"]
-            ClientAuth["Client Auth Mode<br/>(MM_TLS_CLIENT_AUTH)"]
-            TrustCert["Trust Certificate<br/>(MM_TLS_TRUST_CERT_PATH)"]
-
-            ClientAuth -->|NONE| NoAuth["No client cert required"]
-            ClientAuth -->|REQUIRE| RequireAuth["Client cert required<br/>Validated against trust cert"]
-            ClientAuth -->|OPTIONAL| OptionalAuth["Client cert validated<br/>if presented"]
-        end
-
-        subgraph IntraCluster["Inter-Pod Litelinks (8080/TCP)"]
-            SameKey["Uses same TLS keypair<br/>as external gRPC"]
-            IntraAuth["Intra-Cluster Auth<br/>(MM_INTRACLUSTER_CLIENTAUTH)"]
-            JKSTrust["JKS Truststore<br/>(watson.ssl.truststore)"]
-
-            IntraAuth -->|configurable| JKSTrust
-        end
-
-        subgraph etcdAuth["etcd Connection (2379/TCP)"]
-            etcdSecret["Secret: model-mesh-icd-etcd<br/>(Opaque)<br/>host, port, credentials"]
-            etcdTLS["TLS: configurable"]
-            etcdClientCert["Auth: Client certificate<br/>(configurable)"]
-        end
+        Info["ModelMesh does NOT define RBAC resources.<br/>It runs as a Java process within a pod<br/>and does not interact with the Kubernetes API.<br/><br/>RBAC is managed by the<br/>modelmesh-serving controller."]
     end
 
-    subgraph UnauthEndpoints["Unauthenticated Endpoints"]
-        Metrics["Prometheus Metrics<br/>2112/TCP HTTP(S)<br/>Auth: None<br/>NetworkPolicy: allows all"]
-        HealthReady["/ready - Readiness Probe<br/>8089/TCP HTTP<br/>Auth: None"]
-        HealthLive["/live - Liveness Probe<br/>8089/TCP HTTP<br/>Auth: None"]
-        PreStop["/prestop - Graceful Shutdown<br/>configurable/TCP HTTP<br/>Auth: None"]
+    subgraph Secrets["Secrets Used by ModelMesh"]
+        direction TB
+        EtcdSecret["model-mesh-icd-etcd<br/>Type: Opaque (JSON)<br/>Purpose: etcd connection config<br/>(endpoints, credentials, TLS certs)<br/>Provisioned: Manual / platform operator<br/>Auto-Rotate: No"]
+        TLSSecret["model-mesh-tls-secret<br/>Type: kubernetes.io/tls<br/>Purpose: TLS cert/key for<br/>external gRPC + internal litelinks<br/>Provisioned: Manual / cert-manager<br/>Auto-Rotate: No"]
     end
 
-    subgraph LocalhostOnly["Localhost-Only (Pod Boundary)"]
-        RuntimeGRPC["ModelRuntime gRPC<br/>8085/TCP or UDS<br/>plaintext, no auth<br/>Secured by pod boundary"]
+    subgraph AuthMechanisms["Authentication & Authorization"]
+        direction TB
+        ExtGRPC["gRPC External (8033/TCP)<br/>Auth: Optional mTLS<br/>MM_TLS_CLIENT_AUTH:<br/>NONE / REQUIRE / OPTIONAL<br/>Enforcement: Netty SslContext"]
+        IntGRPC["gRPC Litelinks (8080/TCP)<br/>Auth: Optional mTLS<br/>MM_INTRACLUSTER_CLIENTAUTH<br/>Enforcement: litelinks TLS"]
+        Health["Health Probes (8089/TCP)<br/>Auth: None<br/>Unauthenticated<br/>(kubelet probes)"]
+        Metrics["Prometheus (2112/TCP)<br/>Auth: TLS server-auth only<br/>Self-signed cert<br/>No client auth"]
     end
 
-    style Legend fill:#fff3cd,stroke:#856404,stroke-width:2px
-    style TLSSecret fill:#4a90e2,stroke:#333,color:#fff
-    style etcdSecret fill:#4a90e2,stroke:#333,color:#fff
-    style RequireAuth fill:#28a745,stroke:#333,color:#fff
-    style OptionalAuth fill:#ffc107,stroke:#333
-    style NoAuth fill:#dc3545,stroke:#333,color:#fff
-    style Metrics fill:#e8e8e8,stroke:#333
-    style HealthReady fill:#e8e8e8,stroke:#333
-    style HealthLive fill:#e8e8e8,stroke:#333
-    style PreStop fill:#e8e8e8,stroke:#333
-    style RuntimeGRPC fill:#f5a623,stroke:#333,color:#fff
+    subgraph FIPSWarning["FIPS Compliance Warning"]
+        direction TB
+        FIPS["CRITICAL: Java FIPS mode DISABLED<br/>-Dcom.redhat.fips=false<br/><br/>SunPKCS11 provider removed<br/>BouncyCastle (non-FIPS) used for certs<br/>BoringSSL-static NOT FIPS-validated<br/><br/>ModelMesh does NOT use FIPS-validated<br/>crypto even on FIPS-enabled hosts"]
+    end
+
+    style Info fill:#f0f0f0,stroke:#999,stroke-width:1px
+    style EtcdSecret fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style TLSSecret fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style ExtGRPC fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style IntGRPC fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style Health fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style Metrics fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style FIPS fill:#f8d7da,stroke:#dc3545,stroke-width:3px

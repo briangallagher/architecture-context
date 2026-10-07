@@ -1,0 +1,77 @@
+graph TB
+    subgraph "batch-gateway"
+        subgraph "API Server"
+            APIServer["batch-gateway-apiserver<br/>Port 8000"]
+            BusinessMux["Business API Mux<br/>/v1/* endpoints"]
+            ObsMux["Observability Mux<br/>Port 8081"]
+            TLSLayer["TLS Termination<br/>(optional, TLS 1.2+)"]
+            Middleware["Middleware Chain<br/>Panic Recovery → OTel → Security Headers"]
+
+            TLSLayer --> Middleware
+            Middleware --> BusinessMux
+            APIServer --> BusinessMux
+            APIServer --> ObsMux
+        end
+
+        subgraph "Processor"
+            Processor["batch-gateway-processor<br/>Background Worker"]
+            FanOut["Inference Fan-Out"]
+            ResultAgg["Result Aggregator"]
+
+            Processor --> FanOut
+            FanOut --> ResultAgg
+        end
+
+        subgraph "Garbage Collector"
+            GC["batch-gateway-gc<br/>Background Worker"]
+            TTLScanner["TTL Scanner"]
+            Cleaner["File/Record Cleaner"]
+
+            GC --> TTLScanner
+            TTLScanner --> Cleaner
+        end
+
+        SharedSecret["batch-gateway-secrets<br/>/etc/.secrets/"]
+    end
+
+    Client[External Client] -->|"REST API<br/>Port 8000"| TLSLayer
+    BusinessMux -->|"Enqueue batch"| Redis["Redis/Valkey<br/>Work Queue"]
+    BusinessMux -->|"Store metadata"| PostgreSQL["PostgreSQL<br/>Batch/File Metadata"]
+    BusinessMux -->|"Store files"| S3["S3-Compatible Storage<br/>File Content"]
+
+    Redis -->|"Poll pending"| Processor
+    FanOut -->|"HTTP/HTTPS<br/>Inference requests"| LLMd["llm-d Inference Gateway"]
+    ResultAgg -->|"Write results"| S3
+    ResultAgg -->|"Update status"| PostgreSQL
+
+    TTLScanner -->|"Query expired"| PostgreSQL
+    Cleaner -->|"Remove files"| S3
+
+    SharedSecret -.->|"mounted"| APIServer
+    SharedSecret -.->|"mounted"| Processor
+    SharedSecret -.->|"mounted"| GC
+
+    ObsMux -->|"Metrics"| Prometheus["Prometheus"]
+    APIServer -->|"OTLP/gRPC"| OTel["OpenTelemetry Collector"]
+    Processor -->|"OTLP/gRPC"| OTel
+    GC -->|"OTLP/gRPC"| OTel
+
+    style APIServer fill:#4a90e2,stroke:#333,color:#fff
+    style Processor fill:#4a90e2,stroke:#333,color:#fff
+    style GC fill:#4a90e2,stroke:#333,color:#fff
+    style BusinessMux fill:#5ba3f5,stroke:#333,color:#fff
+    style ObsMux fill:#5ba3f5,stroke:#333,color:#fff
+    style TLSLayer fill:#5ba3f5,stroke:#333,color:#fff
+    style Middleware fill:#5ba3f5,stroke:#333,color:#fff
+    style FanOut fill:#5ba3f5,stroke:#333,color:#fff
+    style ResultAgg fill:#5ba3f5,stroke:#333,color:#fff
+    style TTLScanner fill:#5ba3f5,stroke:#333,color:#fff
+    style Cleaner fill:#5ba3f5,stroke:#333,color:#fff
+    style SharedSecret fill:#f5a623,stroke:#333
+    style Redis fill:#e8e8e8,stroke:#333
+    style PostgreSQL fill:#e8e8e8,stroke:#333
+    style S3 fill:#e8e8e8,stroke:#333
+    style LLMd fill:#7ed321,stroke:#333
+    style OTel fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style Client fill:#f9f9f9,stroke:#999

@@ -1,0 +1,113 @@
+graph TD
+    subgraph ServiceAccounts["Service Accounts"]
+        SA_AGO["ai-gateway-operator<br/>NS: opendatahub"]
+        SA_MaaS["maas-controller<br/>NS: opendatahub"]
+    end
+
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        CRB_Manager["manager-rolebinding<br/>(cluster-wide)"]
+        CRB_MaaS["maas-controller-rolebinding<br/>(cluster-wide)"]
+    end
+
+    subgraph RoleBindings["Role Bindings"]
+        RB_Leader["leader-election-rolebinding<br/>NS: ai-gateway-system"]
+        RB_SecretMigrate["maas-controller-secret-migrate<br/>NS: redhat-ai-gateway-infra"]
+    end
+
+    subgraph ClusterRoles["ClusterRoles"]
+        CR_Manager["manager-role"]
+        CR_MaaS["maas-controller-role"]
+        CR_Admin["components-aigateway-admin-role"]
+        CR_Editor["components-aigateway-editor-role"]
+        CR_Viewer["components-aigateway-viewer-role"]
+    end
+
+    subgraph Roles["Namespace Roles"]
+        R_Leader["leader-election-role<br/>NS: ai-gateway-system"]
+        R_SecretMigrate["maas-controller-secret-migrate<br/>NS: redhat-ai-gateway-infra"]
+    end
+
+    %% Bindings
+    SA_AGO -->|"bound via"| CRB_Manager
+    SA_AGO -->|"bound via"| RB_Leader
+    SA_MaaS -->|"bound via"| CRB_MaaS
+    SA_MaaS -->|"bound via"| RB_SecretMigrate
+
+    CRB_Manager -->|"grants"| CR_Manager
+    CRB_MaaS -->|"grants"| CR_MaaS
+    RB_Leader -->|"grants"| R_Leader
+    RB_SecretMigrate -->|"grants"| R_SecretMigrate
+
+    subgraph ManagerResources["manager-role Permissions (25+ API Groups)"]
+        direction TB
+        R_AIGateway["components.platform.opendatahub.io<br/>AIGateway, ModelsAsServices<br/>CRUD + status + finalizers"]
+        R_BatchLLM["batch.llm-d.ai<br/>LLMBatchGateway<br/>CRUD + deletecollection"]
+        R_MaaSCRDs["maas.opendatahub.io<br/>AITenant, Config, MaaSSubscription<br/>MaaSAuthPolicy, MaaSModelRef, etc.<br/>CRUD + status + finalizers"]
+        R_Inference["inference.opendatahub.io<br/>ExternalModel, ExternalProvider<br/>CRUD + status + finalizers"]
+        R_GatewayAPI["gateway.networking.k8s.io<br/>HTTPRoute, Gateway, ReferenceGrant<br/>CRUD + finalizers"]
+        R_Kuadrant["kuadrant.io<br/>AuthPolicy, TokenRateLimitPolicy<br/>RateLimitPolicy<br/>CRUD"]
+        R_Istio["networking.istio.io<br/>DestinationRule, EnvoyFilter<br/>ServiceEntry<br/>CRUD"]
+        R_Core["core ('')<br/>ConfigMaps, Services, SA<br/>Namespaces, Secrets, Events<br/>CRUD (varies)"]
+        R_RBAC["rbac.authorization.k8s.io<br/>ClusterRole, ClusterRoleBinding<br/>Role, RoleBinding<br/>CRUD"]
+        R_Apps["apps<br/>Deployments + finalizers<br/>CRUD"]
+        R_CRDs["apiextensions.k8s.io<br/>CustomResourceDefinitions<br/>CRUD"]
+        R_Monitoring["monitoring.coreos.com<br/>PodMonitor, PrometheusRule<br/>ServiceMonitor<br/>CRUD"]
+        R_CertMgr["cert-manager.io<br/>Certificates<br/>CRUD"]
+        R_OTel["opentelemetry.io<br/>OpenTelemetryCollectors<br/>CRUD"]
+        R_Perses["perses.dev<br/>PersesDashboard, PersesDataSource<br/>CRUD"]
+        R_Auth["authentication/authorization<br/>TokenReview, SubjectAccessReview<br/>create"]
+    end
+
+    CR_Manager -->|"grants access to"| R_AIGateway
+    CR_Manager -->|"grants access to"| R_BatchLLM
+    CR_Manager -->|"grants access to"| R_MaaSCRDs
+    CR_Manager -->|"grants access to"| R_Inference
+    CR_Manager -->|"grants access to"| R_GatewayAPI
+    CR_Manager -->|"grants access to"| R_Kuadrant
+    CR_Manager -->|"grants access to"| R_Istio
+    CR_Manager -->|"grants access to"| R_Core
+    CR_Manager -->|"grants access to"| R_RBAC
+    CR_Manager -->|"grants access to"| R_Apps
+    CR_Manager -->|"grants access to"| R_CRDs
+    CR_Manager -->|"grants access to"| R_Monitoring
+    CR_Manager -->|"grants access to"| R_CertMgr
+    CR_Manager -->|"grants access to"| R_OTel
+    CR_Manager -->|"grants access to"| R_Perses
+    CR_Manager -->|"grants access to"| R_Auth
+
+    subgraph AccessControl["AIGateway Access Control"]
+        AC_Admin["Admin: create, delete, get<br/>list, patch, update, watch"]
+        AC_Editor["Editor: create, delete, get<br/>list, patch, update, watch"]
+        AC_Viewer["Viewer: get, list, watch"]
+    end
+
+    CR_Admin -->|"AIGateway CRs"| AC_Admin
+    CR_Editor -->|"AIGateway CRs"| AC_Editor
+    CR_Viewer -->|"AIGateway CRs"| AC_Viewer
+
+    %% Styling
+    style SA_AGO fill:#4a90e2,stroke:#333,color:#fff
+    style SA_MaaS fill:#4a90e2,stroke:#333,color:#fff
+    style CR_Manager fill:#f5a623,stroke:#333
+    style CR_MaaS fill:#f5a623,stroke:#333
+    style CR_Admin fill:#f5a623,stroke:#333
+    style CR_Editor fill:#f5a623,stroke:#333
+    style CR_Viewer fill:#f5a623,stroke:#333
+    style R_Leader fill:#e8e8e8,stroke:#333
+    style R_SecretMigrate fill:#e8e8e8,stroke:#333
+    style R_AIGateway fill:#7ed321,stroke:#333
+    style R_BatchLLM fill:#7ed321,stroke:#333
+    style R_MaaSCRDs fill:#7ed321,stroke:#333
+    style R_Inference fill:#7ed321,stroke:#333
+    style R_GatewayAPI fill:#7ed321,stroke:#333
+    style R_Kuadrant fill:#7ed321,stroke:#333
+    style R_Istio fill:#7ed321,stroke:#333
+    style R_Core fill:#7ed321,stroke:#333
+    style R_RBAC fill:#e74c3c,stroke:#333,color:#fff
+    style R_Apps fill:#7ed321,stroke:#333
+    style R_CRDs fill:#e74c3c,stroke:#333,color:#fff
+    style R_Monitoring fill:#7ed321,stroke:#333
+    style R_CertMgr fill:#7ed321,stroke:#333
+    style R_OTel fill:#7ed321,stroke:#333
+    style R_Perses fill:#7ed321,stroke:#333
+    style R_Auth fill:#e74c3c,stroke:#333,color:#fff

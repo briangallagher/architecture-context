@@ -1,131 +1,128 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA_CM["controller-manager<br/>(operator namespace)"]
-        SA_API["ds-pipeline-{name}<br/>(DSPA namespace)"]
-        SA_PA["ds-pipeline-persistenceagent-{name}<br/>(DSPA namespace)"]
-        SA_SW["ds-pipeline-scheduledworkflow-{name}<br/>(DSPA namespace)"]
-        SA_WFC["ds-pipeline-workflow-controller-{name}<br/>(DSPA namespace)"]
+        SA_Ctrl["data-science-pipelines-operator-<br/>controller-manager<br/>(operator namespace)"]
+        SA_API["ds-pipeline-{name}<br/>(dspa namespace)"]
+        SA_Runner["pipeline-runner-{name}<br/>(dspa namespace)"]
+        SA_PA["ds-pipeline-persistenceagent-{name}<br/>(dspa namespace)"]
+        SA_SWF["ds-pipeline-scheduledworkflow-{name}<br/>(dspa namespace)"]
+        SA_WFC["ds-pipeline-workflow-controller-{name}<br/>(dspa namespace)"]
+        SA_Envoy["ds-pipeline-metadata-envoy-{name}<br/>(dspa namespace)"]
+        SA_Webhook["ds-pipelines-webhook<br/>(operator namespace)"]
     end
 
-    subgraph ClusterRoleBindings["ClusterRole Bindings"]
-        CRB_MGR["manager-rolebinding<br/>(cluster-wide)"]
-        CRB_LE["leader-election-rolebinding<br/>(operator namespace)"]
+    subgraph ClusterRoles["Cluster Roles"]
+        CR_Manager["manager-role<br/>(ClusterRole)"]
+        CR_Argo["manager-argo-role<br/>(ClusterRole)"]
+        CR_AuthDelegator["system:auth-delegator<br/>(ClusterRole)"]
+        CR_WebhookRole["ds-pipelines-webhook<br/>(ClusterRole)"]
+        CR_Edit["ds-pipeline-user-access-{name}<br/>(aggregate: edit)"]
+        CR_View["ds-pipeline-user-access-{name}<br/>(aggregate: view)"]
     end
 
-    subgraph ClusterRoles["ClusterRoles"]
-        CR_MGR["manager-role"]
-        CR_LE["leader-election-role"]
-        CR_EDIT["aggregate-dspa-admin-edit<br/>(aggregated to admin/edit)"]
-        CR_VIEW["aggregate-dspa-admin-view<br/>(aggregated to view)"]
+    subgraph NamespaceRoles["Namespace Roles (per-DSPA)"]
+        R_API["ds-pipeline-{name}<br/>(Role)"]
+        R_Runner["pipeline-runner-{name}<br/>(Role)"]
+        R_PA["ds-pipeline-persistenceagent-{name}<br/>(Role)"]
+        R_SWF["ds-pipeline-scheduledworkflow-{name}<br/>(Role)"]
+        R_WFC["ds-pipeline-workflow-controller-role-{name}<br/>(Role)"]
     end
 
-    subgraph NamespaceRoles["Namespace Roles (per DSPA)"]
-        R_API["ds-pipeline-{name}"]
-        R_PA["ds-pipeline-persistenceagent-{name}"]
-        R_SW["ds-pipeline-scheduledworkflow-{name}"]
-        R_WFC["ds-pipeline-workflow-controller-{name}"]
+    subgraph ManagerResources["manager-role API Resources"]
+        Res_DSPA["opendatahub.io<br/>DSPA, status, finalizers, api"]
+        Res_Core["core<br/>configmaps, secrets, SAs,<br/>services, pods, events, PVCs"]
+        Res_Apps["apps<br/>deployments, replicasets"]
+        Res_Argo["argoproj.io<br/>workflows, workflowtaskresults,<br/>workflowartifactgctasks"]
+        Res_Admission["admissionregistration<br/>mutating/validating webhooks"]
+        Res_Pipelines["pipelines.kubeflow.org<br/>pipelines, pipelineversions"]
+        Res_Route["route.openshift.io<br/>routes"]
+        Res_Network["networking.k8s.io<br/>networkpolicies, ingresses"]
+        Res_RBAC_Res["rbac.authorization.k8s.io<br/>cluster/roles, bindings"]
+        Res_Monitoring["monitoring.coreos.com<br/>servicemonitors"]
+        Res_Auth["authentication/authorization<br/>tokenreviews,<br/>subjectaccessreviews"]
+        Res_ML["KServe, Ray, Seldon,<br/>CodeFlare, MLflow<br/>(cross-component RBAC)"]
     end
 
-    subgraph ManagerRoleResources["manager-role API Resources"]
-        direction LR
-
-        subgraph DSPAResources["DSPA Resources"]
-            DSPA_CR["datasciencepipelinesapplications.opendatahub.io<br/>datasciencepipelinesapplications<br/>+ /api, /finalizers, /status"]
-        end
-
-        subgraph CoreResources["Core Resources"]
-            Core["core<br/>configmaps, secrets,<br/>serviceaccounts, pvcs, pvs,<br/>services, pods, pods/exec,<br/>pods/log, events"]
-        end
-
-        subgraph AppsResources["Apps Resources"]
-            Apps["apps, extensions<br/>deployments,<br/>deployments/finalizers,<br/>replicasets"]
-        end
-
-        subgraph NetworkResources["Network Resources"]
-            Net["networking.k8s.io<br/>networkpolicies, ingresses"]
-        end
-
-        subgraph RBACResources["RBAC Resources"]
-            RBAC["rbac.authorization.k8s.io<br/>roles, rolebindings,<br/>clusterroles,<br/>clusterrolebindings"]
-        end
-
-        subgraph ArgoResources["Argo Resources"]
-            Argo["argoproj.io<br/>workflows,<br/>workflowartifactgctasks,<br/>workflowtaskresults"]
-        end
-
-        subgraph KFPResources["KFP Resources"]
-            KFP["kubeflow.org: */*<br/>pipelines.kubeflow.org<br/>pipelines, pipelineversions<br/>+ /finalizers, /status"]
-        end
-
-        subgraph MLResources["ML Integration Resources"]
-            ML["serving.kserve.io: inferenceservices<br/>machinelearning.seldon.io: seldondeployments<br/>ray.io: rayclusters, rayjobs, rayservices<br/>workload.codeflare.dev: appwrappers"]
-        end
-
-        subgraph InfraResources["Infrastructure Resources"]
-            Infra["route.openshift.io: routes<br/>image.openshift.io: imagestreamtags<br/>monitoring.coreos.com: servicemonitors<br/>batch: jobs<br/>snapshot.storage.k8s.io: volumesnapshots<br/>admissionregistration.k8s.io: webhooks"]
-        end
-
-        subgraph AuthResources["Auth Resources"]
-            Auth["authentication.k8s.io: tokenreviews<br/>authorization.k8s.io: subjectaccessreviews"]
-        end
-    end
-
-    subgraph AggregateResources["Aggregate Role Resources"]
-        AggRes["datasciencepipelinesapplications.opendatahub.io<br/>datasciencepipelinesapplications, /api<br/>pipelines.kubeflow.org<br/>pipelines, pipelineversions"]
+    subgraph ArgoResources["manager-argo-role API Resources"]
+        Res_ArgoFull["argoproj.io<br/>workflows, workflowtasksets,<br/>cronworkflows, workflowtemplates"]
+        Res_AreCore["core<br/>pods, pods/exec, configmaps,<br/>PVCs, secrets, events, SAs"]
+        Res_Coord["coordination.k8s.io<br/>leases"]
+        Res_Policy["policy<br/>poddisruptionbudgets"]
     end
 
     %% Bindings
-    SA_CM -->|"bound via"| CRB_MGR
-    SA_CM -->|"bound via"| CRB_LE
-    CRB_MGR -->|"grants"| CR_MGR
-    CRB_LE -->|"grants"| CR_LE
+    SA_Ctrl -->|"ClusterRoleBinding"| CR_Manager
+    SA_Ctrl -->|"ClusterRoleBinding"| CR_Argo
 
-    SA_API -->|"bound via RoleBinding"| R_API
-    SA_PA -->|"bound via RoleBinding"| R_PA
-    SA_SW -->|"bound via RoleBinding"| R_SW
-    SA_WFC -->|"bound via RoleBinding"| R_WFC
+    SA_API -->|"RoleBinding"| R_API
+    SA_API -->|"ClusterRoleBinding<br/>(auth-delegator)"| CR_AuthDelegator
+    SA_Envoy -->|"ClusterRoleBinding<br/>(auth-delegator)"| CR_AuthDelegator
 
-    %% ClusterRole permissions
-    CR_MGR -->|"full CRUD"| DSPA_CR
-    CR_MGR -->|"full CRUD"| Core
-    CR_MGR -->|"full CRUD"| Apps
-    CR_MGR -->|"CRUD"| Net
-    CR_MGR -->|"CRUD"| RBAC
-    CR_MGR -->|"full CRUD"| Argo
-    CR_MGR -->|"full CRUD"| KFP
-    CR_MGR -->|"create/delete/get/list/patch"| ML
-    CR_MGR -->|"CRUD"| Infra
-    CR_MGR -->|"create"| Auth
+    SA_Runner -->|"RoleBinding"| R_Runner
+    SA_PA -->|"RoleBinding"| R_PA
+    SA_SWF -->|"RoleBinding"| R_SWF
+    SA_WFC -->|"RoleBinding"| R_WFC
+    SA_Webhook -->|"ClusterRoleBinding"| CR_WebhookRole
 
-    %% Aggregate roles
-    CR_EDIT -->|"get,list,watch,create,update,patch,delete"| AggRes
-    CR_VIEW -->|"get,list,watch"| AggRes
+    %% ClusterRole → Resources
+    CR_Manager -->|"full CRUD"| Res_DSPA
+    CR_Manager -->|"full CRUD"| Res_Core
+    CR_Manager -->|"full CRUD"| Res_Apps
+    CR_Manager -->|"*, create, patch"| Res_Argo
+    CR_Manager -->|"full CRUD"| Res_Admission
+    CR_Manager -->|"full CRUD"| Res_Pipelines
+    CR_Manager -->|"full CRUD"| Res_Route
+    CR_Manager -->|"full CRUD"| Res_Network
+    CR_Manager -->|"full CRUD"| Res_RBAC_Res
+    CR_Manager -->|"full CRUD"| Res_Monitoring
+    CR_Manager -->|"create"| Res_Auth
+    CR_Manager -->|"create, get, list,<br/>patch, delete"| Res_ML
+
+    CR_Argo -->|"*"| Res_ArgoFull
+    CR_Argo -->|"*"| Res_AreCore
+    CR_Argo -->|"create, get, update"| Res_Coord
+    CR_Argo -->|"create, get, delete"| Res_Policy
+
+    %% User-facing aggregate roles
+    CR_Edit -->|"full CRUD on DSPA"| Res_DSPA
+    CR_View -->|"get, list, watch DSPA"| Res_DSPA
 
     %% Styling
-    style SA_CM fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Ctrl fill:#4a90e2,stroke:#333,color:#fff
     style SA_API fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Runner fill:#e74c3c,stroke:#333,color:#fff
     style SA_PA fill:#4a90e2,stroke:#333,color:#fff
-    style SA_SW fill:#4a90e2,stroke:#333,color:#fff
+    style SA_SWF fill:#4a90e2,stroke:#333,color:#fff
     style SA_WFC fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Envoy fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Webhook fill:#4a90e2,stroke:#333,color:#fff
 
-    style CR_MGR fill:#f5a623,stroke:#333,color:#fff
-    style CR_LE fill:#f5a623,stroke:#333,color:#fff
-    style CR_EDIT fill:#f5a623,stroke:#333
-    style CR_VIEW fill:#f5a623,stroke:#333
+    style CR_Manager fill:#f5a623,stroke:#333
+    style CR_Argo fill:#f5a623,stroke:#333
+    style CR_AuthDelegator fill:#f5a623,stroke:#333
+    style CR_WebhookRole fill:#f5a623,stroke:#333
+    style CR_Edit fill:#27ae60,stroke:#333,color:#fff
+    style CR_View fill:#27ae60,stroke:#333,color:#fff
 
-    style R_API fill:#dda0dd,stroke:#333
-    style R_PA fill:#dda0dd,stroke:#333
-    style R_SW fill:#dda0dd,stroke:#333
-    style R_WFC fill:#dda0dd,stroke:#333
+    style R_API fill:#f5d623,stroke:#333
+    style R_Runner fill:#f5d623,stroke:#333
+    style R_PA fill:#f5d623,stroke:#333
+    style R_SWF fill:#f5d623,stroke:#333
+    style R_WFC fill:#f5d623,stroke:#333
 
-    style DSPA_CR fill:#7ed321,stroke:#333,color:#fff
-    style Core fill:#7ed321,stroke:#333,color:#fff
-    style Apps fill:#7ed321,stroke:#333,color:#fff
-    style Net fill:#7ed321,stroke:#333,color:#fff
-    style RBAC fill:#7ed321,stroke:#333,color:#fff
-    style Argo fill:#7ed321,stroke:#333,color:#fff
-    style KFP fill:#7ed321,stroke:#333,color:#fff
-    style ML fill:#7ed321,stroke:#333,color:#fff
-    style Infra fill:#7ed321,stroke:#333,color:#fff
-    style Auth fill:#7ed321,stroke:#333,color:#fff
-    style AggRes fill:#87ceeb,stroke:#333
+    style Res_DSPA fill:#7ed321,stroke:#333
+    style Res_Core fill:#7ed321,stroke:#333
+    style Res_Apps fill:#7ed321,stroke:#333
+    style Res_Argo fill:#7ed321,stroke:#333
+    style Res_Admission fill:#7ed321,stroke:#333
+    style Res_Pipelines fill:#7ed321,stroke:#333
+    style Res_Route fill:#7ed321,stroke:#333
+    style Res_Network fill:#7ed321,stroke:#333
+    style Res_RBAC_Res fill:#7ed321,stroke:#333
+    style Res_Monitoring fill:#7ed321,stroke:#333
+    style Res_Auth fill:#7ed321,stroke:#333
+    style Res_ML fill:#7ed321,stroke:#333
+
+    style Res_ArgoFull fill:#7ed321,stroke:#333
+    style Res_AreCore fill:#7ed321,stroke:#333
+    style Res_Coord fill:#7ed321,stroke:#333
+    style Res_Policy fill:#7ed321,stroke:#333

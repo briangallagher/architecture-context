@@ -1,53 +1,77 @@
 graph TD
-    subgraph Legend["RBAC Model"]
-        direction TB
-        Note["This component defines NO Kubernetes RBAC roles.<br/>It runs as a sidecar container and does not<br/>interact directly with the Kubernetes API.<br/><br/>RBAC is managed by the parent<br/>ModelMesh Serving deployment."]
-    end
-
-    subgraph CredentialAccess["Credential Access Model"]
+    subgraph "ModelMesh Runtime Adapter — Security Model"
         direction TB
 
-        subgraph SidecarProcess["Sidecar Process (model-serving-puller)"]
-            PullerProc["model-serving-puller<br/>(reads credentials at runtime)"]
+        subgraph PodIsolation["Pod-Level Isolation (Primary Security Boundary)"]
+            direction TB
+
+            SA["Pod ServiceAccount<br/>(inherited from ServingRuntime pod)"]
+
+            subgraph InternalComms["Pod-Internal Communication (No Auth)"]
+                Puller["model-serving-puller<br/>gRPC 8084/TCP<br/>plaintext loopback"]
+                Adapter["Runtime Adapter<br/>gRPC 8085/TCP<br/>plaintext loopback"]
+                Runtime["Target Runtime<br/>8001/TCP or 7071/TCP<br/>plaintext loopback"]
+
+                Puller -->|"No auth<br/>loopback only"| Adapter
+                Adapter -->|"No auth<br/>loopback only"| Runtime
+            end
         end
 
-        subgraph MountedSecret["Mounted Secret Volume"]
-            StorageConfig["Secret: storage-config<br/>Type: Opaque<br/>Mount: /storage-config<br/>Provisioned by: User / Operator<br/>Auto-rotate: No"]
+        subgraph SecretAccess["Secret-Based Credential Access"]
+            direction TB
+
+            StorageSecret["Storage Config Secrets<br/>(Opaque, mounted at /storage-config)"]
+
+            subgraph CredentialTypes["Credential Types"]
+                S3Creds["S3 Credentials<br/>access_key_id<br/>secret_access_key<br/>endpoint_url, region"]
+                GCSCreds["GCS Credentials<br/>service_account JSON<br/>(private_key + client_email)"]
+                AzureCreds["Azure Credentials<br/>connection_string or<br/>client_id + client_secret<br/>+ tenant_id"]
+                HTTPCreds["HTTP Credentials<br/>custom_headers<br/>CA cert, client cert + key"]
+            end
+
+            StorageSecret --- S3Creds
+            StorageSecret --- GCSCreds
+            StorageSecret --- AzureCreds
+            StorageSecret --- HTTPCreds
         end
 
-        subgraph Credentials["Credential Types"]
-            S3Creds["S3 Credentials<br/>access_key_id<br/>secret_access_key<br/>endpoint_url<br/>region"]
-            AzureCreds["Azure Credentials<br/>client_id<br/>client_secret<br/>tenant_id<br/>(or connection_string)"]
-            GCSCreds["GCS Credentials<br/>service_account JSON<br/>private_key<br/>client_email"]
-            HTTPCreds["HTTP Credentials<br/>custom headers<br/>client certificate (mTLS)<br/>client key<br/>CA bundle (PEM)"]
+        subgraph FIPSCompliance["FIPS 140-2 Compliance"]
+            BuildFlags["Build Flags:<br/>GOEXPERIMENT=strictfipsruntime<br/>CGO_ENABLED=1<br/>-tags strictfipsruntime"]
+            CryptoLib["Crypto: stdlib crypto/tls<br/>via OpenSSL (FIPS-validated)<br/>No MD5, RC4, or DES usage"]
+            BaseImage["Base: UBI 9 minimal<br/>OpenSSL included"]
         end
 
-        StorageConfig -->|"contains"| S3Creds
-        StorageConfig -->|"contains"| AzureCreds
-        StorageConfig -->|"contains"| GCSCreds
-        StorageConfig -->|"contains"| HTTPCreds
-        PullerProc -->|"reads from filesystem"| StorageConfig
+        subgraph NetworkSecurity["Network Security"]
+            LoopbackOnly["Internal: Loopback only<br/>(8084, 8085, 8001, 7071, 7070)<br/>No Kubernetes Services defined"]
+            EgressTLS["External Egress: TLS 1.2+<br/>to cloud storage (443/TCP)<br/>SDK-managed TLS"]
+            OptionalMTLS["HTTP Provider: Optional mTLS<br/>CA cert + client cert/key<br/>for private model repos"]
+        end
     end
 
-    subgraph AuthEndpoints["Authentication by Endpoint"]
-        direction TB
-        InternalEndpoint["Pod-Internal gRPC<br/>8084/TCP, 8085/TCP<br/>Auth: None<br/>Reason: localhost only"]
-        S3Endpoint["S3/MinIO/IBM COS<br/>443/TCP HTTPS<br/>Auth: AWS IAM credentials"]
-        AzureEndpoint["Azure Blob<br/>443/TCP HTTPS<br/>Auth: Service Principal"]
-        GCSEndpoint["Google Cloud Storage<br/>443/TCP HTTPS<br/>Auth: Service Account JSON"]
-        HTTPEndpoint["HTTP/HTTPS Storage<br/>Configurable port<br/>Auth: Custom headers + mTLS certs"]
+    subgraph Notes["Security Notes"]
+        Note1["No ClusterRoles or RoleBindings<br/>(sidecar does not interact with K8s API)"]
+        Note2["No Ingress defined<br/>(never exposed outside pod)"]
+        Note3["Tenant isolation: per-pod<br/>(ModelMesh handles multi-tenant routing)"]
     end
 
-    %% Styling
-    style Note fill:#fff3cd,stroke:#856404,color:#333
-    style StorageConfig fill:#fff2cc,stroke:#d6b656
-    style PullerProc fill:#dae8fc,stroke:#6c8ebf
-    style S3Creds fill:#f8cecc,stroke:#b85450
-    style AzureCreds fill:#f8cecc,stroke:#b85450
-    style GCSCreds fill:#f8cecc,stroke:#b85450
-    style HTTPCreds fill:#f8cecc,stroke:#b85450
-    style InternalEndpoint fill:#d5e8d4,stroke:#82b366
-    style S3Endpoint fill:#f8cecc,stroke:#b85450
-    style AzureEndpoint fill:#f8cecc,stroke:#b85450
-    style GCSEndpoint fill:#f8cecc,stroke:#b85450
-    style HTTPEndpoint fill:#f8cecc,stroke:#b85450
+    SA -.->|"provides identity for"| PodIsolation
+    SA -.->|"mounts"| StorageSecret
+
+    style SA fill:#4a90e2,stroke:#333,color:#fff
+    style Puller fill:#7ed321,stroke:#333
+    style Adapter fill:#7ed321,stroke:#333
+    style Runtime fill:#7ed321,stroke:#333
+    style StorageSecret fill:#f5a623,stroke:#333
+    style S3Creds fill:#fff2cc,stroke:#d6b656
+    style GCSCreds fill:#fff2cc,stroke:#d6b656
+    style AzureCreds fill:#fff2cc,stroke:#d6b656
+    style HTTPCreds fill:#fff2cc,stroke:#d6b656
+    style BuildFlags fill:#d5e8d4,stroke:#82b366
+    style CryptoLib fill:#d5e8d4,stroke:#82b366
+    style BaseImage fill:#d5e8d4,stroke:#82b366
+    style LoopbackOnly fill:#dae8fc,stroke:#6c8ebf
+    style EgressTLS fill:#dae8fc,stroke:#6c8ebf
+    style OptionalMTLS fill:#dae8fc,stroke:#6c8ebf
+    style Note1 fill:#f9f9f9,stroke:#999
+    style Note2 fill:#f9f9f9,stroke:#999
+    style Note3 fill:#f9f9f9,stroke:#999

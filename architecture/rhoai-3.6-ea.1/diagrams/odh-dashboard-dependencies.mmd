@@ -1,0 +1,111 @@
+graph LR
+    Dashboard["ODH Dashboard<br/>React SPA + Go Operator<br/>+ 10 Go BFF Sidecars"]
+
+    %% Runtime Frameworks
+    Dashboard -->|"operator framework"| ControllerRuntime["controller-runtime 0.23.3"]
+    Dashboard -->|"backend runtime"| NodeJS["Node.js >= 22.18.0"]
+    Dashboard -->|"HTTP framework"| Fastify["Fastify 4.29.1"]
+    Dashboard -->|"UI framework"| React["React 18.3.x"]
+    Dashboard -->|"UI components"| PatternFly["PatternFly 6.5.x"]
+    Dashboard -->|"micro-frontend"| WebpackMF["Webpack Module Federation 5.x"]
+    Dashboard -->|"monorepo build"| Turborepo["Turborepo 2.9.16"]
+    Dashboard -->|"Go runtime"| Go["Go 1.26"]
+
+    %% Internal RHOAI Platform Dependencies (CRD Watch)
+    Dashboard -->|"CRD Watch"| DSCluster["DataScienceCluster CR"]
+    Dashboard -->|"CRD Watch"| DSCInit["DSCInitialization CR"]
+    Dashboard -->|"CRD Watch"| KServeIS["KServe InferenceService"]
+    Dashboard -->|"CRD Watch"| ModelRegCR["ModelRegistry CR"]
+    Dashboard -->|"CRD Watch"| MLflowCR["MLflow CR"]
+    Dashboard -->|"CRD Watch"| TrustyAICR["TrustyAI CR"]
+    Dashboard -->|"CRD Watch"| FeastCR["Feast FeatureStore CR"]
+    Dashboard -->|"CRD Watch"| RhodsOp["rhods-operator<br/>(Dashboard CR owner)"]
+
+    %% Internal RHOAI Platform Dependencies (CRD CRUD)
+    Dashboard -->|"CRD CRUD"| NotebooksCR["Kubeflow Notebooks"]
+    Dashboard -->|"CRD CRUD"| HardwareProfile["HardwareProfile CR"]
+    Dashboard -->|"CRD CRUD"| GatewayAPI["Gateway API<br/>HTTPRoutes"]
+    Dashboard -->|"CRD CRUD"| PromOp["prometheus-operator"]
+
+    %% External Service Dependencies
+    Dashboard -->|"REST proxy"| DSPipelines["DataScience Pipelines API"]
+    Dashboard -->|"REST proxy"| ModelRegAPI["Model Registry API"]
+    Dashboard -->|"REST proxy"| KServeAPI["Model Serving (KServe)"]
+    Dashboard -->|"gRPC-web"| MLMD["ML Metadata (MLMD)"]
+    Dashboard -->|"REST proxy"| TrustyAISvc["TrustyAI Service"]
+    Dashboard -->|"REST"| LlamaStack["Llama Stack Server"]
+    Dashboard -->|"REST"| MaaSAPI["MaaS API Server"]
+    Dashboard -->|"REST"| MLflowSrv["MLflow Tracking Server"]
+    Dashboard -->|"REST"| NeMo["NeMo Guardrails"]
+    Dashboard -->|"SSE/HTTP"| MCP["MCP Servers"]
+    Dashboard -->|"REST"| Prometheus["Prometheus/Thanos"]
+
+    %% Infrastructure Dependencies
+    Dashboard -->|"cluster API"| K8sAPI["Kubernetes API"]
+    Dashboard -->|"K8s client"| ClientNode["@kubernetes/client-node 0.12.3"]
+    Dashboard -->|"TLS certs"| CertManager["cert-manager"]
+    Dashboard -->|"auth proxy"| KubeRBACProxy["kube-rbac-proxy"]
+
+    %% Go Library Dependencies
+    Dashboard -->|"platform utils"| ODHPlatUtils["odh-platform-utilities"]
+    Dashboard -->|"mlflow client"| MLflowGo["mlflow-go"]
+    Dashboard -->|"AWS SDK"| AWSSDK["aws-sdk-go-v2"]
+    Dashboard -->|"tracing"| OTel["OpenTelemetry"]
+    Dashboard -->|"OpenAI client"| OpenAIGo["openai-go"]
+    Dashboard -->|"MCP client"| MCPGoSDK["MCP Go SDK"]
+
+    %% Styling
+    style Dashboard fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+
+    %% Runtime frameworks
+    style ControllerRuntime fill:#e8e8e8,stroke:#333
+    style NodeJS fill:#e8e8e8,stroke:#333
+    style Fastify fill:#e8e8e8,stroke:#333
+    style React fill:#e8e8e8,stroke:#333
+    style PatternFly fill:#e8e8e8,stroke:#333
+    style WebpackMF fill:#e8e8e8,stroke:#333
+    style Turborepo fill:#e8e8e8,stroke:#333
+    style Go fill:#e8e8e8,stroke:#333
+
+    %% Internal RHOAI (CRD Watch - green)
+    style DSCluster fill:#7ed321,stroke:#333,color:#fff
+    style DSCInit fill:#7ed321,stroke:#333,color:#fff
+    style KServeIS fill:#7ed321,stroke:#333,color:#fff
+    style ModelRegCR fill:#7ed321,stroke:#333,color:#fff
+    style MLflowCR fill:#7ed321,stroke:#333,color:#fff
+    style TrustyAICR fill:#7ed321,stroke:#333,color:#fff
+    style FeastCR fill:#7ed321,stroke:#333,color:#fff
+    style RhodsOp fill:#7ed321,stroke:#333,color:#fff
+
+    %% Internal RHOAI (CRD CRUD - lighter green)
+    style NotebooksCR fill:#a8e063,stroke:#333
+    style HardwareProfile fill:#a8e063,stroke:#333
+    style GatewayAPI fill:#a8e063,stroke:#333
+    style PromOp fill:#a8e063,stroke:#333
+
+    %% External services (orange)
+    style DSPipelines fill:#f5a623,stroke:#333
+    style ModelRegAPI fill:#f5a623,stroke:#333
+    style KServeAPI fill:#f5a623,stroke:#333
+    style MLMD fill:#f5a623,stroke:#333
+    style TrustyAISvc fill:#f5a623,stroke:#333
+    style LlamaStack fill:#f5a623,stroke:#333
+    style MaaSAPI fill:#f5a623,stroke:#333
+    style MLflowSrv fill:#f5a623,stroke:#333
+    style NeMo fill:#f5a623,stroke:#333
+    style MCP fill:#f5a623,stroke:#333
+    style Prometheus fill:#f5a623,stroke:#333
+
+    %% Infrastructure (light blue)
+    style K8sAPI fill:#dae8fc,stroke:#333
+    style ClientNode fill:#dae8fc,stroke:#333
+    style CertManager fill:#dae8fc,stroke:#333
+    style KubeRBACProxy fill:#dae8fc,stroke:#333
+
+    %% Go libraries (light purple)
+    style ODHPlatUtils fill:#e1d5e7,stroke:#333
+    style MLflowGo fill:#e1d5e7,stroke:#333
+    style AWSSDK fill:#e1d5e7,stroke:#333
+    style OTel fill:#e1d5e7,stroke:#333
+    style OpenAIGo fill:#e1d5e7,stroke:#333
+    style MCPGoSDK fill:#e1d5e7,stroke:#333

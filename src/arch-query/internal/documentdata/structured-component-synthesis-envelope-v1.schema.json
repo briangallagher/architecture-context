@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jctanner/odh.architecture-context/schemas/structured-component-synthesis-envelope-v1.schema.json",
+  "title": "Retained structured component synthesis envelope v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "state", "route", "input_bundle_identity", "context_identity", "reuse_eligibility", "requested", "reported", "calls", "responses", "resolution_provenance", "observations", "justifications", "accepted_response_identity", "diagnostics"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "state": {"enum": ["synthesized", "unresolved", "failed", "reused", "deterministic-only", "historical-response-missing"]},
+    "route": {"const": "structured-component/v1"},
+    "input_bundle_identity": {"type": "string", "pattern": "^sha256:"}, "context_identity": {"type": "string", "pattern": "^sha256:"},
+    "reuse_eligibility": {"type": "object", "additionalProperties": false, "required": ["available", "reason", "unobserved_context"], "properties": {"available": {"type": "boolean"}, "reason": {"type": "string"}, "unobserved_context": {"type": "array", "items": {"type": "string"}}}},
+    "requested": {
+      "type": "object", "additionalProperties": false,
+      "required": ["harness", "model", "settings"],
+      "properties": {"harness": {"type": "string", "minLength": 1}, "model": {"type": "string", "minLength": 1}, "settings": {"type": "object"}}
+    },
+    "reported": {
+      "type": "object", "additionalProperties": false,
+      "required": ["models", "settings", "auxiliary_models"],
+      "properties": {"models": {"type": "array", "items": {"type": ["string", "null"]}}, "settings": {"type": "array", "items": {"type": ["object", "null"]}}, "auxiliary_models": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}
+    },
+    "calls": {
+      "type": "object", "additionalProperties": false,
+      "required": ["total", "initial", "evidence_followup", "repair", "limits"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0}, "initial": {"type": "integer", "minimum": 0},
+        "evidence_followup": {"type": "integer", "minimum": 0}, "repair": {"type": "integer", "minimum": 0},
+        "limits": {"type": "object", "additionalProperties": false, "required": ["total", "evidence_followup", "repair"], "properties": {"total": {"type": "integer", "minimum": 0}, "evidence_followup": {"type": "integer", "minimum": 0}, "repair": {"type": "integer", "minimum": 0}}}
+      }
+    },
+    "responses": {"type": "array", "items": {"$ref": "#/$defs/response"}}, "resolution_provenance": {"type": "array", "items": {"type": "object"}},
+    "observations": {"type": "object"}, "justifications": {"type": "array", "items": {"type": "string"}},
+    "accepted_response_identity": {"type": ["string", "null"]}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}
+  },
+  "$defs": {
+    "response": {
+      "type": "object", "additionalProperties": false,
+      "required": ["ordinal", "purpose", "request_identity", "input_bundle_identity", "response_identity", "raw_response", "raw_response_hash", "parsed_payload", "parsed_payload_hash", "validation", "reported_model", "reported_settings", "requested_model_identity", "settings_source", "auxiliary_models"],
+      "properties": {
+        "ordinal": {"type": "integer", "minimum": 1}, "purpose": {"enum": ["initial", "evidence-followup", "repair"]},
+        "request_identity": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "input_bundle_identity": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "response_identity": {"type": "string", "minLength": 1}, "raw_response": {"oneOf": [{"type": "string"}, {"$ref": "#/$defs/reversibleText"}]}, "raw_response_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "parsed_payload": {"type": ["object", "null"]}, "parsed_payload_hash": {"type": ["string", "null"]},
+        "validation": {"type": "object", "additionalProperties": false, "required": ["valid", "error"], "properties": {"valid": {"type": "boolean"}, "error": {"type": ["string", "null"]}}},
+        "reported_model": {"type": ["string", "null"]}, "reported_settings": {"type": ["object", "null"]},
+        "requested_model_identity": {"type": "string", "minLength": 1}, "settings_source": {"type": "string", "minLength": 1},
+        "auxiliary_models": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "reversibleText": {
+      "type": "object", "additionalProperties": false,
+      "required": ["encoding", "data", "character_count"],
+      "properties": {
+        "encoding": {"const": "utf-8-surrogatepass-base64"},
+        "data": {"type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$"},
+        "character_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "diagnostic": {
+      "type": "object", "additionalProperties": true,
+      "required": ["code", "detail"],
+      "properties": {"code": {"type": "string", "minLength": 1}, "detail": {"type": "string", "minLength": 1}}
+    }
+  }
+}

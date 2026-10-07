@@ -1,0 +1,63 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["Platform User / Client"]
+    end
+
+    subgraph Ingress["INGRESS (Gateway API)"]
+        HTTPRoute["HTTPRoute → Parent Gateway<br/>TLS Mode: SIMPLE (optional)<br/>cert-manager Certificate"]
+    end
+
+    subgraph OperatorNS["OPERATOR NAMESPACE (redhat-ods-applications)"]
+        direction TB
+        Operator["LLM-D Batch Gateway Operator<br/>SA: llm-d-batch-gateway-operator<br/>Probes: 8081/TCP HTTP<br/>Metrics: 8443/TCP HTTP"]
+    end
+
+    subgraph CRNS["CR NAMESPACE (per LLMBatchGateway)"]
+        direction TB
+        APIServer["API Server Pod<br/>Port: Configurable<br/>HTTP/HTTPS"]
+        Processor["Processor Pod"]
+        GC["Garbage Collector Pod"]
+        AsyncProc["Async Processor Pod<br/>(optional)"]
+        ManagedSecret["{gw-name}-credentials<br/>Opaque (cross-ns copy)"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        direction TB
+        K8sAPI["Kubernetes API<br/>6443/TCP HTTPS<br/>TLS 1.2+"]
+        PostgreSQL["PostgreSQL<br/>Configurable/TCP<br/>Optional TLS"]
+        Redis["Redis / Valkey<br/>Configurable/TCP<br/>Optional TLS"]
+        S3["S3 Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>AWS IAM"]
+        InfGW["Inference Gateway / EPP<br/>Configurable<br/>HTTP/HTTPS<br/>Optional TLS/mTLS"]
+        OTLP["OTLP Collector<br/>Configurable<br/>HTTP/gRPC"]
+        Prometheus["Prometheus<br/>Scrapes 8443/TCP<br/>HTTP (no TLS)"]
+    end
+
+    %% Flows
+    Client -->|"HTTP/HTTPS<br/>Optional TLS<br/>Tenant header"| HTTPRoute
+    HTTPRoute -->|"HTTP/HTTPS<br/>Configurable"| APIServer
+
+    Operator -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+    Operator -->|"Server-Side Apply<br/>manages workloads"| CRNS
+
+    APIServer -->|"TCP<br/>Optional TLS<br/>secretRef creds"| PostgreSQL
+    Processor -->|"HTTP/HTTPS<br/>Optional TLS/mTLS"| InfGW
+    Processor -->|"HTTPS/443<br/>TLS 1.2+<br/>AWS IAM"| S3
+    AsyncProc -->|"TCP<br/>Optional TLS<br/>secretRef creds"| Redis
+    AsyncProc -->|"HTTP/HTTPS<br/>Optional mTLS"| InfGW
+    APIServer -->|"TCP<br/>Optional TLS"| Redis
+    Processor -->|"HTTP/gRPC<br/>Optional TLS"| OTLP
+    Prometheus -->|"HTTP/8443<br/>No TLS"| Operator
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef operatorns fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef crns fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef warning fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    class Client external
+    class HTTPRoute ingress
+    class Operator operatorns
+    class APIServer,Processor,GC,AsyncProc,ManagedSecret crns
+    class K8sAPI,PostgreSQL,Redis,S3,InfGW,OTLP,Prometheus externalservice

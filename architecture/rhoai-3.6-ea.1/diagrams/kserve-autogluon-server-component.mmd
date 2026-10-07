@@ -1,0 +1,91 @@
+graph TB
+    subgraph KServeOperator["KServe Controller Manager"]
+        direction TB
+        Manager["manager<br/>(Go controller-runtime)"]
+        ISVCCtrl["InferenceService<br/>Controller"]
+        IGCtrl["InferenceGraph<br/>Controller"]
+        TMCtrl["TrainedModel<br/>Controller"]
+        LMCCtrl["LocalModelCache<br/>Controller"]
+        LMNCtrl["LocalModelNode<br/>Controller"]
+        LMNCCtrl["LocalModelNamespaceCache<br/>Controller"]
+        Webhook["Webhook Server<br/>443/TCP TLS"]
+        Manager --> ISVCCtrl
+        Manager --> IGCtrl
+        Manager --> TMCtrl
+        Manager --> LMCCtrl
+        Manager --> LMNCtrl
+        Manager --> LMNCCtrl
+        Manager --> Webhook
+    end
+
+    subgraph LLMISVCOperator["LLMInferenceService Controller"]
+        LLMCtrl["LLMInferenceService<br/>Controller"]
+    end
+
+    subgraph AutoGluonRuntime["AutoGluon Model Server"]
+        AGServer["autogluonserver<br/>(Python/FastAPI/uvicorn)"]
+        KServeSDK["KServe Python SDK<br/>(V2 Inference Protocol)"]
+        AGServer --> KServeSDK
+    end
+
+    subgraph Sidecar["kube-rbac-proxy"]
+        RBACProxy["kube-rbac-proxy<br/>8443→8080<br/>TLS termination"]
+    end
+
+    %% CRDs
+    ISVC["InferenceService CR"]
+    IG["InferenceGraph CR"]
+    TM["TrainedModel CR"]
+    LLMISVC["LLMInferenceService CR"]
+    CSR["ClusterServingRuntime CR<br/>(14 runtimes)"]
+    LMC["LocalModelCache CR"]
+
+    %% External interactions
+    User["Data Scientist / Client"]
+    K8sAPI["Kubernetes API<br/>6443/TCP"]
+    Prometheus["Prometheus"]
+
+    %% Flows
+    User -->|"kubectl create"| ISVC
+    User -->|"inference request<br/>REST/gRPC"| AGServer
+    ISVC -->|"watched by"| ISVCCtrl
+    IG -->|"watched by"| IGCtrl
+    TM -->|"watched by"| TMCtrl
+    LLMISVC -->|"watched by"| LLMCtrl
+    LMC -->|"watched by"| LMCCtrl
+    CSR -->|"watched by"| ISVCCtrl
+
+    ISVCCtrl -->|"creates/manages"| K8sAPI
+    LLMCtrl -->|"creates/manages"| K8sAPI
+    ISVCCtrl -->|"creates Deployments,<br/>Services, Ingress"| AGServer
+
+    Prometheus -->|"scrapes :8443"| RBACProxy
+    RBACProxy -->|"forwards :8080"| Manager
+
+    Webhook -->|"validates/mutates"| ISVC
+    Webhook -->|"validates"| IG
+    Webhook -->|"validates"| LLMISVC
+    Webhook -->|"mutates pods"| K8sAPI
+
+    %% Styling
+    style Manager fill:#4a90e2,color:#fff
+    style ISVCCtrl fill:#4a90e2,color:#fff
+    style IGCtrl fill:#4a90e2,color:#fff
+    style TMCtrl fill:#4a90e2,color:#fff
+    style LMCCtrl fill:#4a90e2,color:#fff
+    style LMNCtrl fill:#4a90e2,color:#fff
+    style LMNCCtrl fill:#4a90e2,color:#fff
+    style LLMCtrl fill:#4a90e2,color:#fff
+    style Webhook fill:#4a90e2,color:#fff
+    style AGServer fill:#7ed321,color:#fff
+    style KServeSDK fill:#7ed321,color:#fff
+    style RBACProxy fill:#f5a623,color:#fff
+    style ISVC fill:#f5a623
+    style IG fill:#f5a623
+    style TM fill:#f5a623
+    style LLMISVC fill:#f5a623
+    style CSR fill:#f5a623
+    style LMC fill:#f5a623
+    style K8sAPI fill:#e8e8e8
+    style Prometheus fill:#e8e8e8
+    style User fill:#f9f9f9

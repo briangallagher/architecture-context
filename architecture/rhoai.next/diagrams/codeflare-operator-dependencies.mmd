@@ -1,58 +1,49 @@
 graph LR
-    CFOperator["CodeFlare Operator"]
+    CFOp["CodeFlare Operator"]
 
-    %% External Dependencies (libraries/frameworks)
-    CFOperator -->|"controller framework"| ControllerRuntime["controller-runtime<br/>v0.20.3"]
-    CFOperator -->|"RayCluster CRD types"| KubeRayAPI["kuberay/ray-operator APIs<br/>v1.3.2"]
-    CFOperator -->|"embedded controller"| AppWrapperLib["project-codeflare/<br/>appwrapper v1.1.2"]
-    CFOperator -->|"cert rotation"| CertController["cert-controller<br/>v0.12.0"]
-    CFOperator -->|"Route API types<br/>(OpenShift only)"| OpenShiftAPI["openshift/api<br/>route/v1"]
-    CFOperator -->|"Route client<br/>(OpenShift only)"| OpenShiftClient["openshift/client-go"]
-    CFOperator -->|"quota integration<br/>(AppWrapper only)"| KueueLib["sigs.k8s.io/kueue<br/>v0.10.1"]
-    CFOperator -->|"namespace discovery"| ODHOperatorAPI["opendatahub-operator/v2<br/>APIs v2.10.0"]
+    %% External Dependencies (required libraries/frameworks)
+    CFOp -->|"controller framework"| CtrlRuntime["controller-runtime<br/>v0.19.3"]
+    CFOp -->|"RayCluster CRD types"| KubeRayAPI["kuberay ray-operator APIs<br/>v1.2.1"]
+    CFOp -->|"AppWrapper CRD + controller"| AppWrapper["appwrapper<br/>v1.1.2"]
+    CFOp -->|"webhook TLS rotation"| CertCtrl["cert-controller<br/>v0.12.0"]
+    CFOp -->|"Route types"| OSApi["openshift/api"]
+    CFOp -->|"Route + Config clients"| OSClient["openshift/client-go"]
+    CFOp -->|"DSCInitialization types"| ODHApi["opendatahub-operator/v2 APIs<br/>v2.10.0"]
+    CFOp -.->|"quota mgmt (via appwrapper)"| KueueLib["kueue<br/>v0.10.1"]
 
-    %% Internal Platform Dependencies (runtime)
-    CFOperator -->|"watches RayClusters"| KubeRayOp["KubeRay Operator<br/>(ray.io/v1)"]
-    CFOperator -->|"reads DSCInitialization"| ODHOperator["ODH / RHOAI Operator<br/>(opendatahub.io)"]
-    CFOperator -->|"OAuth proxy auth"| OpenShiftOAuth["OpenShift OAuth"]
-    CFOperator -->|"ingress domain"| OpenShiftIngress["OpenShift Ingress Config<br/>(config.openshift.io)"]
-    CFOperator -->|"quota scheduling"| Kueue["Kueue<br/>(kueue.x-k8s.io)"]
+    %% Internal Platform Dependencies
+    CFOp -->|"watches CRs"| KubeRay["KubeRay Operator"]
+    CFOp -->|"reads DSCI CR"| ODHOp["opendatahub-operator /<br/>rhods-operator"]
+    CFOp -->|"auth delegation"| OSAuth["OpenShift OAuth"]
+    CFOp -->|"cluster domain lookup"| OSIngress["OpenShift Ingress Config"]
 
-    %% Components that depend on CodeFlare Operator
-    KubeRayOp -.->|"RayClusters augmented<br/>by CodeFlare"| CFOperator
-
-    %% External Services
-    CFOperator -->|"resource CRUD<br/>webhook invocation"| K8sAPI["Kubernetes API Server"]
-    CFOperator -->|"metrics scrape"| Prometheus["Prometheus /<br/>OpenShift Monitoring"]
-
-    %% Container Images
-    CFOperator -.->|"cert gen init container"| UBI9["registry.redhat.io/<br/>ubi9 (openssl)"]
-    CFOperator -.->|"OAuth proxy sidecar"| OAuthProxyImg["registry.redhat.io/<br/>ose-oauth-proxy"]
+    %% Integration Points (components that interact with CodeFlare)
+    Monitoring["Prometheus<br/>(openshift-monitoring)"] -->|"scrapes metrics<br/>HTTP/8080"| CFOp
+    K8sAPI["Kubernetes API Server"] -->|"webhook calls<br/>HTTPS/9443"| CFOp
+    CertSigner["service-serving-cert-signer"] -.->|"generates OAuth<br/>service TLS certs"| CFOp
+    Kueue["Kueue"] -.->|"quota + gang scheduling"| CFOp
 
     %% Styling
-    style CFOperator fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style CFOp fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
     %% External deps (libraries)
-    style ControllerRuntime fill:#b8d4e3,stroke:#333
-    style KubeRayAPI fill:#b8d4e3,stroke:#333
-    style AppWrapperLib fill:#b8d4e3,stroke:#333
-    style CertController fill:#b8d4e3,stroke:#333
-    style OpenShiftAPI fill:#b8d4e3,stroke:#333
-    style OpenShiftClient fill:#b8d4e3,stroke:#333
-    style KueueLib fill:#b8d4e3,stroke:#333
-    style ODHOperatorAPI fill:#b8d4e3,stroke:#333
+    style CtrlRuntime fill:#e8e8e8,stroke:#999
+    style KubeRayAPI fill:#e8e8e8,stroke:#999
+    style AppWrapper fill:#e8e8e8,stroke:#999
+    style CertCtrl fill:#e8e8e8,stroke:#999
+    style OSApi fill:#e8e8e8,stroke:#999
+    style OSClient fill:#e8e8e8,stroke:#999
+    style ODHApi fill:#e8e8e8,stroke:#999
+    style KueueLib fill:#e8e8e8,stroke:#999,stroke-dasharray: 5 5
 
-    %% Internal platform deps (runtime)
-    style KubeRayOp fill:#7ed321,stroke:#333
-    style ODHOperator fill:#7ed321,stroke:#333
-    style OpenShiftOAuth fill:#7ed321,stroke:#333
-    style OpenShiftIngress fill:#7ed321,stroke:#333
-    style Kueue fill:#7ed321,stroke:#333
+    %% Internal platform
+    style KubeRay fill:#7ed321,stroke:#333,color:#fff
+    style ODHOp fill:#7ed321,stroke:#333,color:#fff
+    style OSAuth fill:#7ed321,stroke:#333,color:#fff
+    style OSIngress fill:#7ed321,stroke:#333,color:#fff
 
     %% External services
-    style K8sAPI fill:#f5a623,stroke:#333
-    style Prometheus fill:#f5a623,stroke:#333
-
-    %% Container images
-    style UBI9 fill:#e8e8e8,stroke:#333
-    style OAuthProxyImg fill:#e8e8e8,stroke:#333
+    style Monitoring fill:#f5a623,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style CertSigner fill:#f5a623,stroke:#333,color:#fff
+    style Kueue fill:#f5a623,stroke:#333,color:#fff

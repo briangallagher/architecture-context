@@ -1,7 +1,7 @@
 ================================================================================
-  KSERVE — SECURITY NETWORK ARCHITECTURE
-  Component: KServe (RHOAI)
-  Generated: 2026-05-15
+  KSERVE SECURITY NETWORK DIAGRAM
+  Generated: 2026-07-22
+  Source: architecture/rhoai.next/kserve.md
 ================================================================================
 
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -12,324 +12,228 @@
 │         │ Port: 443/TCP                                                      │
 │         │ Protocol: HTTPS                                                    │
 │         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: None, OAuth, or Kuadrant AuthPolicy                          │
+│         │ Auth: Bearer Token                                                 │
 │         ▼                                                                    │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│  INGRESS LAYER                                                               │
+│  INGRESS (Platform Gateway)                                                  │
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [Gateway / Istio Gateway / OpenShift Route]            │                 │
-│  │  - Port: 443/TCP (external) → 8080/TCP or 8443/TCP     │                 │
-│  │  - TLS Termination: TLS 1.2+ (SIMPLE mode)             │                 │
-│  │  - Ingress Types:                                       │                 │
-│  │    * HTTPRoute (Gateway API) — InferenceService, LLMIS  │                 │
-│  │    * VirtualService (Istio) — Knative mode              │                 │
-│  │    * Kubernetes Ingress — standard mode                 │                 │
-│  │    * OpenShift Route — InferenceGraph (OCP)             │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
+│  [Platform Gateway]                                                          │
+│  - Port: 443/TCP (external) → 8080/TCP (internal)                           │
+│  - TLS Termination: TLS 1.2+                                                │
+│  - Routing: HTTPRoute (Gateway API) / VirtualService (Istio)                │
+│  - AuthN: Platform-level (kube-auth-proxy)                                  │
 │         │                                                                    │
-│         │ Port: 8080/TCP (HTTP) or 8443/TCP (HTTPS)                          │
-│         │ Protocol: HTTP or HTTPS                                            │
-│         │ Encryption: None or TLS (OAuth proxy / kube-rbac-proxy)            │
-│         │ Auth: None or SubjectAccessReview (kube-rbac-proxy)                │
-│         ▼                                                                    │
+│         ├─── InferenceService Path ──────────────────────────────────────┐   │
+│         │                                                                │   │
+│         │ Port: 8443/TCP                                                 │   │
+│         │ Protocol: HTTPS                                                │   │
+│         │ Encryption: TLS                                                │   │
+│         │ Auth: kube-rbac-proxy (SubjectAccessReview)                    │   │
+│         ▼                                                                │   │
+│  [kube-rbac-proxy Sidecar]                                               │   │
+│  - SubjectAccessReview against Kubernetes API                            │   │
+│  - SAR ConfigMap per InferenceService                                    │   │
+│         │                                                                │   │
+│         │ Port: 8080/TCP                                                 │   │
+│         │ Protocol: HTTP                                                 │   │
+│         │ Encryption: None (localhost)                                    │   │
+│         │ Auth: None (pod-local)                                         │   │
+│         ▼                                                                │   │
+│  [Predictor Container]                                                   │   │
+│  - Namespace: {user-namespace}                                           │   │
+│  - ServiceAccount: per-InferenceService                                  │   │
+│                                                                          │   │
+│         ├─── LLMInferenceService Path ───────────────────────────────┐   │   │
+│         │                                                            │   │   │
+│         │ Port: gRPC/TCP                                             │   │   │
+│         │ Protocol: gRPC                                             │   │   │
+│         │ Encryption: mTLS (Istio STRICT)                            │   │   │
+│         │ Auth: Service Identity                                     │   │   │
+│         ▼                                                            │   │   │
+│  [Scheduler/EPP (Endpoint Picker)]                                   │   │   │
+│  - Namespace: {user-namespace}                                       │   │   │
+│  - ServiceAccount: {name}-epp-sa                                     │   │   │
+│  - Ports: gRPC, gRPC-health, metrics, zmq                           │   │   │
+│  - TLS: Istio DestinationRule (mTLS)                                 │   │   │
+│         │                                                            │   │   │
+│         │ Port: 8000/TCP                                             │   │   │
+│         │ Protocol: HTTP/HTTPS                                       │   │   │
+│         │ Encryption: Optional TLS (self-signed)                     │   │   │
+│         │ Auth: None                                                 │   │   │
+│         ▼                                                            │   │   │
+│  [vLLM Workload Pod]                                                 │   │   │
+│  - Namespace: {user-namespace}                                       │   │   │
+│  - Deployment or LeaderWorkerSet (multi-node)                        │   │   │
+│  - Self-signed TLS via kserve-tls-secret                             │   │   │
+│                                                                      │   │   │
+├──────────────────────────────────────────────────────────────────────┘   │   │
+│                                                                          │   │
+├──────────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│  CONTROL PLANE (kserve namespace)                                            │
+│  CONTROLLER PLANE (Trusted - Operator Namespace)                             │
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [kserve-controller-manager]                            │                 │
-│  │  - Namespace: kserve                                    │                 │
-│  │  - ServiceAccount: kserve-controller-manager            │                 │
-│  │  - Ports:                                               │                 │
-│  │    * 9443/TCP — Webhook server (TLS, cert-manager)      │                 │
-│  │    * 8080/TCP — Metrics (HTTP, kube-rbac-proxy)         │                 │
-│  │    * 8081/TCP — Health probes (HTTP, no auth)           │                 │
-│  │  - ClusterRole: kserve-manager-role                     │                 │
-│  │  - Image: odh-kserve-controller                         │                 │
-│  │  - FIPS: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime  │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
+│  [kserve-controller-manager]                                                 │
+│  - Namespace: opendatahub / kserve                                           │
+│  - ServiceAccount: kserve-controller-manager                                 │
+│  - Ports: 8080/TCP (metrics), 9443/TCP (webhooks), 8081/TCP (health)        │
+│  - TLS: cert-manager or OpenShift service-ca (webhook cert)                 │
+│                                                                              │
+│  [llmisvc-controller-manager]                                                │
+│  - Namespace: opendatahub / kserve                                           │
+│  - ServiceAccount: kserve-controller-manager                                 │
+│  - Ports: 8080/TCP (metrics), 9443/TCP (webhooks), 8081/TCP (health)        │
+│  - TLS: HTTP/2 disabled for webhook server                                   │
+│                                                                              │
+│  [localmodel-controller]                                                     │
+│  - Namespace: opendatahub / kserve                                           │
+│  - Ports: 8080/TCP (metrics), 9443/TCP (webhooks), 8081/TCP (health)        │
+│                                                                              │
+│  [kserve-module-controller]                                                  │
+│  - Namespace: opendatahub                                                    │
+│  - Ports: 8080/TCP (metrics), 8081/TCP (health)                             │
+│                                                                              │
+│  Controllers → Kubernetes API                                                │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: ServiceAccount token                                                │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  WEBHOOK SERVER                                                              │
+│                                                                              │
+│  [kserve-webhook-server-service]                                             │
+│  - Type: ClusterIP                                                           │
+│  - Port: 443/TCP → 9443/TCP                                                 │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS (serving cert via cert-manager / service-ca)             │
+│  - Auth: Kubernetes webhook authentication                                   │
+│  - Webhooks: 5 mutating, 15 validating, 4 conversion                       │
+│                                                                              │
+│  [llmisvc-webhook-server-service]                                            │
+│  - Type: ClusterIP                                                           │
+│  - Port: 443/TCP → 9443/TCP                                                 │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS (serving cert)                                            │
+│  - Auth: Kubernetes webhook authentication                                   │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  INFERENCE POD SIDECARS                                                      │
+│                                                                              │
+│  [kserve-agent Sidecar]                                                      │
+│  - Port: 9081/TCP (agent proxy), 9083/TCP (log marshaller)                  │
+│  - Capabilities: model pulling, request/response logging, batching          │
+│  - TLS: --logger-tls-skip-verify flag (disabled by default)                 │
 │         │                                                                    │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [llmisvc-controller-manager]                           │                 │
-│  │  - Namespace: kserve                                    │                 │
-│  │  - ServiceAccount: llmisvc-controller-manager           │                 │
-│  │  - Ports:                                               │                 │
-│  │    * 9443/TCP — Webhook server (TLS, cert-manager)      │                 │
-│  │    * 8443/TCP — Metrics (HTTPS, kube-rbac-proxy)        │                 │
-│  │    * 8081/TCP — Health probes (HTTP, no auth)           │                 │
-│  │  - ClusterRole: llmisvc-manager-role                    │                 │
-│  │  - Image: odh-kserve-llmisvc-controller                 │                 │
-│  │  - FIPS: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime  │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│         │                                                                    │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [localmodel-controller]                                │                 │
-│  │  - Namespace: kserve                                    │                 │
-│  │  - Image: odh-kserve-localmodel-controller              │                 │
-│  │  - No external ports                                    │                 │
-│  │  - FIPS: CGO_ENABLED=0 (⚠ FAILS check-payload)         │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│         │                                                                    │
-│         │ Port: 6443/TCP                                                     │
+│         │ Port: configurable                                                 │
 │         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: ServiceAccount Token                                         │
+│         │ Encryption: Optional TLS                                           │
 │         ▼                                                                    │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [Kubernetes API Server]                                │                 │
-│  │  - Port: 6443/TCP                                       │                 │
-│  │  - Protocol: HTTPS                                      │                 │
-│  │  - All controller CRUD operations                       │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
+│  [Log Sink Endpoints] (External)                                             │
+│                                                                              │
+│  [kserve-storage-initializer Init Container]                                 │
+│  - No network listener (init container)                                      │
+│  - Egress only → remote storage                                              │
 │                                                                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│  DATA PLANE (user namespaces)                                                │
+│  INFERENCE GRAPH ROUTING                                                     │
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [InferenceService Predictor Pod]                       │                 │
-│  │  - Namespace: {user-namespace}                          │                 │
-│  │  - Init Container: storage-initializer (Python 3.11)    │                 │
-│  │  - Sidecar (optional): agent (logging/batching)         │                 │
-│  │  - Sidecar (optional): oauth-proxy or kube-rbac-proxy   │                 │
-│  │  - Ports:                                               │                 │
-│  │    * 8080/TCP — Inference (HTTP, no encryption)         │                 │
-│  │    * 8443/TCP — Auth-protected inference (TLS)          │                 │
-│  │    * 9081/TCP — Agent logging sidecar                   │                 │
-│  │    * 9082/TCP — Agent batching sidecar                  │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
+│  [kserve-router]                                                             │
+│  - Port: 8080/TCP (HTTP/HTTPS)                                              │
+│  - Encryption: Optional TLS (serving cert)                                   │
+│  - Auth: Optional Bearer token + TokenReview + SubjectAccessReview          │
+│  - Routing patterns: splitter, switch, ensemble, sequence                   │
 │         │                                                                    │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [LLMInferenceService Workload Pod]                     │                 │
-│  │  - Namespace: {user-namespace}                          │                 │
-│  │  - Ports:                                               │                 │
-│  │    * 8000/TCP — Inference (HTTPS, self-signed/svc-ca)   │                 │
-│  │  - Multi-node: LeaderWorkerSet with head/worker svc     │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│         │                                                                    │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [Scheduler EPP Pod]                                    │                 │
-│  │  - Namespace: {user-namespace}                          │                 │
-│  │  - Ports:                                               │                 │
-│  │    * 9002/TCP — gRPC endpoint picker (TLS, self-signed) │                 │
-│  │    * 9003/TCP — gRPC health check (TLS)                 │                 │
-│  │    * 5557/TCP — ZMQ (internal)                          │                 │
-│  │    * 8000/TCP — HTTPS metrics                           │                 │
-│  │  - Auth: None (gRPC), Bearer Token (metrics)            │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│         │                                                                    │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [InferenceGraph Router Pod]                            │                 │
-│  │  - Port: 8080/TCP — HTTP                                │                 │
-│  │  - Routes: sequence, splitter, ensemble, switch         │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│         │                                                                    │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [localmodelnode-agent (DaemonSet)]                     │                 │
-│  │  - Runs on each node                                    │                 │
-│  │  - Manages local model file downloads                   │                 │
-│  │  - No external ports                                    │                 │
-│  │  - FIPS: CGO_ENABLED=0 (⚠ FAILS check-payload)         │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  PLATFORM SERVICES (Internal)                                                │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [Knative Serving]                                      │                 │
-│  │  - Purpose: Serverless deployment mode                  │                 │
-│  │  - Interaction: CRD Create (serving.knative.dev/v1)     │                 │
-│  │  - Port: 6443/TCP (via K8s API)                         │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [Istio Service Mesh]                                   │                 │
-│  │  - Purpose: VirtualService/DestinationRule management   │                 │
-│  │  - DestinationRule: InsecureSkipVerify=true (⚠)         │                 │
-│  │  - Port: 6443/TCP (via K8s API)                         │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [cert-manager]                                         │                 │
-│  │  - Purpose: Webhook TLS certificate provisioning        │                 │
-│  │  - Secrets: kserve-webhook-server-cert (auto-rotate)    │                 │
-│  │  -          llmisvc-webhook-server-cert (auto-rotate)   │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [Prometheus]                                           │                 │
-│  │  - Purpose: Metrics scraping, WVA autoscaling queries   │                 │
-│  │  - Port: varies                                         │                 │
-│  │  - Protocol: HTTPS, TLS                                 │                 │
-│  │  - Auth: Bearer Token                                   │                 │
-│  │  - PodMonitor: InsecureSkipVerify=true (⚠)              │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [RHOAI Gateway (data-science-gateway)]                 │                 │
-│  │  - Purpose: LLMInferenceService HTTPRoutes parent       │                 │
-│  │  - Interaction: Gateway API reference                   │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [Kuadrant / Red Hat Connectivity Link]                 │                 │
-│  │  - Purpose: AuthPolicy for LLMInferenceService          │                 │
-│  │  - Interaction: CRD availability check                  │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [OpenShift service-ca]                                 │                 │
-│  │  - Namespace: openshift-service-ca                      │                 │
-│  │  - Purpose: CA signing key for workload TLS certs       │                 │
-│  │  - Port: 6443/TCP (via K8s API)                         │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
+│         │ Port: dynamic                                                      │
+│         │ Protocol: HTTP                                                     │
+│         │ Encryption: None (in-mesh)                                         │
+│         │ Auth: Propagated headers                                           │
+│         ▼                                                                    │
+│  [Inference Step Services]                                                   │
 │                                                                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │  EXTERNAL SERVICES (Egress)                                                  │
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [AWS S3 — s3.amazonaws.com]                            │                 │
-│  │  - Port: 443/TCP                                        │                 │
-│  │  - Protocol: HTTPS                                      │                 │
-│  │  - Encryption: TLS 1.2+                                 │                 │
-│  │  - Auth: AWS IAM credentials                            │                 │
-│  │  - Purpose: Model artifact download                     │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
+│  [S3 / GCS / Azure Blob Storage]                                             │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: AWS IAM / GCP SA / Azure credentials                                │
+│  - Purpose: Model artifact download                                          │
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [Google Cloud Storage — storage.googleapis.com]        │                 │
-│  │  - Port: 443/TCP                                        │                 │
-│  │  - Protocol: HTTPS                                      │                 │
-│  │  - Encryption: TLS 1.2+                                 │                 │
-│  │  - Auth: GCS service account JSON                       │                 │
-│  │  - Purpose: Model artifact download                     │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
+│  [HuggingFace Hub]                                                           │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: HF token                                                            │
+│  - Purpose: Model download                                                   │
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [Azure Blob Storage]                                   │                 │
-│  │  - Port: 443/TCP                                        │                 │
-│  │  - Protocol: HTTPS                                      │                 │
-│  │  - Encryption: TLS 1.2+                                 │                 │
-│  │  - Auth: Azure identity credentials                     │                 │
-│  │  - Purpose: Model artifact download                     │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
+│  [Container Registries]                                                      │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: Registry credentials                                                │
+│  - Purpose: OCI image pulls for model artifacts                              │
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [HuggingFace Hub — huggingface.co]                     │                 │
-│  │  - Port: 443/TCP                                        │                 │
-│  │  - Protocol: HTTPS                                      │                 │
-│  │  - Encryption: TLS 1.2+                                 │                 │
-│  │  - Auth: HF token (optional)                            │                 │
-│  │  - Purpose: Model artifact download                     │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
+│  [Prometheus]                                                                │
+│  - Port: 9090/TCP                                                            │
+│  - Protocol: HTTP                                                            │
+│  - Encryption: None                                                          │
+│  - Auth: None                                                                │
+│  - Purpose: KEDA ScaledObject metric queries                                 │
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────┐                 │
-│  │  [OCI Container Registries]                             │                 │
-│  │  - Port: 443/TCP                                        │                 │
-│  │  - Protocol: HTTPS                                      │                 │
-│  │  - Encryption: TLS 1.2+                                 │                 │
-│  │  - Auth: Registry credentials                           │                 │
-│  │  - Purpose: Model image pull                            │                 │
-│  └─────────────────────────────────────────────────────────┘                 │
+│  [OpenTelemetry Collector]                                                   │
+│  - Port: configurable                                                        │
+│  - Protocol: gRPC                                                            │
+│  - Encryption: Optional TLS                                                  │
+│  - Auth: None                                                                │
+│  - Purpose: Metrics export                                                   │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 
-================================================================================
-  WEBHOOK ENDPOINTS
-================================================================================
-
-  API Server → kserve-webhook-server-service
-  - Port: 443/TCP → 9443/TCP
-  - Protocol: HTTPS
-  - Encryption: TLS (cert-manager, auto-rotate)
-  - Auth: Webhook CA bundle
-  - Webhooks: 8 (2 mutating, 6 validating)
-    * inferenceservice.defaulter (mutating)
-    * inferenceservice.pod-mutator (mutating)
-    * inferenceservice.validator
-    * inferencegraph.validator
-    * servingruntime.validator
-    * clusterservingruntime.validator
-    * trainedmodel.validator
-    * localmodelcache.validator
-
-  API Server → llmisvc-webhook-server-service
-  - Port: 443/TCP → 9443/TCP
-  - Protocol: HTTPS
-  - Encryption: TLS (cert-manager, auto-rotate)
-  - Auth: Webhook CA bundle
-  - Webhooks: 6 (4 validating, 1 conversion)
-    * llminferenceservice.v1alpha1.validator
-    * llminferenceservice.v1alpha2.validator
-    * llminferenceserviceconfig.v1alpha1.validator
-    * llminferenceserviceconfig.v1alpha2.validator
-    * localmodelnamespacecache.validator
-    * conversion.llminferenceservices (conversion webhook)
-
-================================================================================
-  RBAC SUMMARY
-================================================================================
-
-  ClusterRole: kserve-manager-role
-  Bound To: SA kserve-controller-manager (cluster-wide)
+RBAC Summary:
+- ClusterRole: kserve-manager-role
   - serving.kserve.io: inferenceservices, servingruntimes, clusterservingruntimes,
-    clusterstoragecontainers, localmodelcaches, localmodelnamespacecaches,
-    trainedmodels — get, list, watch, create, update, patch, delete
-  - apps: deployments — full CRUD
-  - core: services, configmaps, secrets, events, pods, namespaces, serviceaccounts
-  - serving.knative.dev: services — full CRUD
-  - networking.istio.io: virtualservices — full CRUD
-  - gateway.networking.k8s.io: httproutes — full CRUD
-  - autoscaling: horizontalpodautoscalers — full CRUD
-  - keda.sh: scaledobjects — full CRUD
-  - opentelemetry.io: opentelemetrycollectors — full CRUD
-  - route.openshift.io: routes — get, list, watch
-  - networking.k8s.io: ingresses — full CRUD
-  - admissionregistration.k8s.io: webhookconfigurations — full CRUD
+    clusterstoragecontainers (get, list, watch, create, update, patch, delete)
+  - apps: deployments (get, list, watch, create, update, patch, delete)
+  - gateway.networking.k8s.io: httproutes (get, list, watch, create, update, patch, delete)
+  - core: services, serviceaccounts, configmaps, secrets, events, pods, namespaces (full CRUD)
+  - serving.knative.dev: services (full CRUD)
+  - networking.istio.io: virtualservices (full CRUD)
+  - admissionregistration.k8s.io: webhookconfigurations (full CRUD)
 
-  ClusterRole: llmisvc-manager-role
-  Bound To: SA llmisvc-controller-manager (cluster-wide)
-  - serving.kserve.io: llminferenceservices, llminferenceserviceconfigs — full CRUD
-  - gateway.networking.k8s.io: httproutes, gateways, gatewayclasses — full CRUD
-  - inference.networking.x-k8s.io: inferencepools, inferenceobjectives,
-    inferencemodels, inferencemodelrewrites, inferencepoolimports — full CRUD
-  - leaderworkerset.x-k8s.io: leaderworkersets — full CRUD
-  - llmd.ai: variantautoscalings — full CRUD
-  - monitoring.coreos.com: podmonitors, servicemonitors — full CRUD
-  - networking.istio.io: destinationrules — full CRUD (OCP only)
-  - security.openshift.io: securitycontextconstraints — use (OCP only)
-  - rbac.authorization.k8s.io: roles, rolebindings, clusterrolebindings — full CRUD
-  - coordination.k8s.io: leases — full CRUD
+- ClusterRole: llmisvc-manager-role
+  - serving.kserve.io: llminferenceservices, llminferenceserviceconfigs (full CRUD)
+  - leaderworkerset.x-k8s.io: leaderworkersets (full CRUD)
+  - gateway.networking.k8s.io: httproutes, gateways, gatewayclasses (full CRUD)
+  - inference.networking.k8s.io: inferencepools, inferencemodels (full CRUD)
+  - resource.k8s.io: resourceclaims, resourceclaimtemplates (full CRUD)
+  - llm-d.ai: variantautoscalings (full CRUD)
+  - keda.sh: scaledobjects (full CRUD)
+  - monitoring.coreos.com: podmonitors, servicemonitors (full CRUD)
+  - networking.istio.io: destinationrules (full CRUD, distro only)
+  - security.openshift.io: securitycontextconstraints (use, distro only)
 
-================================================================================
-  SECRETS
-================================================================================
+Service Mesh Configuration:
+- Istio DestinationRules: Created per LLMInferenceService workload (distro build only)
+- mTLS: STRICT mode for Scheduler/EPP communication
+- NetworkPolicy: Controller pods have NetworkPolicy; no per-InferenceService NetworkPolicy
 
-  | Secret Name                          | Type                 | Purpose                              | Provisioned By       | Auto-Rotate |
-  |--------------------------------------|----------------------|--------------------------------------|----------------------|-------------|
-  | kserve-webhook-server-cert           | kubernetes.io/tls    | Webhook server TLS cert              | cert-manager         | Yes         |
-  | llmisvc-webhook-server-cert          | kubernetes.io/tls    | LLMISVC webhook TLS cert             | cert-manager         | Yes         |
-  | {llmisvc}-kserve-self-signed-certs   | kubernetes.io/tls    | LLM workload internal TLS            | Controller (self-signed, 10yr, ECDSA P-256) | Yes (2yr before expiry) |
-  | kserve-metrics-reader-sa-secret      | kubernetes.io/service-account-token | Bearer token for Prometheus  | Controller           | No          |
-  | storage-config                       | Opaque               | Cloud storage credentials (S3/GCS/Az)| Manual               | No          |
+Secrets:
+- kserve-webhook-server-cert (kubernetes.io/tls) - Webhook TLS, cert-manager or service-ca, auto-rotate
+- {llmisvc-name}-kserve-tls-secret (kubernetes.io/tls) - Self-signed workload TLS, controller-generated, no auto-rotate
+- kserve-metrics-reader-sa-secret (ServiceAccount token) - Prometheus metrics access, controller-generated
+- storage-config (Opaque) - Per-namespace S3/GCS/Azure credentials, user-provisioned
 
-================================================================================
-  SECURITY FINDINGS / RISKS
-================================================================================
+FIPS Compliance:
+- Go binaries: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, dynamic linking
+- Base images: UBI9 ubi-minimal with OpenSSL
+- TLS config: HTTP/2 disabled on webhook server (llmisvc)
+- Non-FIPS risks: --logger-tls-skip-verify flag (disabled by default),
+  PodMonitor insecureSkipVerify: true for vLLM engine scraping
 
-  ⚠  FIPS Gap: localmodel-controller and localmodelnode-agent use CGO_ENABLED=0
-     with static linking — these binaries will FAIL Konflux check-payload FIPS
-     validation. All other Go components use CGO_ENABLED=1 with strictfipsruntime.
-
-  ⚠  InsecureSkipVerify=true: PodMonitor TLS config for vLLM metrics scraping
-     bypasses certificate validation. DestinationRule for scheduler TLS also uses
-     InsecureSkipVerify. Pragmatic for self-signed certs but weakens security posture.
-
-  ⚠  storage-config secret: Contains cloud storage credentials (AWS_ACCESS_KEY_ID,
-     AWS_SECRET_ACCESS_KEY, etc.). Manual provisioning, no auto-rotation.
-     Recommendation: Use workload identity (IRSA/WIF) where possible.
-
-  ⚠  Self-signed TLS certificates: LLMInferenceService workload pods use self-signed
-     certs (10-year validity, ECDSA P-256) for internal comms when OpenShift service-ca
-     is not available. Long validity period increases exposure window.
-
-================================================================================
+Build Hermeticity:
+- RPM lock: rpms.lock.yaml (present)
+- Go deps: go.sum (present)
+- Python deps: uv.lock (present, 10+ lockfiles)
+- Hermeto/cachi2: Not detected

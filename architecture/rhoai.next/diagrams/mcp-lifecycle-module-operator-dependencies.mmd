@@ -1,0 +1,43 @@
+graph LR
+    ModuleOp["MCP Lifecycle<br/>Module Operator"]
+
+    %% External Go Dependencies
+    ModuleOp -->|controller framework| ControllerRuntime["controller-runtime<br/>v0.24.1"]
+    ModuleOp -->|manifest transforms| Manifestival["manifestival<br/>v0.7.2"]
+    ModuleOp -->|shared utilities| ODHUtils["odh-platform-<br/>utilities v0.2.0"]
+    ModuleOp -->|OpenShift types| OSApi["openshift/api"]
+    ModuleOp -->|TLS profile fetch| OSCtrlCommon["openshift/controller-<br/>runtime-common"]
+    ModuleOp -->|cipher conversion| OSLibGo["openshift/<br/>library-go"]
+
+    %% Internal Platform Dependencies
+    PlatformOp["ODH Platform<br/>Operator"] -->|creates CR| ModuleOp
+    ModuleOp -->|deploys operand| MCPLifecycleOp["MCP Lifecycle<br/>Operator (operand)"]
+    ModuleOp -->|reads TLS profile| OSAPIServer["OpenShift<br/>APIServer CR"]
+    ModuleOp -->|reads version| PlatformCM["Platform ConfigMap<br/>(odh-mcplifecycle-<br/>operator-config)"]
+
+    %% Infrastructure Dependencies
+    ModuleOp -->|API server| K8sAPI["Kubernetes API<br/>443/TCP HTTPS"]
+    ModuleOp -->|leader election| Leases["coordination.k8s.io<br/>Leases"]
+
+    %% Monitoring
+    Prometheus["Prometheus"] -->|scrapes metrics| ModuleOp
+
+    %% Downstream from operand
+    MCPLifecycleOp -->|manages| MCPServer["MCPServer CRs<br/>(mcp.x-k8s.io)"]
+
+    %% Styling
+    style ModuleOp fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style ControllerRuntime fill:#999,stroke:#333,color:#fff
+    style Manifestival fill:#999,stroke:#333,color:#fff
+    style ODHUtils fill:#999,stroke:#333,color:#fff
+    style OSApi fill:#999,stroke:#333,color:#fff
+    style OSCtrlCommon fill:#999,stroke:#333,color:#fff
+    style OSLibGo fill:#999,stroke:#333,color:#fff
+    style PlatformOp fill:#7ed321,stroke:#333,color:#fff
+    style MCPLifecycleOp fill:#7ed321,stroke:#333,color:#fff
+    style OSAPIServer fill:#7ed321,stroke:#333,color:#fff
+    style PlatformCM fill:#7ed321,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style Leases fill:#f5a623,stroke:#333,color:#fff
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style MCPServer fill:#f5a623,stroke:#333

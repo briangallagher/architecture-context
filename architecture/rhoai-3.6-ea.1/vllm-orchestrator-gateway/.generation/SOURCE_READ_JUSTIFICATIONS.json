@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "component": "vllm-orchestrator-gateway",
+  "reads": [
+    {
+      "path": "src/main.rs",
+      "line_range": "1-136",
+      "gap_category": ["http_endpoints", "authentication", "integration_points"],
+      "question": "What HTTP routes does the gateway expose, how are they authenticated, and what backend does it connect to?",
+      "expected_signal": "axum Router definition, route paths, port binding, header forwarding, orchestrator URL construction",
+      "outcome": "resolved",
+      "sections": ["HTTP Endpoints", "Authentication & Authorization", "Integration Points", "Data Flows", "Purpose", "Architectural Analysis"]
+    },
+    {
+      "path": "src/main.rs",
+      "line_range": "280-406",
+      "gap_category": ["integration_points", "authentication", "fips_compliance"],
+      "question": "How does the gateway construct orchestrator requests, forward auth headers, and handle TLS/mTLS?",
+      "expected_signal": "orchestrator URL, header forwarding logic, TLS cert loading, OpenSSL usage, mTLS identity construction",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Authentication & Authorization", "FIPS Compliance", "Data Flows", "Architectural Analysis"]
+    },
+    {
+      "path": "src/config.rs",
+      "line_range": "1-63",
+      "gap_category": ["http_endpoints", "internal_dependencies", "integration_points"],
+      "question": "What is the gateway configuration structure including orchestrator connection details and route definitions?",
+      "expected_signal": "OrchestratorConfig with host/port, DetectorConfig, RouteConfig structures",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Integration Points", "Internal Platform Dependencies"]
+    },
+    {
+      "path": "src/api.rs",
+      "line_range": "1-109",
+      "gap_category": ["http_endpoints", "integration_points"],
+      "question": "What request/response structures are used for the OpenAI-compatible API and orchestrator communication?",
+      "expected_signal": "OrchestratorDetector, OrchestratorResponse, StreamingResponse, Detections structs",
+      "outcome": "resolved",
+      "sections": ["HTTP Endpoints", "Integration Points", "Data Flows"]
+    },
+    {
+      "path": "Cargo.toml",
+      "line_range": "1-23",
+      "gap_category": ["fips_compliance", "internal_dependencies"],
+      "question": "What cryptographic and TLS dependencies are declared?",
+      "expected_signal": "openssl, native-tls, reqwest features, axum, tokio dependencies",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Dependencies"]
+    },
+    {
+      "path": "Dockerfile.konflux",
+      "line_range": "1-60",
+      "gap_category": ["fips_compliance"],
+      "question": "How is the Konflux container built and what OpenSSL packages are installed?",
+      "expected_signal": "openssl-devel at build, openssl-libs at runtime, UBI9-minimal base, no explicit FIPS flags",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Security Evidence"]
+    },
+    {
+      "path": "Dockerfile",
+      "line_range": "1-48",
+      "gap_category": ["fips_compliance"],
+      "question": "How does the standard Dockerfile handle OpenSSL?",
+      "expected_signal": "compat-openssl11 install, Debian-based rust builder, UBI9-minimal release image",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    }
+  ]
+}

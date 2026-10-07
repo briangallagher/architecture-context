@@ -1,0 +1,113 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  CLUSTER INTERNAL (Trusted - Kubernetes Network)                        │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  OPERATOR NAMESPACE                                              │    │
+│  │                                                                   │    │
+│  │  [MCP Lifecycle Module Operator]                                  │    │
+│  │  - Namespace: {operator-namespace}                                │    │
+│  │  - ServiceAccount: controller-manager                             │    │
+│  │  - Image: registry.redhat.io/rhoai/...                           │    │
+│  │  - Resources: 500m CPU, 512Mi memory                              │    │
+│  │  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1            │    │
+│  │         │                     │                                    │    │
+│  │         │ Port: 8081/TCP      │ Port: 8443/TCP                    │    │
+│  │         │ Protocol: HTTP      │ Protocol: HTTPS                   │    │
+│  │         │ Encryption: None    │ Encryption: TLS                   │    │
+│  │         │ Auth: None          │ Auth: Bearer Token (SA token)     │    │
+│  │         │ (health probes)     │ (metrics)                         │    │
+│  │         ▼                     ▼                                    │    │
+│  │  [Kubelet]              [controller-manager-metrics-service]       │    │
+│  │  /healthz, /readyz       ClusterIP 8443/TCP                       │    │
+│  │                                │                                   │    │
+│  │                                │ Scraped by                        │    │
+│  │                                ▼                                   │    │
+│  │                          [Prometheus]                              │    │
+│  │                          via ServiceMonitor                        │    │
+│  │                          TokenReview + SubjectAccessReview         │    │
+│  │                                                                   │    │
+│  │  [MCP Lifecycle Operator (Operand)]                               │    │
+│  │  - Deployed by module operator via SSA                            │    │
+│  │  - Manages MCPServer CRs (mcp.x-k8s.io)                         │    │
+│  │  - TLS config injected: TLS_MIN_VERSION, TLS_CIPHER_SUITES       │    │
+│  │                                                                   │    │
+│  │  [NetworkPolicy: allow-metrics-traffic]                           │    │
+│  │  - Ingress: 8443/TCP from namespaces with label metrics=enabled  │    │
+│  │  - Health probe port 8081/TCP: open to all (no NetworkPolicy)    │    │
+│  │                                                                   │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+│  EGRESS FLOWS                                                            │
+│                                                                          │
+│  [Module Operator]                                                       │
+│         │                                                                │
+│         ├──── Port: 443/TCP                                              │
+│         │     Protocol: HTTPS                                            │
+│         │     Encryption: TLS 1.2+                                       │
+│         │     Auth: ServiceAccount Token                                 │
+│         │     Purpose: CR watches, SSA apply, status patches,            │
+│         │              resource creation/deletion, leader election        │
+│         ▼                                                                │
+│  [Kubernetes API Server]                                                 │
+│                                                                          │
+│  [Module Operator]                                                       │
+│         │                                                                │
+│         ├──── Port: 443/TCP                                              │
+│         │     Protocol: HTTPS                                            │
+│         │     Encryption: TLS 1.2+                                       │
+│         │     Auth: ServiceAccount Token                                 │
+│         │     Purpose: Read cluster TLS profile                          │
+│         ▼                                                                │
+│  [OpenShift APIServer CR - config.openshift.io/v1]                       │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+NO EXTERNAL INGRESS / EGRESS
+- No Ingress resources (module operator is internal-only)
+- No external service calls (all communication is cluster-internal via K8s API)
+
+RBAC Summary:
+- ClusterRole: manager-role
+  - components.platform.opendatahub.io: mcplifecycleoperators (full CRUD + finalizers/status)
+  - apiextensions.k8s.io: customresourcedefinitions (full CRUD)
+  - apps: deployments (full CRUD)
+  - core: configmaps, namespaces, serviceaccounts, services (full CRUD)
+  - core: secrets (get, list, watch)
+  - core: pods (get, list)
+  - events.k8s.io: events (create, patch)
+  - rbac.authorization.k8s.io: roles, rolebindings, clusterroles, clusterrolebindings (full CRUD)
+  - coordination.k8s.io: leases (full CRUD)
+  - mcp.x-k8s.io: mcpservers (full CRUD + deletecollection, finalizers/status)
+  - authentication.k8s.io: tokenreviews (create)
+  - authorization.k8s.io: subjectaccessreviews (create)
+  - config.openshift.io: apiservers (get, list, watch)
+  - networking.k8s.io: networkpolicies (full CRUD)
+  - monitoring.coreos.com: servicemonitors (full CRUD)
+  - non-resource: /metrics (get)
+
+- ClusterRole: mcpserver-admin-role (aggregate)
+  - mcp.x-k8s.io: mcpservers, mcpservers/status (full CRUD + deletecollection)
+- ClusterRole: mcpserver-editor-role (aggregate)
+  - mcp.x-k8s.io: mcpservers, mcpservers/status (create, delete, get, list, patch, update, watch)
+- ClusterRole: mcpserver-viewer-role (aggregate)
+  - mcp.x-k8s.io: mcpservers, mcpservers/status (get, list, watch)
+- ClusterRole: metrics-auth-role
+  - authentication.k8s.io, authorization.k8s.io: tokenreviews, subjectaccessreviews (create)
+- ClusterRole: metrics-reader
+  - non-resource: /metrics (get)
+
+Role Bindings:
+- manager-rolebinding (Cluster-scoped) → ClusterRole/manager-role → SA: controller-manager
+- leader-election-rolebinding (Namespace-scoped) → Role/leader-election-role → SA: controller-manager
+
+Secrets:
+- No secrets directly managed. TLS configuration derived from OpenShift APIServer CR.
+
+Authentication & Authorization:
+- /metrics (8443/TCP): Bearer Token → TokenReview + SubjectAccessReview
+- /healthz, /readyz (8081/TCP): None (open to kubelet probes)
+
+FIPS Compliance:
+- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, UBI 9 base (OpenSSL)
+- Runtime: TLS config from OpenShift TLS profile (Intermediate = TLS 1.2+)
+- Crypto: stdlib crypto/tls via controller-runtime, OpenSSL backend via strictfipsruntime

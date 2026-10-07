@@ -1,107 +1,90 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Browser["User Browser"]
+        Browser["Browser / Client"]
     end
 
-    subgraph Ingress["INGRESS (DMZ)"]
-        Gateway["Platform Gateway (Envoy)<br/>443/TCP → 8443/TCP<br/>TLS 1.3 SIMPLE<br/>Session Cookie"]
+    subgraph Ingress["INGRESS (Gateway API)"]
+        Gateway["data-science-gateway<br/>HTTPRoute PathPrefix /<br/>443/TCP → 8443/TCP<br/>TLS terminated (SIMPLE)"]
     end
 
-    subgraph AuthBoundary["AUTH BOUNDARY"]
-        KRBP["kube-rbac-proxy<br/>8443/TCP HTTPS<br/>TLS (serving cert)<br/>Identity Injection:<br/>X-Auth-Request-User<br/>X-Auth-Request-Groups<br/>X-Forwarded-Access-Token"]
+    subgraph AuthLayer["AUTH LAYER (kube-rbac-proxy)"]
+        KRBAC["kube-rbac-proxy<br/>8443/TCP HTTPS<br/>TLS: service-ca cert (dashboard-proxy-tls)<br/>AuthN: TokenReview<br/>AuthZ: SAR (list projects)"]
     end
 
-    subgraph AppTier["APPLICATION TIER (Dashboard Pod)"]
+    subgraph CoreServices["CORE SERVICES (Pod-internal)"]
         direction TB
+        Dashboard["odh-dashboard (Node.js BFF)<br/>SA: odh-dashboard<br/>8080/TCP HTTP (localhost)"]
+        CoreBFF["core-bff (Go BFF)<br/>SA: odh-dashboard<br/>8080/TCP"]
+    end
 
-        Backend["odh-dashboard Backend<br/>8080/TCP HTTP (localhost)<br/>SA: odh-dashboard<br/>secureRoute / secureAdminRoute"]
+    subgraph ModuleLayer["MODULE BFF LAYER (SA: odh-dashboard-modules)"]
+        direction LR
 
-        subgraph BFFZone["BFF SIDECARS (SA: odh-dashboard-modules)"]
-            GenAI["gen-ai BFF<br/>8143/TCP HTTPS<br/>TLS 1.3 (server)"]
-            MaaS["maas BFF<br/>8243/TCP HTTPS<br/>TLS 1.3 (server)"]
-            ModelReg["model-registry BFF<br/>8043/TCP HTTPS"]
-            AutoML["automl BFF<br/>8643/TCP HTTPS"]
-            AutoRAG["autorag BFF<br/>8743/TCP HTTPS"]
-            EvalHub["eval-hub BFF<br/>8543/TCP HTTPS"]
-            MLflow["mlflow BFF<br/>8343/TCP HTTPS"]
+        subgraph ModuleGroup1[" "]
+            ModelReg["model-registry<br/>8043/TCP HTTPS"]
+            GenAI["gen-ai<br/>8143/TCP HTTPS"]
+            MaaS["maas<br/>8243/TCP HTTPS"]
+            MLflow["mlflow<br/>8343/TCP HTTPS"]
+        end
+
+        subgraph ModuleGroup2[" "]
+            EvalHub["eval-hub<br/>8543/TCP HTTPS"]
+            AutoML["automl<br/>8643/TCP HTTPS"]
+            AutoRAG["autorag<br/>8743/TCP HTTPS"]
+            AgentOps["agent-ops<br/>8843/TCP HTTPS"]
         end
     end
 
-    subgraph ClusterSvcs["CLUSTER SERVICES (Internal)"]
-        K8sAPI["Kubernetes API<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>SA/User Token"]
-        Prometheus["Prometheus / Thanos<br/>443/TCP HTTPS<br/>User Bearer"]
-        DSPipelines["DS Pipeline API<br/>dynamic HTTPS<br/>User Bearer"]
-        ModelRegSvc["Model Registry<br/>8080/TCP HTTPS<br/>User Bearer"]
-        ModelCatalog["Model Catalog<br/>8081/TCP HTTPS<br/>User Bearer"]
-        ModelServing["Model Serving API<br/>443/TCP HTTPS<br/>User Bearer"]
-        TrustyAI["TrustyAI<br/>443/TCP HTTPS<br/>User Bearer"]
-        LlamaStack["LlamaStack (OGXServer)<br/>dynamic HTTPS<br/>User JWT"]
-        MaaSCtrl["MaaS Controller<br/>dynamic HTTPS<br/>JWT/SA Token"]
-        NemoGuard["NeMo Guardrails<br/>dynamic HTTPS<br/>User JWT"]
-        MLflowSvc["MLflow Tracking<br/>dynamic HTTPS<br/>User JWT"]
-        EvalHubSvc["EvalHub API<br/>dynamic HTTPS<br/>User Bearer"]
-        Feast["Feast Registry<br/>8443/TCP HTTPS<br/>User Bearer"]
+    subgraph K8sCluster["KUBERNETES API"]
+        K8sAPI["kube-apiserver<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>SA token + impersonation"]
     end
 
-    subgraph ExternalSvcs["EXTERNAL SERVICES"]
-        MCPServers["MCP Servers<br/>dynamic HTTP/HTTPS<br/>Varies"]
-        S3["S3 (AWS/MinIO)<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>AWS IAM"]
+    subgraph ExternalServices["EXTERNAL SERVICES (Egress)"]
+        ExtHTTPS["External HTTPS Services<br/>(MaaS, MLflow, LlamaStack)<br/>443/TCP TLS 1.2+"]
+        Prometheus["Prometheus<br/>9090/TCP HTTP<br/>Bearer token"]
+        Perses["data-science-perses<br/>8080/TCP HTTP<br/>user_token"]
     end
 
-    %% Flows
-    Browser -->|"HTTPS/443<br/>TLS 1.3<br/>Session Cookie"| Gateway
-    Gateway -->|"HTTPS/8443<br/>TLS (serving cert)<br/>Gateway Headers"| KRBP
-    KRBP -->|"HTTP/8080<br/>None (localhost)<br/>Identity Headers"| Backend
+    %% External → Auth
+    Browser -->|"HTTPS/443<br/>TLS 1.2+"| Gateway
+    Gateway -->|"HTTPS/8443<br/>TLS (service-ca)"| KRBAC
 
-    %% Backend to BFFs
-    Backend -->|"HTTPS (shared cert)"| GenAI
-    Backend -->|"HTTPS (shared cert)"| MaaS
-    Backend -->|"HTTPS (shared cert)"| ModelReg
-    Backend -->|"HTTPS (shared cert)"| AutoML
-    Backend -->|"HTTPS (shared cert)"| AutoRAG
-    Backend -->|"HTTPS (shared cert)"| EvalHub
-    Backend -->|"HTTPS (shared cert)"| MLflow
+    %% Auth → Core
+    KRBAC -->|"HTTP/8080<br/>No encryption (localhost)<br/>X-Auth-Request-User<br/>X-Auth-Request-Groups"| Dashboard
 
-    %% Inter-BFF
-    GenAI -.->|"HTTPS/8243<br/>Token Delegation"| MaaS
+    %% Core → Modules
+    Dashboard -->|"HTTPS/8043-8843<br/>TLS (shared serving cert)<br/>x-forwarded-access-token"| GenAI
+    Dashboard -->|"HTTPS/8043<br/>TLS (shared serving cert)<br/>x-forwarded-access-token"| ModelReg
 
-    %% Backend egress
-    Backend -->|"HTTPS/443<br/>SA/User Token"| K8sAPI
-    Backend -->|"HTTPS/443<br/>User Bearer"| Prometheus
+    %% Inter-module
+    GenAI -.->|"HTTPS/8243<br/>TLS (service-ca)<br/>user token passthrough"| MaaS
+    GenAI -.->|"HTTPS/8343<br/>TLS (service-ca)<br/>user token passthrough"| MLflow
 
-    %% BFF egress to cluster services
-    GenAI -->|"HTTPS<br/>User JWT"| LlamaStack
-    GenAI -->|"HTTPS<br/>User JWT"| MaaSCtrl
-    GenAI -->|"HTTPS<br/>User JWT"| NemoGuard
-    GenAI -->|"HTTPS<br/>User JWT"| MLflowSvc
-    GenAI -->|"HTTP/S"| MCPServers
-    MaaS -->|"HTTPS<br/>SA Bearer"| MaaSCtrl
-    ModelReg -->|"HTTPS/8080<br/>User Bearer"| ModelRegSvc
-    ModelReg -->|"HTTPS/8081<br/>User Bearer"| ModelCatalog
-    AutoML -->|"HTTPS<br/>User Bearer"| DSPipelines
-    AutoML -->|"HTTPS/443<br/>AWS IAM"| S3
-    AutoRAG -->|"HTTPS<br/>User Bearer"| DSPipelines
-    AutoRAG -->|"HTTPS<br/>API Key"| LlamaStack
-    AutoRAG -->|"HTTPS/443<br/>AWS IAM"| S3
-    EvalHub -->|"HTTPS<br/>User Bearer"| EvalHubSvc
-    MLflow -->|"HTTPS<br/>User JWT"| MLflowSvc
-    Backend -->|"HTTPS<br/>User Bearer"| DSPipelines
-    Backend -->|"HTTPS<br/>User Bearer"| ModelRegSvc
-    Backend -->|"HTTPS<br/>User Bearer"| ModelServing
-    Backend -->|"HTTPS<br/>User Bearer"| TrustyAI
-    Backend -->|"HTTPS<br/>User Bearer"| Feast
+    %% → K8s API
+    Dashboard -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token / user token"| K8sAPI
+    KRBAC -->|"HTTPS/6443<br/>TLS 1.2+<br/>TokenReview + SAR"| K8sAPI
+    GenAI -->|"HTTPS/6443<br/>TLS 1.2+<br/>User impersonation"| K8sAPI
+    MaaS -->|"HTTPS/6443<br/>TLS 1.2+<br/>User impersonation"| K8sAPI
+    AgentOps -->|"HTTPS/6443<br/>TLS 1.2+<br/>User impersonation"| K8sAPI
+
+    %% → External
+    Dashboard -->|"HTTPS/443<br/>TLS 1.2+"| ExtHTTPS
+    CoreBFF -->|"HTTP/9090<br/>Bearer token"| Prometheus
+    Dashboard -->|"HTTP/8080<br/>user_token"| Perses
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
     classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
-    classDef auth fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef apptier fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef clustersvc fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef externalsvc fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef auth fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef core fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef module fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef k8s fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef extsvc fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 
     class Browser external
     class Gateway ingress
-    class KRBP auth
-    class Backend,GenAI,MaaS,ModelReg,AutoML,AutoRAG,EvalHub,MLflow apptier
-    class K8sAPI,Prometheus,DSPipelines,ModelRegSvc,ModelCatalog,ModelServing,TrustyAI,LlamaStack,MaaSCtrl,NemoGuard,MLflowSvc,EvalHubSvc,Feast clustersvc
-    class MCPServers,S3 externalsvc
+    class KRBAC auth
+    class Dashboard,CoreBFF core
+    class ModelReg,GenAI,MaaS,MLflow,EvalHub,AutoML,AutoRAG,AgentOps module
+    class K8sAPI k8s
+    class ExtHTTPS,Prometheus,Perses extsvc

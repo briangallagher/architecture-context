@@ -1,0 +1,57 @@
+graph LR
+    LLMDRouter[llm-d-router<br/>EPP + Sidecar + Coordinator]
+
+    %% Core Runtime Dependencies
+    LLMDRouter -->|"gRPC ExtProc<br/>callout receiver"| Envoy[Envoy Proxy]
+    LLMDRouter -->|"resource watches<br/>6443/TCP TLS"| K8sAPI[Kubernetes API<br/>Server]
+    LLMDRouter -->|"operator framework"| ControllerRuntime[controller-runtime<br/>0.23.3]
+
+    %% Internal Platform Dependencies
+    LLMDRouter -->|"InferencePool CRDs<br/>controller watch"| GatewayAPIInf[gateway-api-inference<br/>-extension 1.5.0]
+    LLMDRouter -->|"KV cache library"| LLMDKVCache[llm-d-kv-cache<br/>0.9.0]
+
+    %% Key Go Libraries
+    LLMDRouter -->|"gRPC transport"| GRPC[google.golang.org/grpc<br/>1.82.1]
+    LLMDRouter -->|"ExtProc protocol"| EnvoyCP[envoyproxy/go-control-plane<br/>1.37.0]
+    LLMDRouter -->|"Gateway API types"| GatewayAPI[sigs.k8s.io/gateway-api<br/>1.5.1]
+
+    %% Observability Dependencies
+    LLMDRouter -.->|"metrics<br/>9090/TCP HTTP"| Prometheus[Prometheus<br/>client_golang 1.23.2]
+    LLMDRouter -.->|"tracing<br/>OTLP/gRPC"| OTel[OpenTelemetry<br/>1.44.0]
+    LLMDRouter -.->|"structured logging"| Zap[go.uber.org/zap<br/>1.28.0]
+
+    %% Data Dependencies
+    LLMDRouter -.->|"caching"| Ristretto[dgraph-io/ristretto<br/>2.4.2]
+    LLMDRouter -.->|"caching"| TTLCache[jellydator/ttlcache<br/>3.4.1]
+    LLMDRouter -.->|"Redis integration"| Redis[redis/go-redis<br/>9.20.1]
+
+    %% CRD Resources (watched)
+    EPCConfig[EndpointPickerConfig<br/>llm-d.ai/v1alpha1] -->|"configures"| LLMDRouter
+    InfPool[InferencePool<br/>inference.networking.k8s.io/v1] -->|"watched"| LLMDRouter
+    InfRewrite[InferenceModelRewrite<br/>llm-d.ai/v1alpha2] -->|"watched"| LLMDRouter
+    InfObjective[InferenceObjective<br/>llm-d.ai/v1alpha2] -->|"watched"| LLMDRouter
+
+    %% Build Dependencies
+    LLMDRouter -.->|"Go 1.26.5<br/>UBI 9 base"| GoRuntime[Go Runtime]
+
+    %% Styling
+    style LLMDRouter fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style Envoy fill:#999,stroke:#333,color:#fff
+    style K8sAPI fill:#999,stroke:#333,color:#fff
+    style ControllerRuntime fill:#999,stroke:#333,color:#fff
+    style GatewayAPIInf fill:#7ed321,stroke:#333,color:#fff
+    style LLMDKVCache fill:#7ed321,stroke:#333,color:#fff
+    style GRPC fill:#ddd,stroke:#333
+    style EnvoyCP fill:#ddd,stroke:#333
+    style GatewayAPI fill:#ddd,stroke:#333
+    style Prometheus fill:#f5a623,stroke:#333
+    style OTel fill:#f5a623,stroke:#333
+    style Zap fill:#f5a623,stroke:#333
+    style Ristretto fill:#ddd,stroke:#333
+    style TTLCache fill:#ddd,stroke:#333
+    style Redis fill:#ddd,stroke:#333
+    style EPCConfig fill:#f5a623,stroke:#333
+    style InfPool fill:#f5a623,stroke:#333
+    style InfRewrite fill:#f5a623,stroke:#333
+    style InfObjective fill:#f5a623,stroke:#333
+    style GoRuntime fill:#ddd,stroke:#333

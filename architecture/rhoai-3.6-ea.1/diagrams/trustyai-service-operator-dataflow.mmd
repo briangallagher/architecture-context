@@ -1,0 +1,46 @@
+sequenceDiagram
+    participant Client as External Client
+    participant Proxy as kube-rbac-proxy<br/>8443/TCP TLS
+    participant KubeAPI as Kubernetes API<br/>6443/TCP TLS 1.2+
+    participant TrustyAI as TrustyAI Service<br/>8080/TCP localhost
+    participant Prometheus as Prometheus<br/>(scrape)
+    participant Manager as Operator Manager
+    participant APIServer as OpenShift APIServer
+    participant DSCConfig as trustyai-dsc-config<br/>ConfigMap
+
+    Note over Manager,APIServer: Startup Phase
+    Manager->>APIServer: Read TLS security profile<br/>(apiservers.config.openshift.io/cluster)
+    APIServer-->>Manager: TLS profile (cipher suites, min version)<br/>Fallback: Mozilla Intermediate (TLS 1.2+)
+    Manager->>DSCConfig: Read evaluation policy<br/>(permitOnline, permitCodeExecution)
+    DSCConfig-->>Manager: Policy configuration
+
+    Note over Manager,KubeAPI: Operator Control Plane
+    Manager->>KubeAPI: Watch CRDs (TrustyAIService, EvalHub,<br/>GuardrailsOrchestrator, NemoGuardrails,<br/>LMEvalJob, TrustyAI)<br/>ServiceAccount token auth
+    KubeAPI-->>Manager: CR events (create/update/delete)
+    Manager->>KubeAPI: Create/Update owned resources<br/>(Deployments, Services, ConfigMaps,<br/>ServiceAccounts, Roles, RoleBindings, Routes)
+    KubeAPI-->>Manager: Resource status
+
+    Note over Manager,KubeAPI: Platform Integration
+    Manager->>KubeAPI: Watch KServe InferenceService<br/>(GuardrailsOrchestrator controller)
+    KubeAPI-->>Manager: Model serving state
+    Manager->>KubeAPI: Watch ServiceMonitor (conditional)<br/>(EvalHub controller, if prometheus-operator available)
+
+    Note over Client,TrustyAI: TrustyAI Service Request Path
+    Client->>Proxy: HTTPS request to :8443<br/>TLS (per-instance Secret)
+    Proxy->>KubeAPI: SubjectAccessReview<br/>(authorization check)
+    KubeAPI-->>Proxy: Allow/Deny
+    Proxy->>TrustyAI: Forward to localhost:8080<br/>(authenticated request)
+    TrustyAI-->>Proxy: Response
+    Proxy-->>Client: HTTPS response
+
+    Note over Prometheus,TrustyAI: Metrics Collection
+    Prometheus->>TrustyAI: Scrape /q/metrics<br/>:8080 (internal)
+    TrustyAI-->>Prometheus: Metrics data
+
+    Note over Client,Proxy: Health Probes (Unauthenticated)
+    Client->>Proxy: GET :9443/healthz (HTTPS, no auth)
+    Proxy-->>Client: Health status
+    Client->>TrustyAI: GET :8080/q/health/live (HTTP)
+    TrustyAI-->>Client: Liveness status
+    Client->>TrustyAI: GET :8080/q/health/ready (HTTP)
+    TrustyAI-->>Client: Readiness status

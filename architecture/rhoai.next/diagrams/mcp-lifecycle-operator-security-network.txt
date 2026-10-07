@@ -1,0 +1,153 @@
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  CLUSTER INTERNAL (Trusted - Kubernetes Network)                            │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  Namespace: mcp-lifecycle-operator-system                           │    │
+│  │                                                                     │    │
+│  │  [mcp-lifecycle-operator]                                           │    │
+│  │  - ServiceAccount: controller-manager                               │    │
+│  │  - Image: controller:latest (UBI 9 minimal base)                    │    │
+│  │  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1              │    │
+│  │  - GOMEMLIMIT: 460MiB                                               │    │
+│  │  - Leader Election: configmaps + leases (coordination.k8s.io)       │    │
+│  │  - HTTP/2: Disabled (CVE-2023-44487 mitigation)                     │    │
+│  │                                                                     │    │
+│  │  Exposed Ports:                                                     │    │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │    │
+│  │  │ 8443/TCP  Metrics endpoint                                  │    │    │
+│  │  │ Protocol: HTTPS                                             │    │    │
+│  │  │ Encryption: TLS (self-signed or cert-manager)               │    │    │
+│  │  │ Auth: Bearer Token (TokenReview + SubjectAccessReview)      │    │    │
+│  │  │ Service: controller-manager-metrics-service (ClusterIP)     │    │    │
+│  │  ├─────────────────────────────────────────────────────────────┤    │    │
+│  │  │ 8081/TCP  Health probes                                     │    │    │
+│  │  │ Protocol: HTTP                                              │    │    │
+│  │  │ Encryption: None                                            │    │    │
+│  │  │ Auth: None                                                  │    │    │
+│  │  │ Paths: /healthz (liveness), /readyz (readiness)             │    │    │
+│  │  └─────────────────────────────────────────────────────────────┘    │    │
+│  │                                                                     │    │
+│  │  NetworkPolicy: allow-metrics-traffic                               │    │
+│  │  - Restricts 8443/TCP ingress to namespaces with                    │    │
+│  │    monitoring label                                                 │    │
+│  └──────────────────────────┬──────────────────────────────────────────┘    │
+│                             │                                               │
+│         ┌───────────────────┼───────────────────────────┐                   │
+│         │                   │                           │                   │
+│         ▼                   ▼                           ▼                   │
+│  ┌──────────────┐  ┌───────────────┐  ┌────────────────────────────────┐   │
+│  │ K8s API      │  │ MCP Server    │  │ Prometheus                     │   │
+│  │ Server       │  │ Pods          │  │                                │   │
+│  │              │  │               │  │ Scrapes metrics                │   │
+│  │ Port: 443/TCP│  │ Port: {spec.  │  │ Port: 8443/TCP                 │   │
+│  │ Proto: HTTPS │  │  config.port} │  │ Proto: HTTPS                   │   │
+│  │ Enc: TLS 1.2+│  │  /TCP         │  │ Enc: TLS (self-signed)         │   │
+│  │ Auth: SA     │  │ Proto: HTTP   │  │ Auth: Bearer Token             │   │
+│  │  Token       │  │ Enc: None     │  │ ServiceMonitor: enabled (ODH)  │   │
+│  │              │  │ Auth: None    │  │                                │   │
+│  └──────────────┘  │ (401/403 =    │  └────────────────────────────────┘   │
+│                    │  reachable)   │                                        │
+│                    └───────────────┘                                        │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  Namespace: {user-namespace} (per MCPServer CR)                     │    │
+│  │                                                                     │    │
+│  │  [MCP Server Deployment]                                            │    │
+│  │  - Created by operator (ownerReference to MCPServer CR)             │    │
+│  │  - Image: user-provided                                             │    │
+│  │  - Config: env vars, envFrom, ConfigMap/Secret volume mounts        │    │
+│  │  - Annotation: mcp.x-k8s.io/config-hash (SHA-256)                  │    │
+│  │  - TLS propagation: optional via PROPAGATE_TLS_ENV_VARS             │    │
+│  │                                                                     │    │
+│  │  [ClusterIP Service: {mcpserver-name}]                              │    │
+│  │  - Port: {spec.config.port}/TCP → mcp (named port)                 │    │
+│  │  - Protocol: HTTP                                                   │    │
+│  │  - Encryption: None                                                 │    │
+│  │  - Session Affinity: ClientIP (if stateful MCP server)              │    │
+│  │                                                                     │    │
+│  │  [NetworkPolicy: {mcpserver-name}]                                  │    │
+│  │  - Allows ingress on MCP port only                                  │    │
+│  │  - Source: any (no namespace restriction)                           │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+│  NO INGRESS RESOURCES (no external exposure)                                │
+│  NO SERVICE MESH (no Istio/mTLS sidecar)                                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+EGRESS FLOWS:
+
+  mcp-lifecycle-operator → Kubernetes API Server
+  - Port: 443/TCP
+  - Protocol: HTTPS
+  - Encryption: TLS 1.2+
+  - Auth: ServiceAccount Token (automounted)
+  - Operations: CRUD on Deployments, Services, NetworkPolicies,
+                ConfigMaps, Secrets, Pods, MCPServers
+
+  mcp-lifecycle-operator → MCP Server Endpoints
+  - Port: {spec.config.port}/TCP (per MCPServer CR)
+  - Protocol: HTTP (Streamable HTTP / MCP Protocol)
+  - Encryption: None
+  - Auth: None (unauthenticated handshake; 401/403 treated as reachable)
+  - Purpose: MCP initialize handshake verification
+  - Retry: Exponential backoff 10s-2min, max 10 retries
+
+RBAC SUMMARY:
+
+  ClusterRole: manager-role
+  Bound to: SA controller-manager (mcp-lifecycle-operator-system)
+  Permissions:
+  - mcp.x-k8s.io/mcpservers: get, list, watch, update, patch
+  - mcp.x-k8s.io/mcpservers/status: get, update, patch
+  - mcp.x-k8s.io/mcpservers/finalizers: update
+  - apps/deployments: get, list, watch, create, update
+  - core/services: get, list, watch, create, update
+  - core/configmaps: get, list, watch
+  - core/secrets: get, list, watch
+  - core/pods: get, list
+  - networking.k8s.io/networkpolicies: get, list, watch, create, update
+  - core+events.k8s.io/events: create, patch
+
+  Role: leader-election-role (namespace-scoped)
+  Bound to: SA controller-manager
+  Permissions:
+  - core/configmaps: get, list, watch, create, update, patch, delete
+  - coordination.k8s.io/leases: get, list, watch, create, update, patch, delete
+  - core/events: create, patch
+
+  ClusterRole: metrics-auth-role
+  Permissions:
+  - authentication.k8s.io/tokenreviews: create
+  - authorization.k8s.io/subjectaccessreviews: create
+
+  ClusterRole: metrics-reader-role
+  Permissions:
+  - /metrics (nonResourceURL): get
+
+  User-facing roles:
+  - mcpserver-admin-role: full CRUD on mcpservers
+  - mcpserver-editor-role: full CRUD on mcpservers
+  - mcpserver-viewer-role: read-only on mcpservers
+
+SECRETS:
+
+  - User-provided secrets referenced by MCPServer CRs (Opaque)
+    Purpose: Mounted into MCP server containers or injected as env vars
+    Provisioned by: User
+    Auto-Rotate: No
+
+TLS CONFIGURATION:
+
+  - Metrics endpoint: TLS (self-signed or cert-manager)
+  - MCP handshake: Plaintext HTTP (no TLS)
+  - TLS env var propagation: Optional (PROPAGATE_TLS_ENV_VARS=true)
+    Propagates TLS_MIN_VERSION and TLS_CIPHER_SUITES to MCP server containers
+  - HTTP/2: Disabled by default (CVE-2023-44487 mitigation)
+
+FIPS COMPLIANCE:
+
+  - Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
+  - Base image: registry.redhat.io/ubi9/ubi-minimal (OpenSSL present)
+  - Crypto: stdlib crypto/tls via OpenSSL (strictfipsruntime)
+  - No OLM FIPS annotation (not OLM-managed)

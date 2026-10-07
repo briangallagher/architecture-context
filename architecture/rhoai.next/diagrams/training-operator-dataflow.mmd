@@ -1,61 +1,48 @@
 sequenceDiagram
-    participant User as User / Data Scientist
-    participant K8sAPI as Kubernetes API Server<br/>443/TCP HTTPS TLS 1.2+
-    participant Webhook as Training Operator<br/>Webhook Server<br/>9443/TCP HTTPS TLS
-    participant Controller as Training Operator<br/>Controller<br/>(opendatahub ns)
-    participant Prometheus as Prometheus<br/>OpenShift Monitoring<br/>8080/TCP HTTP
+    participant User as User / Dashboard
+    participant K8sAPI as Kubernetes API Server<br/>443/TCP HTTPS TLS
+    participant Webhook as Training Operator Webhook<br/>9443/TCP HTTPS TLS
+    participant Controller as Training Operator Controller
+    participant Kubelet as Kubelet<br/>10250/TCP HTTPS mTLS
+    participant Pods as Training Pods<br/>(replicas)
+    participant HeadlessSvc as Headless Services<br/>Dynamic/TCP
+    participant Volcano as Volcano / scheduler-plugins<br/>443/TCP HTTPS TLS
 
-    Note over User,Prometheus: Flow 1: Training Job Lifecycle (e.g. PyTorchJob)
+    Note over User,HeadlessSvc: Flow 1: Training Job Lifecycle
 
-    User->>K8sAPI: 1. kubectl apply -f pytorchjob.yaml<br/>Auth: Bearer Token / kubeconfig
-    K8sAPI->>Webhook: 2. POST /validate-kubeflow-org-v1-pytorchjob<br/>9443/TCP HTTPS (TLS auto-managed)<br/>Auth: API server client cert
-    Webhook-->>K8sAPI: 2a. Admission Response (allow/deny)
-    Note right of Webhook: Validates: DNS-1035 name,<br/>replica types, container images,<br/>elastic policy rules
+    User->>K8sAPI: POST {Job}CR (e.g. PyTorchJob)<br/>Auth: Bearer token / OIDC
+    K8sAPI->>Webhook: POST /validate-kubeflow-org-v1-*<br/>HTTPS/9443, TLS<br/>Auth: Kubernetes API token
+    Webhook-->>K8sAPI: Admission Response (allow/deny)
+    K8sAPI-->>User: CR created
 
-    K8sAPI-->>User: 2b. Created / Rejected
+    Controller->>K8sAPI: Watch {Job} CRDs<br/>HTTPS/443, TLS<br/>Auth: ServiceAccount token
+    K8sAPI-->>Controller: Job event (ADDED/MODIFIED)
 
-    Note over Controller: Watch event triggers reconciliation
+    Controller->>K8sAPI: Create Pods + Headless Services<br/>HTTPS/443, TLS<br/>Auth: ServiceAccount token
+    K8sAPI->>Kubelet: Schedule pod creation<br/>HTTPS/10250, mTLS<br/>Auth: Client cert
+    Kubelet-->>Pods: Pods running
 
-    K8sAPI->>Controller: 3. Watch notification<br/>PyTorchJob created/updated
+    Pods->>HeadlessSvc: Inter-replica communication<br/>Dynamic/TCP, No encryption<br/>DNS-based discovery
 
-    Controller->>K8sAPI: 4a. Create headless Service<br/>{job}-{type}-{idx}<br/>443/TCP HTTPS, SA token auth
-    Controller->>K8sAPI: 4b. Create Master Pod<br/>with labels kubeflow.org/operator-name<br/>443/TCP HTTPS, SA token auth
-    Controller->>K8sAPI: 4c. Create Worker Pod(s)<br/>with init container (waits for master DNS)<br/>443/TCP HTTPS, SA token auth
-    Controller->>K8sAPI: 4d. Create NetworkPolicy<br/>(PyTorch only: restricts to same-job pods<br/>+ openshift-monitoring:8080)
+    Controller->>K8sAPI: Update Job status<br/>HTTPS/443, TLS
 
-    Note over Controller: Expectation controller tracks<br/>expected creates before next reconcile
+    Note over Controller,Volcano: Flow 2: Gang Scheduling (Optional)
 
-    activate Controller
-    Note right of Controller: Workers: MASTER_ADDR, MASTER_PORT,<br/>WORLD_SIZE, RANK injected
-    deactivate Controller
+    Controller->>K8sAPI: Create PodGroup CR<br/>HTTPS/443, TLS<br/>Auth: ServiceAccount token
+    K8sAPI-->>Volcano: PodGroup event
+    Volcano->>K8sAPI: Schedule pods together<br/>HTTPS/443, TLS<br/>Auth: ServiceAccount token
 
-    participant MasterPod as Master Pod<br/>framework-port/TCP
-    participant WorkerPod as Worker Pod(s)<br/>framework-port/TCP
+    Note over Controller,Pods: Flow 3: MPI Job Execution
 
-    MasterPod->>WorkerPod: 5. Distributed training communication<br/>via headless Service DNS<br/>framework-port/TCP HTTP<br/>No encryption, No auth<br/>(NetworkPolicy restricts to same-job)
-    WorkerPod->>MasterPod: 5. Gradient sync / AllReduce<br/>framework-port/TCP HTTP
+    Controller->>K8sAPI: Create SA, Role, RoleBinding,<br/>ConfigMap for launcher<br/>HTTPS/443, TLS
+    K8sAPI-->>Controller: Resources created
 
-    Prometheus->>Controller: 6. GET /metrics<br/>8080/TCP HTTP<br/>No encryption, No auth
-    Controller-->>Prometheus: training_operator_jobs_created_total<br/>training_operator_jobs_successful_total<br/>training_operator_jobs_failed_total
+    Controller->>K8sAPI: Create Launcher + Worker pods<br/>HTTPS/443, TLS
+    K8sAPI->>Kubelet: Schedule pods
 
-    Note over User,Prometheus: Flow 2: MPI Job Execution (different architecture)
+    Note right of Pods: Launcher pod uses kubectl exec<br/>to run commands on workers<br/>via per-job ServiceAccount
 
-    participant MPIController as Training Operator<br/>MPI Controller
-    participant Launcher as MPI Launcher Pod<br/>(init: copies kubectl)
-    participant MPIWorker as MPI Worker Pod(s)
+    Pods->>K8sAPI: kubectl exec (pods/exec)<br/>HTTPS/443, TLS<br/>Auth: Per-job SA token
+    K8sAPI->>Pods: Exec into worker pods<br/>HTTPS/10250, mTLS
 
-    User->>K8sAPI: 1. kubectl apply -f mpijob.yaml
-    K8sAPI->>MPIController: Watch: MPIJob created
-
-    MPIController->>K8sAPI: 2a. Create ConfigMap<br/>(hostfile + helper scripts)
-    MPIController->>K8sAPI: 2b. Create ServiceAccount<br/>(per-job: mpi-job-{name})
-    MPIController->>K8sAPI: 2c. Create Role + RoleBinding<br/>(pods/exec permission)
-    MPIController->>K8sAPI: 2d. Create Worker Pods
-    MPIController->>K8sAPI: 2e. Create Launcher Pod
-
-    Note over Launcher: Init container copies<br/>kubectl to shared volume
-
-    Launcher->>K8sAPI: 3. kubectl exec to workers<br/>443/TCP HTTPS TLS 1.2+<br/>Auth: per-job SA token
-    K8sAPI->>MPIWorker: exec: start MPI process
-
-    MPIWorker->>MPIWorker: 4. MPI inter-process communication<br/>MPI ports/TCP, No encryption
+    Pods->>Pods: MPI processes communicate<br/>Dynamic/TCP, No encryption<br/>OMPI RSH agent

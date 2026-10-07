@@ -1,78 +1,41 @@
 workspace {
     model {
-        // People
-        datascientist = person "Data Scientist" "Deploys and serves LLM models for inference"
-        platformeng = person "Platform Engineer" "Deploys and configures the llm-d inference stack"
-        securityeng = person "Security Engineer" "Reviews network policies, RBAC, and compliance"
+        datascientist = person "Data Scientist" "Deploys and queries LLM models for inference"
+        platformeng = person "Platform Engineer" "Deploys and manages llm-d infrastructure on Kubernetes"
 
-        // Primary System
-        llmd = softwareSystem "llm-d" "High-performance distributed inference serving stack for LLMs on Kubernetes" {
-            gatewayProxy = container "Gateway / Proxy Layer" "Accepts external requests, routes to model servers via EPP selection" "Envoy / AgentGateway / Istio" "gateway"
-            epp = container "EPP (Endpoint Picker)" "Core scheduling brain - selects optimal model server pod per request using prefix-cache affinity, load-aware balancing, queue depth" "Go (llm-d-inference-scheduler)" "scheduler"
-            inferencePool = container "InferencePool CRD" "Groups model server pods and configures EPP routing behavior" "Kubernetes CRD (GAIE)"
-            decodeServer = container "Decode Model Server" "Executes LLM inference (decode phase), serves OpenAI-compatible API" "Python (vLLM) on GPU/CPU" "modelserver"
-            prefillServer = container "Prefill Model Server" "Executes prefill phase, transfers KV cache to decode pods via NIXL" "Python (vLLM) on GPU" "modelserver"
-            routingSidecar = container "Routing Sidecar" "Routes requests and manages KV transfer between prefill/decode pods" "Go (llm-d-routing-sidecar)"
-            udsTokenizer = container "UDS Tokenizer" "Tokenization sidecar for precise prefix cache-aware routing" "Python"
-            latencyPredictor = container "Latency Predictor" "XGBoost sidecar for predicted-latency scheduling" "Python (XGBoost)"
-            kvCacheIndexer = container "KV Cache Indexer" "Indexes KV cache blocks for precise prefix routing" "Python (ZMQ)"
-            wva = container "Workload Variant Autoscaler" "SLO-aware autoscaler that reads Prometheus metrics and manages HPA" "Go (llm-d-workload-variant-autoscaler)"
+        llmd = softwareSystem "llm-d" "Kubernetes-native distributed LLM inference serving stack with intelligent routing, KV-cache management, and multi-accelerator support" {
+            vllmServer = container "vLLM Model Server" "Core inference engine serving OpenAI-compatible API on port 8000/TCP" "Python (vLLM v0.23.0)"
+            envoyProxy = container "Envoy Proxy" "L7 proxy fronting inference endpoints, routes via ext_proc" "Envoy distroless-v1.33.2"
+            epp = container "EPP (Endpoint Picker)" "Scores endpoints by prefix cache affinity and load for intelligent routing" "Go (llm-d-router)"
+            routingSidecar = container "Routing Sidecar" "KV cache routing for disaggregated decode pods" "Go (llm-d-routing-sidecar)"
+            nixlTransfer = container "NIXL KV Transfer" "Unified communication for KV cache transfer between prefill and decode pods on port 5600/TCP" "C++ (NIXL v1.2.0)"
+            lmcache = container "LMCache" "KV cache management, scheduling, and offloading" "Python (LMCache v0.4.6)"
+            kustomizeRecipes = container "Kustomize Recipes" "Composable deployment manifests for gateway, model server, routing, and monitoring" "YAML (Kustomize)"
+            containerImages = container "Container Image Builds" "Multi-stage Dockerfiles for CUDA, ROCm, XPU, CPU, and diagnostic images" "Dockerfile + Shell"
         }
 
-        // External Systems - Kubernetes Infrastructure
-        k8s = softwareSystem "Kubernetes" "Container orchestration platform (1.29+)" "External"
-        gatewayAPICRDs = softwareSystem "Gateway API / GAIE" "Gateway API CRDs and Inference Extension CRDs (InferencePool, InferenceObjective, InferenceModelRewrite)" "External"
-        lws = softwareSystem "LeaderWorkerSet" "Multi-node GPU workload orchestration for wide expert-parallelism" "External"
+        huggingface = softwareSystem "HuggingFace Hub" "Model weight storage and download" "External"
+        gatewayAPI = softwareSystem "Gateway API" "Kubernetes Gateway API with InferencePool, Gateway, HTTPRoute CRDs" "External"
+        kubernetes = softwareSystem "Kubernetes" "Container orchestration platform" "External"
+        prometheus = softwareSystem "Prometheus" "Metrics collection and monitoring" "External"
+        mooncake = softwareSystem "Mooncake" "Distributed KV cache storage backend for tiered prefix cache" "Internal"
+        autoscaler = softwareSystem "Workload Variant Autoscaler" "SLO-aware autoscaling of inference pools" "Internal"
 
-        // External Systems - Gateway Implementations
-        istio = softwareSystem "Istio" "Service mesh and Gateway API implementation with telemetry" "External"
-        agentGateway = softwareSystem "AgentGateway" "Preferred Gateway API implementation for new deployments" "External"
+        # Relationships
+        datascientist -> llmd "Sends inference requests via HTTP"
+        platformeng -> llmd "Deploys and configures via kustomize/Helm"
 
-        // External Systems - Storage & Registries
-        huggingface = softwareSystem "HuggingFace Hub" "Model weight storage and distribution" "External"
-        ghcr = softwareSystem "GitHub Container Registry" "Container image registry (ghcr.io)" "External"
-
-        // External Systems - Observability
-        prometheus = softwareSystem "Prometheus" "Metrics collection and querying" "External"
-        otelCollector = softwareSystem "OTEL Collector" "OpenTelemetry distributed trace collection" "External"
-
-        // Communication libraries (compiled into images)
-        nixl = softwareSystem "NIXL" "Unified communication abstraction for KV cache transfer (NVSHMEM/RIXL/UCX)" "External"
-        nvshmem = softwareSystem "NVSHMEM" "GPU collective communication library for wide expert-parallelism" "External"
-
-        // Relationships - People
-        datascientist -> llmd "Submits inference requests via OpenAI-compatible API" "HTTP/80"
-        platformeng -> llmd "Deploys and configures using Kustomize overlays and Helm values" "kubectl/helm"
-        securityeng -> llmd "Reviews security posture, network policies, RBAC" "Documentation"
-
-        // Relationships - Internal
-        gatewayProxy -> epp "Queries for optimal endpoint selection" "gRPC ext-proc/9002"
-        epp -> inferencePool "Watches pool configuration and objectives" "Kubernetes API"
-        epp -> decodeServer "Reads pod metrics for scheduling decisions" "HTTP/8000"
-        epp -> prefillServer "Reads pod metrics for scheduling decisions" "HTTP/8000"
-        gatewayProxy -> decodeServer "Routes inference requests" "HTTP/8000"
-        gatewayProxy -> prefillServer "Routes prefill requests" "HTTP/8000"
-        gatewayProxy -> routingSidecar "Routes to decode via sidecar" "HTTP/8000"
-        prefillServer -> decodeServer "Transfers KV cache blocks" "NIXL/5600"
-        routingSidecar -> decodeServer "Forwards decode requests" "HTTP/8200"
-        udsTokenizer -> epp "Provides tokenization" "Unix Domain Socket"
-        latencyPredictor -> epp "Provides latency predictions" "HTTP/localhost"
-        kvCacheIndexer -> epp "Publishes cache events" "ZMQ PUB/SUB"
-        wva -> prometheus "Reads inference metrics for autoscaling" "HTTP/9090"
-
-        // Relationships - External
-        llmd -> k8s "Deploys on" "Kubernetes API"
-        llmd -> gatewayAPICRDs "Consumes Gateway, HTTPRoute, InferencePool, InferenceObjective CRDs" "Kubernetes API"
-        llmd -> lws "Uses for multi-node GPU workloads" "Kubernetes API"
-        gatewayProxy -> istio "Implements via Istio GatewayClass" "Envoy"
-        gatewayProxy -> agentGateway "Implements via AgentGateway GatewayClass" "Envoy"
-        decodeServer -> huggingface "Downloads model weights" "HTTPS/443 (HF_TOKEN)"
-        decodeServer -> ghcr "Pulls container images" "HTTPS/443"
-        decodeServer -> prometheus "Exposes metrics" "HTTP/8000 /metrics"
-        decodeServer -> otelCollector "Exports traces" "gRPC/4317"
-        epp -> prometheus "Exposes EPP metrics" "HTTP/9090 /metrics"
-        prefillServer -> nixl "Uses for KV transfer abstraction" "Library"
-        decodeServer -> nvshmem "Uses for GPU collective communication" "Library"
+        envoyProxy -> epp "Consults for endpoint selection" "gRPC/9002"
+        envoyProxy -> vllmServer "Forwards inference requests" "HTTP/8000"
+        epp -> gatewayAPI "Watches InferencePool CRD" "Kubernetes API"
+        vllmServer -> huggingface "Downloads model weights" "HTTPS/443"
+        vllmServer -> nixlTransfer "Transfers KV cache (prefill to decode)" "TCP-RDMA/5600"
+        vllmServer -> lmcache "Manages KV cache lifecycle"
+        vllmServer -> mooncake "Offloads KV cache" "gRPC/50051"
+        prometheus -> epp "Scrapes metrics" "HTTP/9090"
+        prometheus -> vllmServer "Scrapes metrics" "HTTP/8000"
+        autoscaler -> kubernetes "Scales InferencePools" "Kubernetes API"
+        containerImages -> huggingface "N/A - build-time only"
     }
 
     views {
@@ -87,33 +50,25 @@ workspace {
         }
 
         styles {
-            element "Software System" {
-                background #438dd5
-                color #ffffff
-            }
             element "External" {
                 background #999999
                 color #ffffff
             }
+            element "Internal" {
+                background #7ed321
+                color #000000
+            }
             element "Person" {
                 shape person
-                background #08427b
+                background #4a90e2
+                color #ffffff
+            }
+            element "Software System" {
+                background #4a90e2
                 color #ffffff
             }
             element "Container" {
                 background #438dd5
-                color #ffffff
-            }
-            element "gateway" {
-                background #d79b00
-                color #ffffff
-            }
-            element "scheduler" {
-                background #6c8ebf
-                color #ffffff
-            }
-            element "modelserver" {
-                background #82b366
                 color #ffffff
             }
         }

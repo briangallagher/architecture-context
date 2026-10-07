@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "component": "llm-d-router",
+  "reads": [
+    {
+      "path": "pkg/epp/server/runserver.go",
+      "line_range": "170-266",
+      "gap_category": ["authentication", "fips_compliance"],
+      "question": "How is TLS configured on the gRPC ExtProc server, and are there any authentication interceptors or FIPS-specific cipher suites?",
+      "expected_signal": "TLS configuration, auth interceptors, cipher suite defaults, FIPS enforcement",
+      "outcome": "resolved",
+      "sections": ["Security", "Authentication & Authorization", "FIPS Compliance", "Architectural Analysis"]
+    },
+    {
+      "path": "Dockerfile.konflux.epp",
+      "line_range": "1-58",
+      "gap_category": ["fips_compliance"],
+      "question": "Does the EPP Konflux Dockerfile use strictfipsruntime build tag and CGO_ENABLED=1?",
+      "expected_signal": "GOEXPERIMENT or -tags strictfipsruntime, CGO_ENABLED setting",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Architectural Analysis"]
+    },
+    {
+      "path": "internal/tls/tls.go",
+      "line_range": "1-73",
+      "gap_category": ["fips_compliance", "authentication"],
+      "question": "What TLS certificate generation approach is used, and does it use FIPS-compliant crypto primitives?",
+      "expected_signal": "crypto/tls usage, key algorithm, certificate template configuration",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Security"]
+    },
+    {
+      "path": "config/charts/routerlib/templates/_service.yaml",
+      "line_range": "1-68",
+      "gap_category": ["services", "integration_points"],
+      "question": "What Kubernetes Services does the Helm chart define, and what ports and protocols are exposed?",
+      "expected_signal": "Service kind, port definitions, service type, appProtocol",
+      "outcome": "resolved",
+      "sections": ["Services", "Network Architecture"]
+    },
+    {
+      "path": "Dockerfile.konflux.sidecar",
+      "line_range": "1-45",
+      "gap_category": ["fips_compliance"],
+      "question": "Does the sidecar Konflux Dockerfile use strictfipsruntime build tag and CGO_ENABLED=1?",
+      "expected_signal": "GOEXPERIMENT or -tags strictfipsruntime, CGO_ENABLED setting",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Architectural Analysis"]
+    },
+    {
+      "path": "cmd/epp/runner/runner.go",
+      "line_range": "1200-1239",
+      "gap_category": ["services", "integration_points"],
+      "question": "What ports does the EPP runner bind for metrics and health, and what handler serves /metrics?",
+      "expected_signal": "HTTP server construction, port binding, handler registration",
+      "outcome": "resolved",
+      "sections": ["Services", "HTTP Endpoints", "Data Flows"]
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["ML Client / SDK"]
+        UIUser["MLflow UI User"]
+    end
+
+    subgraph AppLayer["APPLICATION LAYER (MLflow Tracking Server)"]
+        direction TB
+
+        ServerProcess["Gunicorn / Uvicorn<br/>Port 5000/TCP<br/>Python 3.12 on UBI9-minimal"]
+
+        subgraph AuthZone["Authentication & Authorization"]
+            KubeAuth["kubernetes-auth Plugin<br/>(mlflow-kubernetes-plugins v1.5.0)<br/>Token: /var/run/secrets/.../token"]
+            RBACModule["RBAC Module<br/>mlflow/server/auth<br/>Per-resource role-based permissions"]
+            WorkspaceStore["Workspace Store<br/>kubernetes://<br/>Namespace isolation"]
+        end
+
+        subgraph APIHandlers["API Handlers"]
+            TrackingAPI["Tracking API<br/>/ajax-api/3.0/mlflow/*"]
+            ModelRegAPI["Model Registry<br/>/{name}/versions/*"]
+            ArtifactAPI["Artifact Proxy<br/>--serve-artifacts"]
+            HealthAPI["/health, /version"]
+        end
+
+        subgraph Disabled["Disabled Features (RHOAI)"]
+            GatewayOff["AI Gateway ✗"]
+            AssistantOff["Assistant ✗"]
+            JobExecOff["Job Execution ✗"]
+        end
+    end
+
+    subgraph PlatformServices["INTERNAL PLATFORM SERVICES"]
+        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>SA Token Auth"]
+    end
+
+    subgraph DataLayer["DATA LAYER"]
+        SQLBackend["SQL Backend<br/>(PostgreSQL / SQLite)<br/>Experiment metadata & RBAC"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES (Egress)"]
+        S3["S3-Compatible Storage<br/>443/TCP HTTPS<br/>AWS IAM Credentials<br/>Model artifacts"]
+        GCS["Google Cloud Storage<br/>443/TCP HTTPS<br/>GCP Credentials<br/>Model artifacts"]
+        OpenAI["api.openai.com<br/>443/TCP HTTPS<br/>OPENAI_API_KEY<br/>(disabled by default)"]
+    end
+
+    %% Inbound flows
+    Client -->|"HTTP(S)/5000<br/>Bearer: SA Token<br/>X-MLFLOW-WORKSPACE"| ServerProcess
+    UIUser -->|"HTTP(S)/5000<br/>Browser"| ServerProcess
+
+    %% Internal auth chain
+    ServerProcess --> KubeAuth
+    KubeAuth -->|"Token validation"| K8sAPI
+    KubeAuth --> RBACModule
+    RBACModule --> WorkspaceStore
+    WorkspaceStore -->|"Namespace lookup"| K8sAPI
+    RBACModule --> TrackingAPI
+    RBACModule --> ModelRegAPI
+    RBACModule --> ArtifactAPI
+    RBACModule --> HealthAPI
+
+    %% Data flows
+    TrackingAPI -->|"SQLAlchemy<br/>psycopg2"| SQLBackend
+    ModelRegAPI -->|"SQLAlchemy"| SQLBackend
+    ArtifactAPI -->|"HTTPS/443<br/>boto3<br/>AWS IAM"| S3
+    ArtifactAPI -->|"HTTPS/443<br/>GCP SDK"| GCS
+
+    %% Disabled egress (dashed)
+    GatewayOff -.->|"HTTPS/443<br/>(disabled)"| OpenAI
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef appLayer fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef authZone fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef platform fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef dataLayer fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef externalService fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef disabled fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+
+    class Client,UIUser external
+    class ServerProcess appLayer
+    class KubeAuth,RBACModule,WorkspaceStore authZone
+    class TrackingAPI,ModelRegAPI,ArtifactAPI,HealthAPI appLayer
+    class K8sAPI platform
+    class SQLBackend dataLayer
+    class S3,GCS,OpenAI externalService
+    class GatewayOff,AssistantOff,JobExecOff disabled

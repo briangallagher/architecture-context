@@ -1,0 +1,71 @@
+graph TD
+    subgraph Framework["oc adm must-gather Framework"]
+        MGFramework["must-gather Framework<br/>(provisions ServiceAccount)"]
+    end
+
+    subgraph ServiceAccount["Service Account (Auto-Provisioned)"]
+        SA["must-gather SA<br/>Namespace: openshift-must-gather-*<br/>(temporary namespace)"]
+    end
+
+    subgraph Privileges["Granted Privileges"]
+        ClusterReader["cluster-reader<br/>(ClusterRole)"]
+    end
+
+    subgraph Operations["Permitted Operations"]
+        direction TB
+        ReadOps["Read-Only Operations"]
+    end
+
+    subgraph APIResources["API Resources Accessed"]
+        direction TB
+
+        subgraph CoreAPIs["Core APIs"]
+            Pods["Pods<br/>GET, LIST"]
+            Services["Services<br/>GET, LIST"]
+            ConfigMaps["ConfigMaps<br/>GET, LIST"]
+            Secrets_meta["Secrets (metadata)<br/>GET, LIST"]
+            Namespaces["Namespaces<br/>GET, LIST"]
+            PodLogs["Pod Logs<br/>GET"]
+        end
+
+        subgraph OperatorAPIs["Operator APIs"]
+            CSV["ClusterServiceVersions<br/>GET, LIST"]
+            Subscriptions["Subscriptions<br/>GET, LIST"]
+        end
+
+        subgraph ODHAPIs["ODH/RHOAI APIs"]
+            DSCI["DSCInitialization<br/>GET, LIST"]
+            DSC["DataScienceCluster<br/>GET, LIST"]
+            ComponentCRs["Component CRs<br/>GET, LIST"]
+        end
+
+        subgraph NetworkAPIs["Network/Mesh APIs"]
+            GatewayAPI["Gateway API Resources<br/>GET, LIST"]
+            IstioRes["Istio Resources<br/>GET, LIST"]
+        end
+    end
+
+    subgraph AuthMechanism["Authentication"]
+        Token["ServiceAccount Token<br/>(auto-mounted)"]
+    end
+
+    %% Flows
+    MGFramework -->|provisions| SA
+    SA -->|"bound to"| ClusterReader
+    ClusterReader -->|grants| ReadOps
+    ReadOps --> APIResources
+    SA -->|authenticates via| Token
+    Token -->|"presented to"| K8sAPI["Kubernetes API Server"]
+
+    %% Styling
+    style SA fill:#4a90e2,stroke:#333,color:#fff
+    style ClusterReader fill:#f5a623,stroke:#333
+    style ReadOps fill:#7ed321,stroke:#333,color:#fff
+    style MGFramework fill:#999,stroke:#333,color:#fff
+    style Token fill:#dae8fc,stroke:#6c8ebf
+    style K8sAPI fill:#fff2cc,stroke:#d6b656
+
+    style CoreAPIs fill:#e8f5e9,stroke:#82b366
+    style OperatorAPIs fill:#e8f5e9,stroke:#82b366
+    style ODHAPIs fill:#e8f5e9,stroke:#82b366
+    style NetworkAPIs fill:#e8f5e9,stroke:#82b366

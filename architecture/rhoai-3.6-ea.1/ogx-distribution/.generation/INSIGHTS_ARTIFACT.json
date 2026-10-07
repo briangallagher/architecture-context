@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "ogx-distribution",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "ogx-distribution-provider-stripping-001",
+      "claim": "The RHOAI distribution strips inline providers (docling, faiss, milvus-inline, sentence-transformers, pypdf, markitdown, docling-serve) from the upstream build.yaml, shipping only remote-capable providers suitable for multi-worker production deployments.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "distribution/config.yaml:1-5"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "build/build.yaml:73-82"
+        }
+      ],
+      "reasoning": "The config.yaml header documents stripped provider types. Comparing build.yaml (upstream) with config.yaml (distribution) shows inline::milvus, inline::faiss, inline::sentence-transformers, inline::docling, inline::markitdown, inline::pypdf, and remote::docling-serve are removed. This ensures the production image only uses remote backends compatible with horizontal scaling.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "ogx-distribution-secret-file-mount-002",
+      "claim": "The entrypoint implements _FILE-suffixed secret resolution for 18 secret variables, enabling Kubernetes secret volume mounts as an alternative to environment variable injection to avoid /proc exposure.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "distribution/entrypoint.sh:5-56"
+        }
+      ],
+      "reasoning": "The entrypoint.sh resolve_file_secret function iterates over 18 secret variable names and reads file contents into the base variable when the _FILE variant is set. This is a security-conscious pattern that avoids exposing secrets via /proc/1/environ.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "ogx-distribution-multi-provider-gateway-003",
+      "claim": "OGX distribution acts as a multi-provider AI gateway supporting 8 inference backends, 3 vector databases, 2 search engines, and S3/local file storage, all conditionally activated via environment variable guards.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "distribution/config.yaml:14-193"
+        }
+      ],
+      "reasoning": "Each provider in config.yaml uses the ${env.VAR:+id} pattern to conditionally enable when the corresponding environment variable is set. This allows a single container image to serve diverse deployment scenarios without configuration file changes.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    }
+  ]
+}

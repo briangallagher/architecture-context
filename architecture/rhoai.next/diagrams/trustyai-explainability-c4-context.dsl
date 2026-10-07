@@ -1,59 +1,49 @@
 workspace {
     model {
-        dataScientist = person "Data Scientist" "Creates and deploys ML models, monitors fairness and drift"
-        platformAdmin = person "Platform Admin" "Manages OpenShift AI platform and monitoring infrastructure"
+        datascientist = person "Data Scientist" "Creates ML models, monitors fairness metrics, and reviews explainability results"
+        platformadmin = person "Platform Admin" "Deploys and manages TrustyAI instances via the operator"
 
-        trustyai = softwareSystem "TrustyAI Explainability" "AI fairness metrics, model explainability, and data drift detection service" {
-            service = container "explainability-service" "Quarkus REST service providing fairness, drift, and explainability endpoints" "Java 17 / Quarkus 3.8.5"
-            core = container "explainability-core" "Core XAI algorithms: SPD, DIR, LIME, SHAP, CF, KS, MMD, Meanshift" "Java Library"
-            connectors = container "explainability-connectors" "KServe v1/v2 HTTP and gRPC inference protocol connectors" "Java Library"
-            arrow = container "explainability-arrow" "Apache Arrow bridge for Python interoperability" "Java Library"
-            reconciler = container "PayloadReconciler" "Matches partial inference payloads (input+output) by ID" "Internal Component"
-            scheduler = container "PrometheusScheduler" "Cron-triggered metric computation and gauge updates" "Internal Component"
+        trustyai = softwareSystem "TrustyAI Explainability" "Responsible AI component providing fairness metrics, drift detection, and explainability for ML models on RHOAI" {
+            service = container "explainability-service" "Quarkus REST service providing fairness metrics, drift detection, data ingestion, and explainability APIs" "Java 17 / Quarkus 3.8.5"
+            core = container "explainability-core" "XAI algorithm library: LIME, SHAP, Counterfactual (OptaPlanner), drift detection (KS-Test, Meanshift, Fourier MMD), fairness metrics (SPD, DIR)" "Java Library"
+            connectors = container "explainability-connectors" "KServe V2 inference protocol connectors via gRPC and HTTP" "Java Library"
+            arrow = container "explainability-arrow" "Apache Arrow data interchange for Python interoperability" "Java Library"
+
+            service -> core "Uses algorithms" "In-process"
+            service -> connectors "Calls model servers" "In-process"
+            service -> arrow "Data interchange" "In-process"
         }
 
-        kserve = softwareSystem "KServe" "Model serving platform with InferenceService lifecycle management" "Internal RHOAI"
-        modelmesh = softwareSystem "ModelMesh Serving" "Multi-model serving with shared inference infrastructure" "Internal RHOAI"
-        trustyaiOperator = softwareSystem "TrustyAI Operator" "Manages per-namespace TrustyAI service instances" "Internal RHOAI"
-        prometheus = softwareSystem "Prometheus / OpenShift Monitoring" "Metrics collection and alerting platform" "Internal Platform"
-        dashboard = softwareSystem "OpenShift AI Dashboard" "Web UI for model management and monitoring" "Internal RHOAI"
-        kubeflow = softwareSystem "Kubeflow Event Broker" "CloudEvent distribution for serverless inference logging" "Internal Platform"
+        trustyaiOperator = softwareSystem "TrustyAI Service Operator" "Manages TrustyAI lifecycle: deploys instances, provisions TLS, creates ConfigMaps" "Internal RHOAI"
+        kserve = softwareSystem "KServe" "ML model serving platform providing InferenceService resources" "Internal RHOAI"
+        modelmesh = softwareSystem "ModelMesh Serving" "Multi-model serving platform sending inference payloads to TrustyAI" "Internal RHOAI"
+        knative = softwareSystem "Knative Eventing" "CloudEvent delivery for KServe inference events" "Internal RHOAI"
+        dashboard = softwareSystem "RHOAI Dashboard" "Web UI for managing data science projects, viewing fairness metrics" "Internal RHOAI"
+        prometheus = softwareSystem "Prometheus" "Metrics collection and alerting platform" "Internal RHOAI"
 
-        pvc = softwareSystem "PVC Storage" "Kubernetes PersistentVolumeClaim for CSV data storage" "Infrastructure"
-        minio = softwareSystem "MinIO / S3" "S3-compatible object storage (optional backend)" "External"
-        database = softwareSystem "MariaDB / MySQL" "Relational database (optional backend)" "External"
+        minio = softwareSystem "MinIO / S3 Storage" "S3-compatible object storage for inference data" "External"
+        mariadb = softwareSystem "MariaDB / MySQL" "Relational database for inference data storage" "External"
+        k8sapi = softwareSystem "Kubernetes API Server" "Cluster API for ConfigMap management" "Infrastructure"
 
         # User interactions
-        dataScientist -> trustyai "Queries fairness metrics, requests explanations" "REST HTTP/8080"
-        dataScientist -> dashboard "Views model monitoring dashboards"
-        platformAdmin -> prometheus "Configures alerts on trustyai_* metrics"
+        datascientist -> dashboard "Views fairness metrics, schedules bias monitoring" "HTTPS"
+        datascientist -> trustyai "Requests fairness metrics, uploads ground truth data" "REST/HTTP 8080"
+        platformadmin -> trustyaiOperator "Deploys TrustyAI instances" "kubectl/oc"
 
         # Inbound data flows
-        kserve -> trustyai "Sends inference payloads via payload processor webhook" "HTTP/8080"
-        modelmesh -> trustyai "Sends partial inference payloads (Protobuf)" "HTTP/8080"
-        kubeflow -> trustyai "Sends inference CloudEvents" "HTTP/8080"
+        modelmesh -> trustyai "Sends inference input/output payloads" "REST/HTTP 8080"
+        knative -> trustyai "Delivers KServe inference CloudEvents" "HTTP CloudEvent 8080"
+        prometheus -> trustyai "Scrapes /q/metrics for trustyai_spd, trustyai_dir gauges" "HTTP 8080"
+        dashboard -> trustyai "Calls TrustyAI APIs for metrics display" "REST/HTTP 8080"
 
-        # Outbound inference
-        trustyai -> kserve "Makes inference calls for explanation generation" "gRPC/8033 or HTTP"
-
-        # Monitoring
-        prometheus -> trustyai "Scrapes trustyai_* Prometheus gauges" "HTTP/8080 Bearer Token"
-        dashboard -> trustyai "Queries fairness/drift status" "HTTP/8080"
+        # Outbound data flows
+        trustyai -> kserve "Calls model servers for explainability (gRPC V2, disabled in RHOAI)" "gRPC plaintext"
+        trustyai -> minio "Stores/retrieves inference data" "HTTP/HTTPS 443/9000"
+        trustyai -> mariadb "Stores/retrieves inference data (Hibernate ORM)" "JDBC 3306"
+        trustyai -> k8sapi "Creates/reads ConfigMaps (model-serving-config, trustyai-config)" "HTTPS 6443"
 
         # Operator management
-        trustyaiOperator -> trustyai "Deploys and manages service instances" "CRD reconciliation"
-
-        # Storage
-        trustyai -> pvc "Reads/writes inference data (CSV)" "Filesystem I/O"
-        trustyai -> minio "Reads/writes inference data (optional)" "HTTP/9000 or HTTPS/443"
-        trustyai -> database "Reads/writes inference data (optional)" "JDBC/3306"
-
-        # Internal container relationships
-        service -> core "Uses for metric computation and explanations"
-        service -> connectors "Uses for KServe inference protocol"
-        service -> reconciler "Delegates payload matching"
-        service -> scheduler "Delegates scheduled metric computation"
-        core -> connectors "Uses for model inference during explanations"
+        trustyaiOperator -> trustyai "Creates Deployments, Services, ConfigMaps, TLS Secrets per namespace" "Kubernetes API"
     }
 
     views {
@@ -81,17 +71,13 @@ workspace {
                 background #7ed321
                 color #ffffff
             }
-            element "Internal Platform" {
-                background #438dd5
-                color #ffffff
-            }
             element "External" {
                 background #999999
                 color #ffffff
             }
             element "Infrastructure" {
                 background #d6b656
-                color #333333
+                color #ffffff
             }
             element "Container" {
                 background #438dd5

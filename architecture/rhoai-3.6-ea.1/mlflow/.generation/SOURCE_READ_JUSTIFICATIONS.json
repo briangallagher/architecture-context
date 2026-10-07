@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "component": "mlflow",
+  "reads": [
+    {
+      "path": "Dockerfile.konflux",
+      "line_range": "1-91",
+      "gap_category": ["authentication", "fips_compliance", "internal_dependencies", "integration_points"],
+      "question": "What authentication plugin is loaded by the container CMD, what FIPS build-time signals exist, and what runtime dependencies are installed?",
+      "expected_signal": "CMD flags, pip install targets, base image selection, FIPS env vars",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Security", "Data Flows"],
+      "scope_reason": "Full Dockerfile needed to understand multi-stage build, all installed packages, base image, CMD flags, and environment variables that collectively establish authentication, FIPS posture, and dependency inventory"
+    },
+    {
+      "path": "mlflow/tracking/request_auth/kubernetes_request_auth_provider.py",
+      "line_range": "1-295",
+      "gap_category": ["authentication"],
+      "question": "How does the kubernetes-auth client-side authentication work and what credentials does it use?",
+      "expected_signal": "auth provider class, token resolution, header injection",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Security"]
+    },
+    {
+      "path": "mlflow/projects/kubernetes.py",
+      "line_range": "1-60",
+      "gap_category": ["internal_dependencies", "integration_points"],
+      "question": "What is the interaction boundary for the Kubernetes API internal dependency?",
+      "expected_signal": "kubernetes client usage, Job creation, resource operations",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Data Flows", "Integration Points"]
+    },
+    {
+      "path": "mlflow/server/__init__.py",
+      "line_range": "1-80",
+      "gap_category": ["authentication"],
+      "question": "How does the server initialize security middleware and load the app_name auth plugin?",
+      "expected_signal": "security.init_security_middleware, app_name entry point loading",
+      "outcome": "partially-resolved",
+      "sections": ["Architectural Analysis", "Security"]
+    },
+    {
+      "path": "mlflow/server/__init__.py",
+      "line_range": "200-399",
+      "gap_category": ["authentication"],
+      "question": "How does _find_app resolve the --app-name kubernetes-auth entry point?",
+      "expected_signal": "entry point lookup in mlflow.app group, app_name parameter flow",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Security"]
+    },
+    {
+      "path": "mlflow/server/auth/__init__.py",
+      "line_range": "1-100",
+      "gap_category": ["authentication"],
+      "question": "What server-side authentication and RBAC enforcement does the auth module provide?",
+      "expected_signal": "RBAC roles, permissions, middleware, enforcement boundaries",
+      "outcome": "resolved",
+      "sections": ["Security", "Architectural Analysis"]
+    },
+    {
+      "path": "mlflow/server/auth/__init__.py",
+      "line_range": "218-367",
+      "gap_category": ["authentication"],
+      "question": "What authorization mechanisms does the auth module enforce?",
+      "expected_signal": "RBAC store, permission model, resource types",
+      "outcome": "resolved",
+      "sections": ["Security", "Architectural Analysis"]
+    },
+    {
+      "path": "requirements/konflux-pypi.in",
+      "line_range": "1-18",
+      "gap_category": ["internal_dependencies", "authentication"],
+      "question": "What external packages are installed in the Konflux build that are not in the AIPCC index?",
+      "expected_signal": "mlflow-kubernetes-plugins version, other dependencies",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis"]
+    },
+    {
+      "path": "pyproject.toml",
+      "line_range": "130-135",
+      "gap_category": ["authentication"],
+      "question": "What mlflow.app entry points are registered and is kubernetes-auth defined?",
+      "expected_signal": "entry point definitions for auth plugins",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis"]
+    }
+  ]
+}

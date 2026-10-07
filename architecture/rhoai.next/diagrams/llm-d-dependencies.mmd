@@ -1,133 +1,83 @@
 graph LR
-    LLMD["llm-d<br/>Inference Stack<br/>v0.7.0"]
+    LLMD["llm-d<br/>Inference Stack"]
 
-    %% ===== INTERNAL PLATFORM DEPENDENCIES =====
-    subgraph InternalDeps["Internal Platform Components"]
-        EPP["llm-d-inference-scheduler<br/>(EPP)<br/>Helm chart + image"]
-        RoutingSidecar["llm-d-routing-sidecar<br/>Container image"]
-        UDSTokenizer["llm-d-uds-tokenizer<br/>Container image"]
-        LatencyPredictor["llm-d-latency-predictor<br/>Container image"]
-        KVCache["llm-d-kv-cache<br/>Container image + wheel"]
-        WVA["llm-d-workload-variant-<br/>autoscaler<br/>Helm chart + image"]
-        AsyncProcessor["llm-d-async<br/>Container image"]
-        BatchGW["batch-gateway<br/>Container image<br/>(incubation)"]
-    end
+    %% Core Runtime Dependencies
+    LLMD -->|"core engine<br/>v0.23.0"| vLLM["vLLM"]
+    LLMD -->|"DL framework<br/>2.11.0"| PyTorch["PyTorch"]
+    LLMD -->|"GPU compute<br/>13.0.2"| CUDA["CUDA Toolkit"]
 
-    %% ===== EXTERNAL DEPENDENCIES (Required) =====
-    subgraph RequiredDeps["Required External Dependencies"]
-        K8s["Kubernetes<br/>1.29+"]
-        GAIE["Gateway API<br/>Inference Extension<br/>v1.5.0"]
-        Helm["Helm v3+"]
-        Kustomize["Kustomize v5+"]
-        vLLM["vLLM<br/>v0.19.1<br/>(Neural Magic fork)"]
-        PyTorch["PyTorch<br/>2.10.0"]
-    end
+    %% Communication Libraries
+    LLMD -->|"RDMA/shm<br/>v1.20.0"| UCX["UCX"]
+    LLMD -->|"GPU shared mem<br/>v3.4.5"| NVSHMEM["NVSHMEM"]
+    LLMD -->|"KV transfer<br/>v1.2.0"| NIXL["NIXL"]
+    LLMD -->|"GPU DMA<br/>v2.5.2"| GDRCopy["GDRCopy"]
+    LLMD -->|"collectives<br/>v0.1.1"| UCCL["UCCL"]
 
-    %% ===== EXTERNAL DEPENDENCIES (Optional) =====
-    subgraph OptionalDeps["Optional External Dependencies"]
-        SGLang["SGLang<br/>v0.5.10.post1"]
-        OTEL["OpenTelemetry SDK<br/>>=1.39.1"]
-        Prometheus["Prometheus"]
-    end
+    %% Kernel Libraries
+    LLMD -->|"attention kernels<br/>v0.6.12"| FlashInfer["FlashInfer"]
+    LLMD -->|"expert routing<br/>(MoE)"| DeepEP["DeepEP"]
+    LLMD -->|"matrix multiply"| DeepGEMM["DeepGEMM"]
 
-    %% ===== ACCELERATOR LIBRARIES =====
-    subgraph AccelLibs["Accelerator Libraries"]
-        CUDA["NVIDIA CUDA<br/>Toolkit 13.0.2"]
-        NVSHMEM["NVSHMEM<br/>v3.4.5-0"]
-        NIXL["NIXL<br/>v1.0.0"]
-        UCX["UCX<br/>v1.20.0"]
-        DeepEP["DeepEP<br/>38d21b7"]
-        DeepGEMM["DeepGEMM<br/>477618c"]
-        FlashInfer["FlashInfer<br/>v0.6.6"]
-        LMCache["LMCache<br/>v0.4.4-cu13"]
-        GDRCopy["GDRCopy<br/>v2.5.2"]
-    end
+    %% Cache & Storage
+    LLMD -->|"KV cache mgmt<br/>v0.4.6"| LMCache["LMCache"]
+    LLMD -->|"dist cache<br/>v0.2.33"| InfiniStore["InfiniStore"]
 
-    %% ===== GATEWAY IMPLEMENTATIONS =====
-    subgraph GatewayImpls["Gateway Implementations"]
-        AgentGW["AgentGateway<br/>(preferred)"]
-        Istio["Istio"]
-        KGateway["kgateway<br/>(deprecated)"]
-    end
+    %% Observability
+    LLMD -.->|"tracing<br/>>=1.39.1"| OTel["OpenTelemetry SDK"]
 
-    %% ===== KUBERNETES EXTENSIONS =====
-    subgraph K8sExtensions["Kubernetes Extensions"]
-        GatewayAPI["Gateway API CRDs<br/>(Gateway, HTTPRoute)"]
-        LWS["LeaderWorkerSet<br/>(wide-EP)"]
-    end
+    %% Model Management
+    LLMD -->|"model download"| HFHub["HuggingFace Hub"]
 
-    %% ===== EXTERNAL SERVICES =====
-    subgraph ExternalSvcs["External Services"]
-        HFHub["HuggingFace Hub<br/>Model downloads"]
-        GHCR["ghcr.io<br/>Image registry"]
-        NVCR["nvcr.io<br/>CUDA base images"]
-    end
+    %% Deployment Dependencies
+    LLMD -->|"L7 proxy<br/>v1.33.2"| Envoy["Envoy"]
+    LLMD -->|"CRDs<br/>v1.5.0"| GatewayAPI["Gateway API CRDs"]
+    LLMD -->|"router chart<br/>v3"| Helm["Helm"]
+    LLMD -->|"manifests"| Kustomize["Kustomize"]
 
-    %% ===== RELATIONSHIPS =====
-
-    %% Internal dependencies
-    LLMD -->|"gRPC ext-proc<br/>scheduling brain"| EPP
-    LLMD -->|"PD routing<br/>KV transfer mgmt"| RoutingSidecar
-    LLMD -->|"precise cache<br/>routing"| UDSTokenizer
-    LLMD -->|"latency<br/>prediction"| LatencyPredictor
-    LLMD -->|"KV cache<br/>indexing"| KVCache
-    LLMD -->|"SLO-aware<br/>autoscaling"| WVA
-    LLMD -.->|"async<br/>processing"| AsyncProcessor
-    LLMD -.->|"batch API<br/>(experimental)"| BatchGW
-
-    %% Required external
-    LLMD -->|"orchestration"| K8s
-    LLMD -->|"InferencePool,<br/>InferenceObjective CRDs"| GAIE
-    LLMD -->|"scheduler deploy"| Helm
-    LLMD -->|"model server deploy"| Kustomize
-    LLMD -->|"model serving engine"| vLLM
-    LLMD -->|"deep learning framework"| PyTorch
-
-    %% Optional external
-    LLMD -.->|"alt engine"| SGLang
-    LLMD -.->|"tracing"| OTEL
-    LLMD -.->|"metrics"| Prometheus
-
-    %% Accelerator libs
-    LLMD -->|"GPU compute"| CUDA
-    LLMD -->|"GPU collectives"| NVSHMEM
-    LLMD -->|"KV transfer"| NIXL
-    LLMD -->|"communication"| UCX
-    LLMD -.->|"MoE support"| DeepEP
-    LLMD -.->|"GEMM kernels"| DeepGEMM
-    LLMD -.->|"flash attention"| FlashInfer
-    LLMD -.->|"tiered KV cache"| LMCache
-    LLMD -.->|"GPU RDMA copy"| GDRCopy
-
-    %% Gateway implementations
-    LLMD -->|"preferred gateway"| AgentGW
-    LLMD -->|"alt gateway"| Istio
-    LLMD -.->|"deprecated"| KGateway
-
-    %% K8s extensions
-    LLMD -->|"ingress routing"| GatewayAPI
-    LLMD -.->|"multi-node GPU"| LWS
-
-    %% External services
-    LLMD -->|"model weights<br/>HTTPS/443"| HFHub
-    LLMD -->|"container images<br/>HTTPS/443"| GHCR
-    LLMD -->|"base images<br/>HTTPS/443"| NVCR
+    %% Internal Platform Dependencies (sibling repos)
+    EPP["llm-d-router<br/>(EPP)"] -->|"ext_proc gRPC"| LLMD
+    RoutingSidecar["llm-d-routing-sidecar"] -->|"sidecar container"| LLMD
+    KVCacheWheel["llm-d-kv-cache"] -->|"Python wheel"| LLMD
+    Benchmark["llm-d-benchmark"] -.->|"testing"| LLMD
+    WVAutoscaler["workload-variant-autoscaler"] -.->|"K8s controller"| LLMD
+    Mooncake["Mooncake Master Store"] -->|"gRPC 50051"| LLMD
 
     %% Styling
     style LLMD fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
-    classDef internal fill:#7ed321,stroke:#333,stroke-width:1px,color:#fff
-    classDef required fill:#f5a623,stroke:#333,stroke-width:1px,color:#fff
-    classDef optional fill:#b8b8b8,stroke:#333,stroke-width:1px,color:#fff
-    classDef accellib fill:#e1d5e7,stroke:#9673a6,stroke-width:1px
-    classDef gateway fill:#ffe6cc,stroke:#d79b00,stroke-width:1px
-    classDef k8sext fill:#dae8fc,stroke:#6c8ebf,stroke-width:1px
-    classDef extsvc fill:#fff2cc,stroke:#d6b656,stroke-width:1px
+    %% Core dependencies
+    style vLLM fill:#e8e8e8,stroke:#333
+    style PyTorch fill:#e8e8e8,stroke:#333
+    style CUDA fill:#76b900,stroke:#333,color:#000
 
-    class EPP,RoutingSidecar,UDSTokenizer,LatencyPredictor,KVCache,WVA,AsyncProcessor,BatchGW internal
-    class K8s,GAIE,Helm,Kustomize,vLLM,PyTorch required
-    class SGLang,OTEL,Prometheus optional
-    class CUDA,NVSHMEM,NIXL,UCX,DeepEP,DeepGEMM,FlashInfer,LMCache,GDRCopy accellib
-    class AgentGW,Istio,KGateway gateway
-    class GatewayAPI,LWS k8sext
-    class HFHub,GHCR,NVCR extsvc
+    %% Communication
+    style UCX fill:#e8e8e8,stroke:#333
+    style NVSHMEM fill:#76b900,stroke:#333,color:#000
+    style NIXL fill:#e8e8e8,stroke:#333
+    style GDRCopy fill:#76b900,stroke:#333,color:#000
+    style UCCL fill:#e8e8e8,stroke:#333
+
+    %% Kernels
+    style FlashInfer fill:#e8e8e8,stroke:#333
+    style DeepEP fill:#e8e8e8,stroke:#333
+    style DeepGEMM fill:#e8e8e8,stroke:#333
+
+    %% Cache
+    style LMCache fill:#e8e8e8,stroke:#333
+    style InfiniStore fill:#e8e8e8,stroke:#333
+
+    %% External services
+    style HFHub fill:#f5a623,stroke:#333,color:#000
+    style Envoy fill:#f5a623,stroke:#333,color:#000
+    style GatewayAPI fill:#f5a623,stroke:#333,color:#000
+    style Helm fill:#f5a623,stroke:#333,color:#000
+    style Kustomize fill:#f5a623,stroke:#333,color:#000
+    style OTel fill:#999,stroke:#333,color:#000
+
+    %% Internal (sibling repos)
+    style EPP fill:#7ed321,stroke:#333,color:#000
+    style RoutingSidecar fill:#7ed321,stroke:#333,color:#000
+    style KVCacheWheel fill:#7ed321,stroke:#333,color:#000
+    style Benchmark fill:#7ed321,stroke:#333,color:#000
+    style WVAutoscaler fill:#7ed321,stroke:#333,color:#000
+    style Mooncake fill:#7ed321,stroke:#333,color:#000

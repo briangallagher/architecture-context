@@ -1,0 +1,96 @@
+graph TD
+    subgraph "Service Accounts / Users"
+        TestUser["User: TEST_USER_USERNAME_PLACEHOLDER<br/>(test fixture)"]
+        AuthGroup["Group: system:authenticated"]
+    end
+
+    subgraph "ClusterRole Bindings"
+        CRB1["test-user-self-provisioner<br/>(Cluster-scoped)"]
+        CRB2["test-user-admin<br/>(Cluster-scoped)"]
+        CRB3["test-user-cluster-admin<br/>(Cluster-scoped)"]
+        CRB4["test-user-kueue-admin<br/>(Cluster-scoped)"]
+        CRB5["test-user-ray-admin<br/>(Cluster-scoped)"]
+        CRB6["kueue-batch-user-rolebinding<br/>(Cluster-scoped)"]
+        CRB7["kueue-batch-user-specific-rolebinding<br/>(Cluster-scoped)"]
+    end
+
+    subgraph "ClusterRoles"
+        CR_SP["self-provisioner"]
+        CR_Admin["admin"]
+        CR_CA["cluster-admin"]
+        CR_Kueue["test-user-kueue-admin"]
+        CR_Ray["test-user-ray-admin"]
+        CR_Batch["kueue-batch-user-role"]
+    end
+
+    subgraph "Kueue Resources (kueue.x-k8s.io)"
+        ClusterQueues["clusterqueues"]
+        LocalQueues["localqueues"]
+        ResourceFlavors["resourceflavors"]
+        Workloads["workloads"]
+    end
+
+    subgraph "Ray Resources (ray.io)"
+        RayClusters["rayclusters"]
+        RayJobs["rayjobs"]
+    end
+
+    subgraph "Core / Apps Resources"
+        Namespaces["namespaces"]
+        Deployments["apps/deployments"]
+        CoreResources["configmaps, pods,<br/>secrets, services"]
+    end
+
+    %% User bindings
+    TestUser -->|bound via| CRB1
+    TestUser -->|bound via| CRB2
+    TestUser -->|bound via| CRB3
+    TestUser -->|bound via| CRB4
+    TestUser -->|bound via| CRB5
+    TestUser -->|bound via| CRB7
+    AuthGroup -->|bound via| CRB6
+
+    %% Binding to Role mappings
+    CRB1 -->|grants| CR_SP
+    CRB2 -->|grants| CR_Admin
+    CRB3 -->|grants| CR_CA
+    CRB4 -->|grants| CR_Kueue
+    CRB5 -->|grants| CR_Ray
+    CRB6 -->|grants| CR_Batch
+    CRB7 -->|grants| CR_Batch
+
+    %% Role to Resource mappings
+    CR_Kueue -->|"create,delete,get,list,<br/>patch,update,watch"| ClusterQueues
+    CR_Kueue -->|"create,delete,get,list,<br/>patch,update,watch"| LocalQueues
+    CR_Kueue -->|"create,delete,get,list,<br/>patch,update,watch"| ResourceFlavors
+    CR_Kueue -->|"create,delete,get,list,<br/>patch,update,watch"| Workloads
+
+    CR_Ray -->|"create,delete,get,list,<br/>patch,update,watch"| RayClusters
+    CR_Ray -->|"create,delete,get,list,<br/>patch,update,watch"| RayJobs
+
+    CR_Batch -->|"create,get,list,watch"| Namespaces
+    CR_Batch -->|"create,delete,get,list,<br/>patch,update,watch"| ClusterQueues
+    CR_Batch -->|"create,delete,get,list,<br/>patch,update,watch"| LocalQueues
+    CR_Batch -->|"create,delete,get,list,<br/>patch,update,watch"| ResourceFlavors
+    CR_Batch -->|"create,delete,get,list,<br/>patch,update,watch"| RayClusters
+    CR_Batch -->|"create,delete,get,list,<br/>patch,update,watch"| RayJobs
+    CR_Batch -->|"create,delete,get,list,<br/>patch,update,watch"| Deployments
+    CR_Batch -->|"create,delete,get,list,<br/>patch,update,watch"| CoreResources
+
+    style TestUser fill:#4a90e2,color:#fff
+    style AuthGroup fill:#4a90e2,color:#fff
+    style CR_Kueue fill:#f5a623,color:#fff
+    style CR_Ray fill:#f5a623,color:#fff
+    style CR_Batch fill:#f5a623,color:#fff
+    style CR_SP fill:#999,color:#fff
+    style CR_Admin fill:#999,color:#fff
+    style CR_CA fill:#999,color:#fff
+    style ClusterQueues fill:#7ed321,color:#fff
+    style LocalQueues fill:#7ed321,color:#fff
+    style ResourceFlavors fill:#7ed321,color:#fff
+    style Workloads fill:#7ed321,color:#fff
+    style RayClusters fill:#7ed321,color:#fff
+    style RayJobs fill:#7ed321,color:#fff
+    style Namespaces fill:#7ed321,color:#fff
+    style Deployments fill:#7ed321,color:#fff
+    style CoreResources fill:#7ed321,color:#fff

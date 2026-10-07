@@ -1,0 +1,78 @@
+sequenceDiagram
+    participant Client as External Client
+    participant Gateway as Platform Gateway<br/>(llm-d inference gateway)
+    participant API as API Server<br/>Port 8000 (TLS opt-in)
+    participant PG as PostgreSQL
+    participant Store as S3/Filesystem<br/>File Store
+    participant Queue as Redis/Valkey<br/>Work Exchange
+    participant Proc as Processor
+    participant LLMd as llm-d Inference<br/>Gateway
+    participant GC as Garbage Collector
+    participant OTel as OTel Collector<br/>OTLP/gRPC
+
+    Note over Client,OTel: Batch Submission Flow
+
+    Client->>Gateway: POST /v1/batches<br/>Authorization: Bearer Token
+    Gateway->>API: Forward request<br/>X-MaaS-Username header
+    API->>API: Validate request<br/>Extract tenant from X-MaaS-Username
+    API->>PG: INSERT batch metadata
+    PG-->>API: batch_id
+    API->>Store: Upload input file (.jsonl)
+    Store-->>API: file_id
+    API->>Queue: LPUSH batch_id to pending queue
+    Queue-->>API: OK
+    API-->>Gateway: 200 OK {batch_id, status: pending}
+    Gateway-->>Client: Batch created
+
+    Note over Client,OTel: Batch Processing Flow
+
+    loop Poll for pending batches
+        Proc->>Queue: BRPOP pending queue
+        Queue-->>Proc: batch_id
+    end
+
+    Proc->>PG: SELECT batch details
+    PG-->>Proc: batch metadata
+    Proc->>Store: Download input file
+    Store-->>Proc: input records (.jsonl)
+
+    loop Fan-out inference requests
+        Proc->>LLMd: POST /v1/chat/completions<br/>Authorization passthrough
+        LLMd-->>Proc: Inference result
+    end
+
+    Proc->>Store: Upload output file (.jsonl)
+    Proc->>PG: UPDATE batch status = completed
+
+    Note over Client,OTel: Result Retrieval Flow
+
+    Client->>Gateway: GET /v1/batches/{batch_id}
+    Gateway->>API: Forward
+    API->>PG: SELECT batch status
+    PG-->>API: status: completed, output_file_id
+    API-->>Gateway: {status: completed, output_file_id}
+    Gateway-->>Client: Batch status
+
+    Client->>Gateway: GET /v1/files/{file_id}/content
+    Gateway->>API: Forward
+    API->>Store: Get output file
+    Store-->>API: output content
+    API-->>Gateway: File content
+    Gateway-->>Client: Results (.jsonl)
+
+    Note over Client,OTel: Garbage Collection Flow
+
+    loop Configurable schedule
+        GC->>PG: SELECT expired batches/files (TTL check)
+        PG-->>GC: expired records
+        GC->>Store: DELETE expired files
+        Store-->>GC: OK
+        GC->>PG: DELETE expired metadata
+        PG-->>GC: OK
+    end
+
+    Note over Client,OTel: Observability (all workloads)
+
+    API-->>OTel: Traces (OTLP/gRPC)
+    Proc-->>OTel: Traces (OTLP/gRPC)
+    GC-->>OTel: Traces (OTLP/gRPC)

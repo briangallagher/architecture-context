@@ -64,6 +64,20 @@ jobs:
       - name: Lint platforms.yaml
         run: make lint-platforms
 
+  lint-architecture-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+
+      - name: Lint architecture docs
+        run: make lint-architecture-docs
+
   lint-go:
     runs-on: ubuntu-latest
     steps:
@@ -75,6 +89,28 @@ jobs:
 
       - name: Lint Go
         run: make lint-go
+
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Test Python
+        run: make test-python
+
+  test-arch-analyzer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/arch-analyzer/go.mod
+
+      - name: Test arch-analyzer
+        run: make test-arch-analyzer
 
   build:
     runs-on: ubuntu-latest

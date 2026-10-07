@@ -1,39 +1,45 @@
 sequenceDiagram
     participant Client as External Client
-    participant Gateway as vLLM Orchestrator Gateway<br/>8090/TCP HTTP
+    participant Gateway as vllm-orchestrator-gateway<br/>8090/TCP HTTP
     participant Orchestrator as FMS Guardrails Orchestrator<br/>8085/TCP HTTP/HTTPS
-    participant Detectors as Guardrails Detectors<br/>(e.g., regex-detector)
-    participant LLM as vLLM / LLM Server
+    participant Detectors as Detector Services<br/>(e.g., regex-detector)
+    participant vLLM as vLLM Inference Server
 
-    Note over Client,LLM: Flow 1: Non-Streaming Chat Completion with Detection
+    Note over Client,vLLM: Flow 1: Non-Streaming Chat Completion with Detection
 
-    Client->>Gateway: POST /{route_name}/v1/chat/completions<br/>Authorization: Bearer Token (pass-through)<br/>{"stream": false, "messages": [...]}
-    Note over Gateway: Inject route's detector config<br/>(input/output detector maps)<br/>into request payload
-    Gateway->>Orchestrator: POST /api/v2/chat/completions-detection<br/>Authorization header forwarded<br/>Optional mTLS client cert<br/>{"detectors": {input: [...], output: [...]}, ...}
-    Orchestrator->>Detectors: Run configured detectors<br/>(content analysis)
+    Client->>Gateway: POST /{route}/v1/chat/completions<br/>Content-Type: application/json<br/>Authorization: Bearer Token<br/>stream: false
+    Note over Gateway: Lookup route config from config.yaml<br/>Inject input/output detector<br/>configuration into payload
+    Gateway->>Orchestrator: POST /api/v2/chat/completions-detection<br/>Authorization: forwarded<br/>X-Forwarded-*: forwarded<br/>(optional mTLS client cert)
+    Orchestrator->>Detectors: Run input detectors<br/>(e.g., PII scan on prompt)
     Detectors-->>Orchestrator: Detection results
-    Orchestrator->>LLM: Generate completion
-    LLM-->>Orchestrator: Generated text
-    Orchestrator-->>Gateway: Response with detection metadata<br/>{"choices": [...], "detections": {...}}
-    Note over Gateway: If detections found AND<br/>fallback_message configured:<br/>replace choices[0].message.content
-    Gateway-->>Client: JSON Response<br/>(original or fallback message)
-
-    Note over Client,LLM: Flow 2: Streaming Chat Completion with Detection (SSE)
-
-    Client->>Gateway: POST /{route_name}/v1/chat/completions<br/>Authorization: Bearer Token (pass-through)<br/>{"stream": true, "messages": [...]}
-    Note over Gateway: Inject route's detector config<br/>into request payload
-    Gateway->>Orchestrator: POST /api/v2/chat/completions-detection<br/>Authorization header forwarded<br/>Optional mTLS client cert<br/>{"stream": true, "detectors": {...}, ...}
-    Orchestrator->>Detectors: Run configured detectors
+    Orchestrator->>vLLM: Chat completion request
+    vLLM-->>Orchestrator: Generated response
+    Orchestrator->>Detectors: Run output detectors<br/>(e.g., PII scan on response)
     Detectors-->>Orchestrator: Detection results
-    Orchestrator->>LLM: Generate completion (streaming)
-
-    loop SSE Chunks
-        LLM-->>Orchestrator: Chunk
-        Orchestrator-->>Gateway: SSE data: {chunk + detection metadata}
-        Note over Gateway: Parse SSE line, strip "data: " prefix<br/>Check for detections<br/>Apply fallback on first detected chunk
-        Gateway-->>Client: SSE data: {chunk}<br/>(original or fallback)
+    Orchestrator-->>Gateway: Full response with detection metadata
+    alt No detections found
+        Gateway-->>Client: Original response<br/>Content-Type: application/json
+    else Detections found & fallback configured
+        Note over Gateway: Replace response content<br/>with fallback_message
+        Gateway-->>Client: Fallback response<br/>Content-Type: application/json
     end
 
-    Orchestrator-->>Gateway: SSE data: [DONE]
-    Note over Gateway: Filter [DONE] sentinel
-    Gateway-->>Client: SSE data: [DONE]
+    Note over Client,vLLM: Flow 2: Streaming Chat Completion with Detection
+
+    Client->>Gateway: POST /{route}/v1/chat/completions<br/>Authorization: Bearer Token<br/>stream: true
+    Note over Gateway: Inject detector config into payload
+    Gateway->>Orchestrator: POST /api/v2/chat/completions-detection<br/>(optional mTLS)
+    Orchestrator->>vLLM: Streaming chat completion
+    loop SSE Stream Chunks
+        vLLM-->>Orchestrator: SSE chunk (delta content)
+        Orchestrator->>Detectors: Check chunk for detections
+        Detectors-->>Orchestrator: Detection result
+        Orchestrator-->>Gateway: SSE chunk with detection metadata
+        alt No detection in chunk
+            Gateway-->>Client: SSE chunk (original content)
+        else Detection found in chunk
+            Note over Gateway: Replace chunk content<br/>with fallback_message<br/>Set finish_reason: "stop"
+            Gateway-->>Client: SSE chunk (fallback message)
+            Note over Client: Stream terminated<br/>Partial earlier content<br/>already delivered
+        end
+    end

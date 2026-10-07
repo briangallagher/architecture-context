@@ -1,0 +1,75 @@
+graph TB
+    subgraph ControlPlane["CONTROL PLANE"]
+        KFTO["Kubeflow Training Operator<br/>Namespace: kubeflow<br/>Creates PyTorchJob pods"]
+        Kueue["Kueue (optional)<br/>Job queue management"]
+    end
+
+    subgraph TrainingNamespace["TRAINING JOB NAMESPACE ({user-namespace})"]
+        direction TB
+
+        subgraph MasterPod["Master Pod"]
+            AccLaunch["accelerate_launch.py<br/>Image: quay.io/modh/fms-hf-tuning<br/>SA: {pytorchjob-sa}<br/>GPU: NVIDIA CUDA 12.1"]
+        end
+
+        subgraph WorkerPods["Worker Pods (multi-GPU FSDP)"]
+            Worker1["Worker Pod 1<br/>Image: quay.io/modh/fms-hf-tuning"]
+            Worker2["Worker Pod N<br/>Image: quay.io/modh/fms-hf-tuning"]
+        end
+
+        subgraph Storage["Local Storage (PVC)"]
+            TrainingPVC["Training Data PVC<br/>(ReadOnlyMany)"]
+            OutputPVC["Output PVC<br/>(ReadWriteOnce/Many)<br/>checkpoints + safetensors"]
+        end
+
+        subgraph Config["Configuration"]
+            ConfigMap["ConfigMap<br/>Training JSON config"]
+            Secrets["Secrets<br/>HF_TOKEN, tracker creds"]
+        end
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        HFHub["HuggingFace Hub<br/>huggingface.co<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: Bearer Token"]
+        AimStack["AimStack Server<br/>(optional)<br/>HTTP/HTTPS<br/>Auth: None"]
+        MLflow["MLflow Tracking<br/>(optional)<br/>HTTP/HTTPS<br/>Auth: None"]
+        ClearML["ClearML Server<br/>(optional)<br/>HTTP/HTTPS<br/>Auth: API Key"]
+    end
+
+    %% Control plane flows
+    KFTO -->|Creates pods<br/>Kubernetes API| MasterPod
+    KFTO -->|Creates pods<br/>Kubernetes API| WorkerPods
+    Kueue -.->|Queue scheduling| KFTO
+
+    %% Config injection
+    ConfigMap -->|Mount / Env var<br/>SFT_TRAINER_CONFIG_JSON_PATH| AccLaunch
+    Secrets -->|Mount / Env var<br/>HF_TOKEN| AccLaunch
+
+    %% Intra-cluster NCCL (SECURITY NOTE: plaintext)
+    AccLaunch <-->|NCCL/TCP 29500<br/>Plaintext<br/>No Auth<br/>Gradient sync| Worker1
+    AccLaunch <-->|NCCL/TCP 29500<br/>Plaintext<br/>No Auth<br/>Gradient sync| Worker2
+
+    %% Storage access
+    AccLaunch -->|File read| TrainingPVC
+    AccLaunch -->|File write<br/>safetensors| OutputPVC
+
+    %% Egress flows
+    AccLaunch -->|HTTPS/443<br/>TLS 1.2+<br/>Bearer Token (HF_TOKEN)<br/>Model download| HFHub
+    AccLaunch -.->|HTTP/HTTPS<br/>configurable<br/>Metrics| AimStack
+    AccLaunch -.->|HTTP/HTTPS<br/>configurable<br/>Metrics| MLflow
+    AccLaunch -.->|HTTP/HTTPS<br/>API Key<br/>Metrics| ClearML
+
+    %% Styling
+    classDef controlplane fill:#dce6f1,stroke:#4472c4,stroke-width:2px
+    classDef trainingpod fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef workerpod fill:#d5e8d4,stroke:#82b366,stroke-width:1px
+    classDef storage fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef config fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef external fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef externalopt fill:#f9f9f9,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+
+    class KFTO,Kueue controlplane
+    class AccLaunch trainingpod
+    class Worker1,Worker2 workerpod
+    class TrainingPVC,OutputPVC storage
+    class ConfigMap,Secrets config
+    class HFHub external
+    class AimStack,MLflow,ClearML externalopt

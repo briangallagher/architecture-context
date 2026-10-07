@@ -1,76 +1,62 @@
 workspace {
     model {
-        user = person "SRE / Support Engineer" "Collects diagnostic data from RHOAI/RHAII clusters for troubleshooting"
+        admin = person "Cluster Admin" "Runs must-gather to collect diagnostic data for troubleshooting RHOAI issues"
 
-        mustGather = softwareSystem "must-gather" "Diagnostic data collection tool for RHOAI/RHAII — collects cluster state, logs, and custom resources" {
-            gatherSH = container "gather.sh" "Main entrypoint — detects K8s distribution, dispatches component collectors" "Bash Script"
-            commonSH = container "common.sh" "Shared functions for namespace inspection, resource collection, version detection" "Bash Library"
-            xksUtilSH = container "xks_util.sh" "Non-OpenShift utilities — kubectl_inspect, distribution detection" "Bash Library"
-            componentCollectors = container "Component Collectors" "14 parallel scripts collecting RHOAI component CRDs" "Bash Scripts"
-            llmdCollectors = container "LLM-D Collectors" "LLM-D specific collection — inference, dependencies, observability, cluster info" "Bash Scripts"
-            helmIntegration = container "Helm Integration" "Collects Helm release values and rendered manifests" "helm CLI"
+        mustGather = softwareSystem "must-gather" "Diagnostic data collection tool for RHOAI/RHAII clusters" {
+            gatherScript = container "gather.sh" "Main orchestrator — detects K8s distribution and dispatches component gatherers" "Bash Script (Entrypoint)"
+            commonLib = container "common.sh" "Shared functions for namespace inspection, resource collection, and version detection" "Bash Script (Library)"
+            xksUtil = container "xks_util.sh" "K8s distribution detection (OCP, AKS, EKS, CKS) and kubectl_inspect implementation" "Bash Script (Library)"
+            componentGatherers = container "Component Gatherers" "14 component-specific collection scripts (gather_serving.sh, gather_dashboard.sh, etc.)" "Bash Scripts"
+            llmdGatherers = container "LLM-D Gatherers" "LLM-D collection scripts with dependency collectors (cert-manager, Sail, LWS)" "Bash Scripts"
         }
 
-        kubeAPI = softwareSystem "Kubernetes API Server" "Cluster control plane — source of all resource and log data" "External"
-        ocInspect = softwareSystem "oc adm inspect" "OpenShift resource inspection framework" "External"
-        kubectlCLI = softwareSystem "kubectl" "Kubernetes CLI for non-OpenShift platforms" "External"
-        helmCLI = softwareSystem "Helm CLI" "Kubernetes package manager — reads release values" "External"
+        k8sAPI = softwareSystem "Kubernetes API Server" "Cluster API providing resource enumeration and log collection" "External"
+        ocpInspect = softwareSystem "oc adm inspect" "OpenShift built-in namespace-level resource serialization tool" "External"
+        helmCLI = softwareSystem "Helm CLI" "Collects Helm release values and manifests" "External Tool"
 
-        rhoaiOperator = softwareSystem "RHOAI Operator" "Platform operator managing DSCInitialization, DataScienceCluster" "Internal RHOAI"
-        kserve = softwareSystem "KServe" "Model serving — InferenceService, ServingRuntime CRDs" "Internal RHOAI"
-        dsp = softwareSystem "Data Science Pipelines" "Pipeline orchestration — DSP Application, Argo Workflow CRDs" "Internal RHOAI"
-        dashboard = softwareSystem "ODH Dashboard" "UI configuration — DashboardConfig, AcceleratorProfile CRDs" "Internal RHOAI"
-        kuberay = softwareSystem "KubeRay" "Ray cluster management — RayCluster, RayJob CRDs" "Internal RHOAI"
-        kueue = softwareSystem "Kueue" "Batch scheduling — ClusterQueue, LocalQueue, Workload CRDs" "Internal RHOAI"
-        kfto = softwareSystem "Kubeflow Training Operator" "Distributed training — PyTorchJob, TrainJob CRDs" "Internal RHOAI"
-        modelRegistry = softwareSystem "Model Registry" "Model metadata storage — ModelRegistry CRDs" "Internal RHOAI"
-        trustyai = softwareSystem "TrustyAI" "AI trustworthiness — TrustyAIService, LMEvalJob, EvalHub CRDs" "Internal RHOAI"
-        maas = softwareSystem "Models as a Service" "Multi-tenant model serving — MaaSModelRef, Tenant CRDs" "Internal RHOAI"
-        llmd = softwareSystem "LLM-D" "LLM inference — LLMInferenceService, InferencePool CRDs" "Internal RHOAI"
+        rhodsOperator = softwareSystem "rhods-operator" "RHOAI Operator managing DSCInitialization and DataScienceCluster" "Internal RHOAI"
+        kserve = softwareSystem "KServe" "ML inference serving platform" "Internal RHOAI"
+        dsp = softwareSystem "Data Science Pipelines" "ML pipeline orchestration" "Internal RHOAI"
+        kuberay = softwareSystem "KubeRay" "Ray cluster management" "Internal RHOAI"
+        kueue = softwareSystem "Kueue" "Job queue management" "Internal RHOAI"
+        trainingOp = softwareSystem "Training Operator" "ML training job management" "Internal RHOAI"
+        modelRegistry = softwareSystem "Model Registry" "ML model metadata storage" "Internal RHOAI"
+        trustyai = softwareSystem "TrustyAI" "AI trustworthiness and evaluation" "Internal RHOAI"
+        dashboard = softwareSystem "ODH Dashboard" "RHOAI web UI" "Internal RHOAI"
+        aiGateway = softwareSystem "AI Gateway" "API gateway for AI services" "Internal RHOAI"
+        istio = softwareSystem "Istio / Sail Operator" "Service mesh" "External"
+        certManager = softwareSystem "cert-manager" "Certificate management" "External"
+        gatewayAPI = softwareSystem "Gateway API" "Kubernetes Gateway API resources" "External"
+        prometheus = softwareSystem "Prometheus Operator" "Monitoring and alerting" "External"
 
-        istio = softwareSystem "Istio / Sail" "Service mesh — VirtualService, DestinationRule, EnvoyFilter CRDs" "External"
-        certManager = softwareSystem "cert-manager" "TLS certificate management — Certificate, Issuer CRDs" "External"
-        gatewayAPI = softwareSystem "Gateway API" "Gateway, HTTPRoute, GRPCRoute CRDs" "External"
-        prometheus = softwareSystem "Prometheus Operator" "Monitoring — ServiceMonitor, PodMonitor, PrometheusRule CRDs" "External"
-        keda = softwareSystem "KEDA" "Event-driven autoscaling — ScaledObject, TriggerAuthentication CRDs" "External"
-        lws = softwareSystem "LeaderWorkerSet" "Distributed workload orchestration CRDs" "External"
+        // Relationships
+        admin -> mustGather "Runs via oc adm must-gather or kubectl apply" "HTTPS/443"
+        mustGather -> k8sAPI "Lists and gets all resources, collects pod logs" "HTTPS/443, TLS 1.2+, SA token"
 
-        # User interactions
-        user -> mustGather "Invokes via oc adm must-gather or kubectl Job"
+        gatherScript -> commonLib "Sources shared functions"
+        gatherScript -> xksUtil "Sources K8s distribution detection"
+        gatherScript -> componentGatherers "Dispatches in parallel"
+        gatherScript -> llmdGatherers "Dispatches for LLM-D collection"
 
-        # must-gather to K8s API
-        mustGather -> kubeAPI "GET, LIST, WATCH all resources" "HTTPS/443, TLS 1.2+, SA token"
-        mustGather -> ocInspect "Namespace/resource inspection" "CLI (OpenShift only)"
-        mustGather -> kubectlCLI "Resource collection" "CLI (xKS only)"
-        mustGather -> helmCLI "Extract Helm release values" "Local exec"
+        mustGather -> ocpInspect "Uses for OpenShift namespace inspection" "CLI"
+        mustGather -> helmCLI "Collects Helm release info" "CLI"
 
-        # must-gather reads from RHOAI components (via K8s API)
-        mustGather -> rhoaiOperator "Reads DSCInitialization, DataScienceCluster CRs" "HTTPS/443"
-        mustGather -> kserve "Reads InferenceService, ServingRuntime CRs" "HTTPS/443"
-        mustGather -> dsp "Reads DSP Application, Argo Workflow CRs" "HTTPS/443"
-        mustGather -> dashboard "Reads DashboardConfig, AcceleratorProfile CRs" "HTTPS/443"
-        mustGather -> kuberay "Reads RayCluster, RayJob, RayService CRs" "HTTPS/443"
-        mustGather -> kueue "Reads ClusterQueue, LocalQueue, Workload CRs" "HTTPS/443"
-        mustGather -> kfto "Reads PyTorchJob, TrainJob CRs" "HTTPS/443"
-        mustGather -> modelRegistry "Reads ModelRegistry CRs" "HTTPS/443"
-        mustGather -> trustyai "Reads TrustyAIService, LMEvalJob, EvalHub CRs" "HTTPS/443"
-        mustGather -> maas "Reads MaaSModelRef, MaaSAuthPolicy, Tenant CRs" "HTTPS/443"
-        mustGather -> llmd "Reads LLMInferenceService, InferencePool CRs" "HTTPS/443"
+        mustGather -> rhodsOperator "Collects DSCInitialization, DataScienceCluster CRs" "HTTPS/443"
+        mustGather -> kserve "Collects InferenceService, ServingRuntime CRs" "HTTPS/443"
+        mustGather -> dsp "Collects DataSciencePipelinesApplication CRs" "HTTPS/443"
+        mustGather -> kuberay "Collects RayCluster, RayJob CRs" "HTTPS/443"
+        mustGather -> kueue "Collects ClusterQueue, Workload CRs" "HTTPS/443"
+        mustGather -> trainingOp "Collects PyTorchJob, TrainJob CRs" "HTTPS/443"
+        mustGather -> modelRegistry "Collects ModelRegistry CRs" "HTTPS/443"
+        mustGather -> trustyai "Collects LMEvalJob, TrustyAIService CRs" "HTTPS/443"
+        mustGather -> dashboard "Collects ODHDashboardConfig CRs" "HTTPS/443"
+        mustGather -> aiGateway "Collects AITenant, MaaSSubscription CRs" "HTTPS/443"
+        mustGather -> istio "Collects VirtualService, AuthorizationPolicy CRs" "HTTPS/443"
+        mustGather -> certManager "Collects Certificate, Issuer CRs" "HTTPS/443"
+        mustGather -> gatewayAPI "Collects Gateway, HTTPRoute CRs" "HTTPS/443"
+        mustGather -> prometheus "Collects ServiceMonitor, PrometheusRule CRs" "HTTPS/443"
 
-        # must-gather reads from external dependencies (via K8s API)
-        mustGather -> istio "Reads VirtualService, DestinationRule, EnvoyFilter CRs" "HTTPS/443"
-        mustGather -> certManager "Reads Certificate, Issuer, ClusterIssuer CRs" "HTTPS/443"
-        mustGather -> gatewayAPI "Reads Gateway, HTTPRoute, GRPCRoute CRs" "HTTPS/443"
-        mustGather -> prometheus "Reads ServiceMonitor, PodMonitor, PrometheusRule CRs" "HTTPS/443"
-        mustGather -> keda "Reads ScaledObject, TriggerAuthentication CRs (WVA)" "HTTPS/443"
-        mustGather -> lws "Reads LeaderWorkerSet CRs" "HTTPS/443"
-
-        # Internal container relationships
-        gatherSH -> commonSH "sources shared functions"
-        gatherSH -> xksUtilSH "sources on non-OpenShift"
-        gatherSH -> componentCollectors "dispatches in parallel"
-        gatherSH -> llmdCollectors "dispatches"
-        gatherSH -> helmIntegration "invokes for Helm data"
+        mustGather -> admin "Returns collected diagnostic data" "rsync/kubectl cp"
     }
 
     views {
@@ -93,18 +79,20 @@ workspace {
                 background #7ed321
                 color #ffffff
             }
+            element "External Tool" {
+                background #bbbbbb
+                color #ffffff
+            }
             element "Person" {
                 shape Person
                 background #4a90e2
                 color #ffffff
             }
             element "Software System" {
-                background #4a90e2
-                color #ffffff
+                shape RoundedBox
             }
             element "Container" {
-                background #438dd5
-                color #ffffff
+                shape RoundedBox
             }
         }
     }

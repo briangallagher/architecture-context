@@ -1,0 +1,67 @@
+sequenceDiagram
+    participant Admin as Platform Admin
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant Controller as AIGateway Controller<br/>ai-gateway-system
+    participant ConfigMap as ConfigMap / ENV<br/>(ODH_MODULE_OPERATOR_*)
+    participant Kustomize as Kustomize Renderer<br/>/manifests/
+    participant GatewayAPI as Gateway API<br/>(HTTPRoutes, Gateways)
+    participant Kuadrant as Kuadrant<br/>(AuthPolicies, RateLimitPolicies)
+    participant Istio as Istio<br/>(DestinationRules, EnvoyFilters)
+    participant CertMgr as cert-manager<br/>(Certificates)
+    participant BatchGW as llm-d Batch Gateway<br/>(LLMBatchGateway)
+    participant Prometheus as Prometheus<br/>(ServiceMonitors)
+
+    Note over Admin,K8sAPI: 1. CR Creation / Update
+    Admin->>K8sAPI: Create/Update AIGateway CR<br/>(cluster-scoped)
+    K8sAPI-->>Controller: Watch notification<br/>(AIGateway event)
+
+    Note over Controller,ConfigMap: 2. Initialization
+    Controller->>ConfigMap: Load configuration<br/>(mounted files + ENV vars)
+    ConfigMap-->>Controller: Config values
+
+    Controller->>K8sAPI: Read DSCInitialization CR<br/>(platform state)
+    K8sAPI-->>Controller: Platform init data
+
+    Controller->>K8sAPI: Read InferenceService CRs<br/>(model serving state)
+    K8sAPI-->>Controller: Model serving data
+
+    Note over Controller,Kustomize: 3. Reconciliation Action Chain
+    rect rgb(235, 245, 255)
+        Controller->>Controller: initialize
+        Controller->>Controller: ensureInfraSecretMigrationRBAC
+        Controller->>Controller: upgradeIfNeeded
+        Controller->>Controller: releases
+        Controller->>Kustomize: Render manifests
+        Kustomize-->>Controller: Rendered resources
+        Controller->>Controller: annotateResource
+        Controller->>Controller: migrateSelector
+    end
+
+    Note over Controller,Prometheus: 4. Resource Deployment
+    par Deploy Gateway API Resources
+        Controller->>K8sAPI: Create/Update HTTPRoutes
+        K8sAPI-->>GatewayAPI: HTTPRoute applied
+    and Deploy Kuadrant Policies
+        Controller->>K8sAPI: Create/Update AuthPolicies,<br/>TokenRateLimitPolicies
+        K8sAPI-->>Kuadrant: Policies applied
+    and Deploy Istio Resources
+        Controller->>K8sAPI: Create/Update DestinationRules,<br/>EnvoyFilters, ServiceEntries
+        K8sAPI-->>Istio: Networking configured
+    and Deploy TLS Certificates
+        Controller->>K8sAPI: Create/Update Certificates
+        K8sAPI-->>CertMgr: Certificate request
+    and Deploy Batch Gateway (if Managed)
+        Controller->>K8sAPI: Create/Update LLMBatchGateway
+        K8sAPI-->>BatchGW: Batch gateway reconciled
+    and Deploy Observability
+        Controller->>K8sAPI: Create/Update ServiceMonitors,<br/>OTel Collectors, Perses Dashboards
+        K8sAPI-->>Prometheus: Monitoring configured
+    end
+
+    Note over Controller,K8sAPI: 5. Status & Cleanup
+    Controller->>Controller: reportSubModuleStatus
+    Controller->>K8sAPI: Update AIGateway status
+    Controller->>Controller: Garbage collect orphaned resources
+
+    Note over Controller: 6. Metrics Exposure
+    Controller-->>Prometheus: Expose metrics<br/>:8443/metrics (ClusterIP)

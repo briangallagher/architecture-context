@@ -1,0 +1,357 @@
+{
+  "schema_version": "1.0.0",
+  "identity": {
+    "component": "praxis-policy",
+    "source_component": "policy",
+    "repository": "https://github.com/praxis-proxy/policy.git",
+    "source_revision": "0123456789abcdef",
+    "version_scope": "rhoai.next",
+    "integration_status": "not-integrated",
+    "aliases": [
+      "policy"
+    ]
+  },
+  "producers": {
+    "analyzer_version": "0.1.0-dev",
+    "normalizer_version": "structured-component-normalizer/v1",
+    "renderer_version": "arch-analyzer-markdown/v1"
+  },
+  "analyzer_input": {
+    "schema_version": "1",
+    "bundle_fingerprint": "sha256:aa471eaac5959e88938ac2e893176851271c60423bbfc23065839eaa53fe07d7",
+    "extracted_at": "2026-09-06T12:00:00Z"
+  },
+  "rendering_config": {
+    "distribution": "Both",
+    "generated_by": "arch-analyzer"
+  },
+  "assembly_inputs": {
+    "component_map": {
+      "content_fingerprint": "sha256:6dcba246e7b8bd32d838498635d48fa9c3a1f2521524c18a4eb4b4ec30cb6a47",
+      "origin": {
+        "kind": "orchestrator",
+        "id": "component-map"
+      },
+      "value": {
+        "components": {
+          "praxis-policy": {
+            "repo_org": "praxis-proxy",
+            "repo_name": "policy",
+            "repo_url": "https://github.com/praxis-proxy/policy"
+          }
+        }
+      }
+    }
+  },
+  "facts": [
+    {
+      "id": "fact:summary:f589ffa2a5ec1eebdee96f598c49036c5988c3dfbcfce880f4554b3fd344a397",
+      "type": "summary",
+      "ordinal": 0,
+      "value": "Praxis policy evaluation service.",
+      "input_pointer": "/summary",
+      "evidence": [],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    },
+    {
+      "id": "fact:source_component:fb6f3eb62beabd3b982fa9b99d8bb86fee6a8db71a6427acc906453177d00f8a",
+      "type": "source_component",
+      "ordinal": 0,
+      "value": {
+        "name": "policy-api",
+        "purpose": "Evaluates policy",
+        "source": "cmd/server.go:1-40",
+        "type": "service"
+      },
+      "input_pointer": "/source_components/0",
+      "evidence": [
+        {
+          "path": "cmd/server.go",
+          "start_line": 1,
+          "end_line": 40,
+          "revision": "0123456789abcdef"
+        }
+      ],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    },
+    {
+      "id": "fact:rbac_cluster_role:76e162f2d15d87ba296e944140e838274e1b2a576bd239bb9617229f54f52801",
+      "type": "rbac_cluster_role",
+      "ordinal": 0,
+      "value": {
+        "name": "policy-reader",
+        "rules": [
+          {
+            "apiGroups": [
+              "example.io"
+            ],
+            "resources": [
+              "policies"
+            ],
+            "verbs": [
+              "get",
+              "list"
+            ]
+          },
+          {
+            "apiGroups": [],
+            "nonResourceURLs": [
+              "/metrics"
+            ],
+            "resources": [],
+            "verbs": [
+              "get"
+            ]
+          },
+          {
+            "apiGroups": [
+              "example.io"
+            ],
+            "nonResourceURLs": [
+              "/healthz"
+            ],
+            "resources": [
+              "policies/status"
+            ],
+            "verbs": [
+              "get"
+            ]
+          },
+          {
+            "apiGroups": [],
+            "resources": [],
+            "verbs": [
+              "get"
+            ]
+          }
+        ],
+        "source": "config/rbac.yaml:1-40"
+      },
+      "input_pointer": "/rbac/cluster_roles/0",
+      "evidence": [
+        {
+          "path": "config/rbac.yaml",
+          "start_line": 1,
+          "end_line": 40,
+          "revision": "0123456789abcdef"
+        }
+      ],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    },
+    {
+      "id": "fact:security_evidence:3a38a781509503380f9c858035d75c3e48a137506992796f8495a85806766ddb",
+      "type": "security_evidence",
+      "ordinal": 0,
+      "value": {
+        "detail": "FIPS mode is explicitly unresolved",
+        "kind": "fips-posture",
+        "source": "cmd/server.go:20-24",
+        "status": "not-extracted",
+        "target": "policy-api"
+      },
+      "input_pointer": "/security_evidence/0",
+      "evidence": [
+        {
+          "path": "cmd/server.go",
+          "start_line": 20,
+          "end_line": 24,
+          "revision": "0123456789abcdef"
+        }
+      ],
+      "uncertainty": {
+        "status": "not-extracted",
+        "detail": "Preserved analyzer status; no stronger claim was inferred."
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    },
+    {
+      "id": "fact:data_coverage:a55723b3b9930a1a77c71ab1d1ac9486adf3512d9713dcebe5053c2be36dc696",
+      "type": "data_coverage",
+      "key": "source",
+      "ordinal": 0,
+      "value": "complete",
+      "input_pointer": "/data_coverage/source",
+      "evidence": [],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    }
+  ],
+  "fact_accounting": [
+    {
+      "fact_id": "fact:summary:f589ffa2a5ec1eebdee96f598c49036c5988c3dfbcfce880f4554b3fd344a397",
+      "input_pointer": "/summary",
+      "disposition": "rendered",
+      "sections": [
+        "purpose"
+      ]
+    },
+    {
+      "fact_id": "fact:source_component:fb6f3eb62beabd3b982fa9b99d8bb86fee6a8db71a6427acc906453177d00f8a",
+      "input_pointer": "/source_components/0",
+      "disposition": "rendered",
+      "sections": [
+        "architecture-components"
+      ]
+    },
+    {
+      "fact_id": "fact:rbac_cluster_role:76e162f2d15d87ba296e944140e838274e1b2a576bd239bb9617229f54f52801",
+      "input_pointer": "/rbac/cluster_roles/0",
+      "disposition": "rendered",
+      "sections": [
+        "security"
+      ]
+    },
+    {
+      "fact_id": "fact:security_evidence:3a38a781509503380f9c858035d75c3e48a137506992796f8495a85806766ddb",
+      "input_pointer": "/security_evidence/0",
+      "disposition": "rendered",
+      "sections": [
+        "security"
+      ]
+    },
+    {
+      "fact_id": "fact:data_coverage:a55723b3b9930a1a77c71ab1d1ac9486adf3512d9713dcebe5053c2be36dc696",
+      "input_pointer": "/data_coverage/source",
+      "disposition": "retained",
+      "sections": [
+        "architectural-analysis"
+      ]
+    }
+  ],
+  "sections": [],
+  "patch_inputs": [],
+  "proposal_dispositions": [],
+  "uncertainty": [
+    {
+      "scope": "component-integration",
+      "status": "not-integrated",
+      "detail": "Integration status is supplied by release/component context; analyzer source facts alone do not establish shipment or roadmap intent."
+    }
+  ],
+  "rendering_view": {
+    "component": "praxis-policy",
+    "metadata": {
+      "repository": "https://github.com/praxis-proxy/policy.git",
+      "version": "0123456789abcdef",
+      "distribution": "Both",
+      "languages": "Go",
+      "deployment_type": "Application Service",
+      "generated_by": "arch-analyzer"
+    },
+    "repo_lineage": null,
+    "purpose": "Praxis policy evaluation service.",
+    "architecture_components": [
+      {
+        "component": "policy-api",
+        "type": "service",
+        "purpose": "Evaluates policy"
+      }
+    ],
+    "crds": [],
+    "serving_runtimes": [],
+    "http_endpoints": [],
+    "grpc_services": [],
+    "external_dependencies": [],
+    "internal_dependencies": [],
+    "services": [],
+    "ingress": [],
+    "egress": [],
+    "cluster_roles": [
+      {
+        "name": "policy-reader",
+        "api_group": "example.io",
+        "resources": "policies",
+        "non_resource_urls": "",
+        "verbs": "get, list"
+      },
+      {
+        "name": "policy-reader",
+        "api_group": "",
+        "resources": "",
+        "non_resource_urls": "/metrics",
+        "verbs": "get"
+      },
+      {
+        "name": "policy-reader",
+        "api_group": "example.io",
+        "resources": "policies/status",
+        "non_resource_urls": "/healthz",
+        "verbs": "get"
+      },
+      {
+        "name": "policy-reader",
+        "api_group": "",
+        "resources": "",
+        "non_resource_urls": "",
+        "verbs": "get"
+      }
+    ],
+    "role_bindings": [],
+    "secrets": [],
+    "authentication": null,
+    "security_evidence": [
+      {
+        "kind": "fips-posture",
+        "target": "policy-api",
+        "detail": "FIPS mode is explicitly unresolved",
+        "status": "not-extracted",
+        "source": "cmd/server.go:20-24"
+      }
+    ],
+    "behavioral_evidence": [],
+    "webhooks": [],
+    "integration_points": [],
+    "recent_changes": null,
+    "sources": [
+      {
+        "file": "cmd/server.go",
+        "lines": "1-40, 20-24",
+        "sections": "Architecture Components, Security"
+      },
+      {
+        "file": "config/rbac.yaml",
+        "lines": "1-40",
+        "sections": "Security"
+      }
+    ],
+    "data_coverage": {
+      "source": "complete"
+    },
+    "category_coverage": null,
+    "cross_references": null,
+    "coverage_findings": null,
+    "synthesis_evidence": null,
+    "cross_cutting_evidence": null
+  }
+}

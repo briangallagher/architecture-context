@@ -1,101 +1,88 @@
 graph TB
-    subgraph CLI["odh-cli (rhai-cli / kubectl-odh)"]
+    subgraph "odh-cli (rhai-cli / kubectl-odh)"
         direction TB
 
-        subgraph Commands["Command Layer (cmd/)"]
-            LintCmd[lint]
-            StatusCmd[status]
-            GetCmd[get]
-            ComponentsCmd[components]
-            DepsCmd[deps]
-            LogsCmd[logs]
-            BackupCmd[backup]
-            MigrateCmd[migrate]
-            VersionCmd[version]
+        subgraph "Command Layer"
+            LintCmd[lint<br/>Upgrade Readiness]
+            MigrateCmd[migrate<br/>Version Transitions]
+            StatusCmd[status<br/>Cluster Health]
+            BackupCmd[backup<br/>Workload Export]
+            ComponentsCmd[components<br/>Lifecycle Mgmt]
+            DepsCmd[deps<br/>Dependency Tracking]
+            GetCmd[get<br/>Resource Viewer]
+            EventsCmd[events<br/>Event Monitoring]
+            LogsCmd[logs<br/>Log Streaming]
+            MCPCmd[mcp serve<br/>AI Agent Interface]
         end
 
-        subgraph Core["Core Libraries (pkg/)"]
-            LintEngine["Lint Engine<br/>37 checks / 5 groups"]
-            StatusEngine["Status Engine<br/>clusterhealth integration"]
-            ComponentMgr["Component Manager<br/>discovery + health"]
-            DepsMgr["Dependency Manager<br/>odh-gitops manifests"]
-            MigrateFramework["Migration Framework<br/>2-phase actions"]
-            BackupEngine["Backup Engine<br/>resource serialization"]
-            LogStreamer["Log Streamer<br/>multi-container"]
+        subgraph "Framework Layer"
+            LintRegistry[Lint Check Registry<br/>40+ checks, 5 categories]
+            MigrateRegistry[Migration Action Registry<br/>Phase-aware execution]
+            StepRecorder[Step Recorder<br/>Hierarchical tracking]
+            OutputEnvelope[Output Envelope<br/>Table/JSON/YAML]
         end
 
-        subgraph Utilities["Shared Utilities (pkg/util/)"]
-            K8sClient["K8s Client<br/>Reader/Writer split"]
-            OLMReader["OLM Reader<br/>CSV + Subscription"]
-            VersionDetector["Version Detector<br/>RHOAI + OCP"]
-            Discovery["API Discovery<br/>CRD detection"]
-            ErrorHandler["Error Handler<br/>6-level exit codes"]
+        subgraph "MCP Layer"
+            MCPServer[MCP Server<br/>stdio / SSE transport]
+            ToolAdapter[Tool Adapter<br/>Command → MCP bridge]
         end
 
-        subgraph Output["Output Layer"]
-            TablePrinter["Table Printer"]
-            JSONOutput["JSON/YAML Output"]
-            Envelope["Output Envelope"]
-            SchemaGen["JSON Schema"]
+        subgraph "Client Layer"
+            K8sClient[Kubernetes Client<br/>client-go]
+            ConfigFlags[Config Flags<br/>kubeconfig, QPS, Burst]
+            VersionDetector[Version Detector<br/>CSV + ClusterVersion]
         end
+
+        LintCmd -->|registers checks| LintRegistry
+        MigrateCmd -->|registers actions| MigrateRegistry
+        MigrateRegistry -->|records steps| StepRecorder
+        MCPCmd -->|starts| MCPServer
+        MCPServer -->|wraps commands| ToolAdapter
+
+        LintCmd --> K8sClient
+        MigrateCmd --> K8sClient
+        StatusCmd --> K8sClient
+        BackupCmd --> K8sClient
+        ComponentsCmd --> K8sClient
+        DepsCmd --> K8sClient
+        GetCmd --> K8sClient
+        EventsCmd --> K8sClient
+        LogsCmd --> K8sClient
+        ToolAdapter --> ConfigFlags
+
+        K8sClient --> ConfigFlags
+        K8sClient --> VersionDetector
     end
 
-    subgraph Bundled["Bundled Tools (Container Image)"]
-        YQ["yq<br/>YAML/JSON processor<br/>FIPS-compliant"]
-        UpgradeHelpers["rhoai-upgrade-helpers<br/>Shell scripts"]
-        PythonHelpers["Python helpers<br/>ray_cluster_migration.py"]
-    end
+    User[Platform Operator] -->|kubectl odh ...| LintCmd
+    User -->|kubectl odh migrate| MigrateCmd
+    User -->|kubectl odh status| StatusCmd
+    AIAgent[AI Agent] -->|MCP Protocol| MCPServer
 
-    %% Command to Core connections
-    LintCmd --> LintEngine
-    StatusCmd --> StatusEngine
-    GetCmd --> K8sClient
-    ComponentsCmd --> ComponentMgr
-    DepsCmd --> DepsMgr
-    LogsCmd --> LogStreamer
-    BackupCmd --> BackupEngine
-    MigrateCmd --> MigrateFramework
+    K8sClient -->|HTTPS/6443| K8sAPI[Kubernetes API Server]
+    K8sClient -->|reads| DSC[DataScienceCluster CR]
+    K8sClient -->|reads| DSCI[DSCInitialization CR]
+    K8sClient -->|reads/writes| WorkloadCRs[Workload CRs<br/>Notebooks, DSPA,<br/>InferenceService, RayCluster]
 
-    %% Core to Utilities connections
-    LintEngine --> K8sClient
-    LintEngine --> Discovery
-    LintEngine --> VersionDetector
-    StatusEngine --> K8sClient
-    StatusEngine --> OLMReader
-    ComponentMgr --> K8sClient
-    ComponentMgr --> Discovery
-    DepsMgr --> OLMReader
-    MigrateFramework --> K8sClient
-    BackupEngine --> K8sClient
-    LogStreamer --> K8sClient
-
-    %% Core to Output
-    LintEngine --> TablePrinter
-    LintEngine --> Envelope
-    StatusEngine --> TablePrinter
-    ComponentMgr --> TablePrinter
-    GetCmd --> JSONOutput
-
-    %% External targets
-    K8sClient -->|"HTTPS/6443<br/>TLS 1.2+"| K8sAPI["Kubernetes API Server"]
-    DepsMgr -->|"HTTPS/443<br/>TLS 1.2+"| GitHub["GitHub<br/>odh-gitops manifests"]
-
-    %% K8s API to CRDs
-    K8sAPI --> DSC["DataScienceCluster CR"]
-    K8sAPI --> DSCI["DSCInitialization CR"]
-    K8sAPI --> OLM["OLM<br/>Subscriptions / CSVs"]
-    K8sAPI --> WorkloadCRDs["Workload CRDs<br/>Notebooks, InferenceServices,<br/>RayClusters, PyTorchJobs"]
-
-    %% Styling
-    style CLI fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    style Commands fill:#bbdefb,stroke:#1565c0
-    style Core fill:#c8e6c9,stroke:#2e7d32
-    style Utilities fill:#fff9c4,stroke:#f9a825
-    style Output fill:#f3e5f5,stroke:#7b1fa2
-    style Bundled fill:#fff3e0,stroke:#e65100
-    style K8sAPI fill:#ef9a9a,stroke:#c62828
-    style GitHub fill:#ef9a9a,stroke:#c62828
-    style DSC fill:#ffcc80,stroke:#e65100
-    style DSCI fill:#ffcc80,stroke:#e65100
-    style OLM fill:#ffcc80,stroke:#e65100
-    style WorkloadCRDs fill:#ffcc80,stroke:#e65100
+    style LintCmd fill:#4a90e2,color:#fff
+    style MigrateCmd fill:#4a90e2,color:#fff
+    style StatusCmd fill:#4a90e2,color:#fff
+    style BackupCmd fill:#4a90e2,color:#fff
+    style ComponentsCmd fill:#4a90e2,color:#fff
+    style DepsCmd fill:#4a90e2,color:#fff
+    style GetCmd fill:#4a90e2,color:#fff
+    style EventsCmd fill:#4a90e2,color:#fff
+    style LogsCmd fill:#4a90e2,color:#fff
+    style MCPCmd fill:#4a90e2,color:#fff
+    style MCPServer fill:#9b59b6,color:#fff
+    style ToolAdapter fill:#9b59b6,color:#fff
+    style LintRegistry fill:#f5a623
+    style MigrateRegistry fill:#f5a623
+    style StepRecorder fill:#f5a623
+    style K8sClient fill:#2ecc71,color:#fff
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style DSC fill:#f5a623
+    style DSCI fill:#f5a623
+    style WorkloadCRs fill:#f5a623
+    style User fill:#3498db,color:#fff
+    style AIAgent fill:#9b59b6,color:#fff

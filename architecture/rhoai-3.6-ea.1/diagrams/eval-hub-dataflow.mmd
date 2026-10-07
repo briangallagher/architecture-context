@@ -1,0 +1,54 @@
+sequenceDiagram
+    participant Client as External Client
+    participant API as Eval-Hub API<br/>8080/TCP HTTP
+    participant IdGate as Identity Gate<br/>X-User / X-Tenant
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant Job as K8s Batch Job
+    participant Init as eval_runtime_init<br/>Init Container
+    participant Sidecar as eval_runtime_sidecar<br/>Sidecar Proxy
+    participant S3 as S3-Compatible Storage<br/>HTTPS
+    participant MLflow as MLflow Tracking<br/>HTTPS TLS 1.2-1.3
+    participant OTel as OTel Collector<br/>OTLP/gRPC
+    participant Metrics as Metrics Server<br/>8081/TCP HTTP
+    participant DB as PostgreSQL/SQLite
+
+    Note over Client,DB: API Request Flow
+    Client->>API: POST /api/v1/evaluations/jobs
+    API->>IdGate: Check identity enforcement config
+    alt Identity enforcement enabled
+        IdGate-->>API: Validate X-User, X-Tenant headers
+    else Local/development mode
+        IdGate-->>API: Bypass identity check
+    end
+
+    Note over Client,DB: Evaluation Job Orchestration
+    API->>DB: Persist evaluation record
+    DB-->>API: Record ID
+    API->>K8sAPI: Create ConfigMap<br/>(evaluation config)
+    K8sAPI-->>API: ConfigMap created
+    API->>K8sAPI: Create Secret<br/>(credentials)
+    K8sAPI-->>API: Secret created
+    API->>K8sAPI: Query HardwareProfile CR<br/>(hardware-aware scheduling)
+    K8sAPI-->>API: HardwareProfile spec
+    API->>K8sAPI: Create batch/v1 Job<br/>(with init + sidecar)
+    K8sAPI-->>API: Job created
+    API-->>Client: 202 Accepted (Job ID)
+
+    Note over Job,S3: Job Execution
+    K8sAPI->>Init: Start init container
+    Init->>S3: Download test data<br/>AWS SDK / HTTPS
+    S3-->>Init: Test data artifacts
+    Init-->>Job: Init complete
+    K8sAPI->>Job: Start main container
+    K8sAPI->>Sidecar: Start sidecar proxy
+    Job->>Sidecar: Evaluation requests
+    Sidecar-->>Job: Proxied responses
+
+    Note over API,OTel: External Integrations
+    API->>MLflow: Track experiment<br/>HTTPS TLS 1.2-1.3<br/>Custom CA support
+    MLflow-->>API: Experiment metadata
+    API->>OTel: Export traces/metrics/logs<br/>OTLP/gRPC
+
+    Note over API,Metrics: Metrics Collection
+    Metrics->>Metrics: Serve /metrics on :8081 (cluster)
+    API->>API: Serve /metrics on :8080 (local mode)

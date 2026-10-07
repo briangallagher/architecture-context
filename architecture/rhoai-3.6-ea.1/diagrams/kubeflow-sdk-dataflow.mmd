@@ -1,0 +1,37 @@
+sequenceDiagram
+    participant User as Data Scientist
+    participant SDK as Kubeflow SDK<br/>(Python Client)
+    participant K8sClient as kubernetes<br/>Python Client
+    participant K8sAPI as Kubernetes<br/>API Server
+    participant TrainerCtrl as Kubeflow Trainer<br/>Controller
+    participant KatibCtrl as Katib<br/>Controller
+    participant KFPClient as KFP PipelinesClient<br/>(kfp library)
+    participant KFPAPI as KF Pipelines<br/>API Server
+
+    Note over User,KFPAPI: Training Job Submission Flow
+    User->>SDK: Create TrainingJob<br/>(kubeflow-trainer-api types)
+    SDK->>SDK: RHAI instrumentation injection<br/>(checkpoint mgmt, progression tracking)
+    SDK->>K8sClient: Submit TrainingJob CR<br/>(KubernetesBackendConfig)
+    K8sClient->>K8sAPI: POST /apis/kubeflow.org/.../trainingjobs<br/>Auth: kubeconfig / SA token / OIDC
+    K8sAPI-->>K8sClient: 201 Created
+    K8sClient-->>SDK: TrainingJob object
+    SDK-->>User: Job submitted
+    K8sAPI->>TrainerCtrl: Watch event: TrainingJob created
+    TrainerCtrl->>K8sAPI: Create training Pods
+
+    Note over User,KFPAPI: Katib Hyperparameter Tuning Flow
+    User->>SDK: Create Katib Experiment<br/>(kubeflow-katib-api types)
+    SDK->>K8sClient: Submit Experiment CR
+    K8sClient->>K8sAPI: POST /apis/kubeflow.org/.../experiments<br/>Auth: kubeconfig / SA token / OIDC
+    K8sAPI-->>K8sClient: 201 Created
+    K8sClient-->>SDK: Experiment object
+    SDK-->>User: Experiment submitted
+    K8sAPI->>KatibCtrl: Watch event: Experiment created
+
+    Note over User,KFPAPI: Pipeline Run Flow
+    User->>SDK: Create Pipeline Run<br/>(kfp DSL)
+    SDK->>KFPClient: Submit pipeline via PipelinesClient
+    KFPClient->>KFPAPI: POST /apis/v2beta1/runs<br/>Auth: upstream kfp auth
+    KFPAPI-->>KFPClient: Run created
+    KFPClient-->>SDK: Run object
+    SDK-->>User: Pipeline run submitted

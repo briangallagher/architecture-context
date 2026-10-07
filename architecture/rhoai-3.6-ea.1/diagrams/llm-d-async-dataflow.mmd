@@ -1,0 +1,40 @@
+sequenceDiagram
+    participant Producer as Request Producer
+    participant Broker as Message Broker<br/>(Redis :6379 / GCP Pub/Sub :443)
+    participant Processor as async-processor<br/>Worker Pool
+    participant Gate as Prometheus Gate<br/>:9090
+    participant Backend as Inference Gateway<br/>(vLLM :8000)
+    participant OTel as OTel Collector<br/>OTLP/gRPC
+    participant Health as Health Server<br/>:8081
+    participant Metrics as Metrics Server<br/>:9090
+    participant Kubelet as Kubelet
+
+    Note over Producer,Broker: 1. Request Ingestion
+    Producer->>Broker: Publish inference request<br/>(topic/queue)
+    Broker->>Processor: Consume message<br/>(random-robin merge to pool channels)
+
+    Note over Processor,Backend: 2. Inference Dispatch
+    Processor->>Gate: Check admission gate<br/>(Prometheus metric query)
+    Gate-->>Processor: Admission decision<br/>(allow/throttle)
+
+    alt Admission Allowed
+        Processor->>Backend: POST /v1/completions<br/>HTTP/HTTPS (TLS 1.2+ / mTLS)
+        Processor->>OTel: Export trace span<br/>(OTLP/gRPC)
+        Backend-->>Processor: Inference result<br/>(JSON response)
+    end
+
+    Note over Processor,Broker: 3. Result Return
+    alt Success
+        Processor->>Broker: Publish result<br/>(result channel)
+    else Failure
+        Processor->>Broker: Publish to retry channel<br/>(for reprocessing)
+    end
+
+    Note over Health,Kubelet: 4. Health & Metrics Surface
+    Kubelet->>Health: GET /healthz<br/>(liveness probe, unauthenticated)
+    Health-->>Kubelet: 200 OK
+
+    Kubelet->>Health: GET /readyz<br/>(readiness probe, gate-aware)
+    Health-->>Kubelet: 200 OK / 503
+
+    Note over Metrics: Metrics: :9090/metrics<br/>K8s-delegated auth

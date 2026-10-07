@@ -1,0 +1,81 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        User["Data Scientist / User"]
+    end
+
+    subgraph ControlPlane["KUBERNETES CONTROL PLANE"]
+        KubeAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>RBAC enforced"]
+    end
+
+    subgraph OperatorNS["OPERATOR NAMESPACE (Trusted)"]
+        direction TB
+
+        subgraph OperatorPod["Training Operator Pod<br/>SA: training-operator<br/>FIPS: strictfipsruntime"]
+            direction TB
+            Controller["Controller Manager"]
+
+            WebhookServer["Webhook Server<br/>443→9443/TCP<br/>TLS (self-signed CA)<br/>OPA cert-controller"]
+
+            MetricsServer["Metrics Server<br/>8080/TCP HTTPS<br/>TLS (OpenShift profile)<br/>No app-level auth"]
+
+            HealthProbes["Health Probes<br/>8081/TCP HTTP<br/>Plaintext<br/>No auth (kubelet)"]
+        end
+
+        WebhookCert["Secret:<br/>training-operator-webhook-cert<br/>Self-signed CA + serving cert"]
+    end
+
+    subgraph ClusterServices["CLUSTER SERVICES"]
+        OpenShiftAPI["OpenShift APIServer<br/>config.openshift.io/v1<br/>TLS profile source<br/>Read-only (get)"]
+    end
+
+    subgraph Monitoring["MONITORING"]
+        Prometheus["Prometheus<br/>Inbound scrape<br/>autodiscovery annotations"]
+    end
+
+    subgraph JobNamespaces["JOB NAMESPACES"]
+        TrainingPods["Training Pods<br/>(Workers/Launchers)"]
+        JobServices["Services"]
+        JobConfigMaps["ConfigMaps<br/>(MPI hostfiles)"]
+        JobRBAC["Roles/RoleBindings<br/>(MPI SSH access)"]
+    end
+
+    %% External → Control Plane
+    User -->|"HTTPS/6443<br/>TLS 1.2+<br/>kubeconfig auth"| KubeAPI
+
+    %% Control Plane → Operator (webhook)
+    KubeAPI -->|"HTTPS/9443<br/>TLS (self-signed)<br/>Admission webhook<br/>Fail policy"| WebhookServer
+
+    %% Operator → Control Plane (API operations)
+    Controller -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token (in-cluster)<br/>RBAC: training-operator"| KubeAPI
+
+    %% Operator → OpenShift
+    Controller -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token<br/>GET apiservers"| OpenShiftAPI
+
+    %% Prometheus → Operator
+    Prometheus -->|"HTTPS/8080<br/>TLS 1.2+<br/>No app auth<br/>prometheus.io/scrape"| MetricsServer
+
+    %% Cert management
+    WebhookCert -.->|"loaded by"| WebhookServer
+
+    %% Operator → Job resources (via K8s API)
+    Controller -->|"creates/manages"| TrainingPods
+    Controller -->|"creates/manages"| JobServices
+    Controller -->|"creates (MPI)"| JobConfigMaps
+    Controller -->|"creates (MPI)"| JobRBAC
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef controlplane fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef operator fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef cluster fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef monitoring fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef jobs fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef secret fill:#fff,stroke:#666,stroke-dasharray:5 5
+
+    class User external
+    class KubeAPI controlplane
+    class Controller,WebhookServer,MetricsServer,HealthProbes operator
+    class OpenShiftAPI cluster
+    class Prometheus monitoring
+    class TrainingPods,JobServices,JobConfigMaps,JobRBAC jobs
+    class WebhookCert secret

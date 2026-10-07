@@ -1,0 +1,73 @@
+graph TB
+    subgraph MonitoringInfra["Monitoring Infrastructure (rhods-operator Monitoring Controller)"]
+        direction TB
+        MonCtrl["rhods-operator<br/>Monitoring Service Controller<br/>Deploys collectors + proxies"]
+    end
+
+    subgraph PromTargets["Prometheus Scrape Targets"]
+        direction TB
+        P1["rhods-operator Monitoring Proxies<br/>kube-rbac-proxy sidecars<br/>Auth: cluster-monitoring-view ClusterRole<br/>TLS: OpenShift Route"]
+        P2["odh-model-controller<br/>Creates ServiceMonitor + PodMonitor<br/>per InferenceService<br/>Auth: kube-rbac-proxy sidecar"]
+        P3["workload-variant-autoscaler<br/>Queries InferencePool metrics<br/>for KEDA scaling decisions<br/>Source: Prometheus"]
+        P4["odh-observability<br/>3 mutating webhooks<br/>Platform monitoring integration"]
+    end
+
+    subgraph ServiceMonitors["ServiceMonitor / PodMonitor Resources"]
+        direction TB
+        SM1["InferenceService ServiceMonitors<br/>Created by: odh-model-controller<br/>Per deployed model"]
+        SM2["InferenceService PodMonitors<br/>Created by: odh-model-controller<br/>Per deployed model"]
+        SM3["PodMonitor Label Injection<br/>Created by: rhods-operator<br/>Cross-component: mutates prometheus-operator PodMonitors"]
+    end
+
+    subgraph HealthProbes["Health Probes (Derived from Operator Patterns)"]
+        direction TB
+        H1["rhods-operator<br/>Liveness: controller-runtime default<br/>Readiness: controller-runtime default<br/>Leader election health check"]
+        H2["kserve-controller-manager<br/>Liveness: controller-runtime default<br/>Readiness: controller-runtime default<br/>Leader election via ConfigMap/Lease"]
+        H3["kserve llmisvc controller<br/>Liveness: controller-runtime default<br/>Readiness: controller-runtime default<br/>Leader election via Lease"]
+        H4["odh-model-controller<br/>Liveness: controller-runtime default<br/>Readiness: controller-runtime default<br/>Leader election"]
+        H5["odh-dashboard<br/>Liveness: Node.js health endpoint<br/>Readiness: Node.js health endpoint<br/>Stateless replicas"]
+        H6["maas-api<br/>Liveness: HTTP health check<br/>Readiness: HTTP health check<br/>Stateless (PostgreSQL backend)"]
+        H7["Model Server Pods<br/>Liveness: model server health<br/>Readiness: model loaded check<br/>Startup: model download wait"]
+    end
+
+    subgraph AutoscalingMetrics["Autoscaling Metrics Sources"]
+        direction TB
+        AS1["HPA Metrics<br/>CPU/Memory utilization<br/>Standard Kubernetes metrics<br/>Used by: KServe InferenceService"]
+        AS2["KEDA ScaledObjects<br/>Custom Prometheus metrics<br/>InferencePool queue depth,<br/>request rate, latency<br/>Used by: llmisvc, WVA"]
+        AS3["InferencePool Metrics<br/>Gateway API Inference Extension<br/>Model-aware routing decisions<br/>EPP endpoint selection"]
+    end
+
+    subgraph ObsGaps["Observability Gaps (Unresolved)"]
+        direction TB
+        G1["Distributed Tracing<br/>No OTLP/OpenTelemetry evidence<br/>in component analysis"]
+        G2["Centralized Logging<br/>No structured logging pipeline<br/>evidence in component analysis"]
+        G3["Per-component Prometheus Endpoints<br/>Exact ports/paths not confirmed<br/>for all 72 components"]
+    end
+
+    %% Monitoring infrastructure relationships
+    MonCtrl -->|"deploys"| P1
+    MonCtrl -->|"deploys"| P4
+
+    %% ServiceMonitor creation
+    P2 -->|"creates per model"| SM1
+    P2 -->|"creates per model"| SM2
+    MonCtrl -->|"label injection"| SM3
+
+    %% Autoscaling metrics flow
+    P3 -->|"queries"| AS2
+    AS2 -->|"drives"| AS3
+
+    %% Styling
+    classDef prom fill:#e8d5b7,stroke:#b8860b,stroke-width:2px
+    classDef probe fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef monitor fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef autoscale fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef gap fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef infra fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+
+    class MonCtrl infra
+    class P1,P2,P3,P4 prom
+    class SM1,SM2,SM3 monitor
+    class H1,H2,H3,H4,H5,H6,H7 probe
+    class AS1,AS2,AS3 autoscale
+    class G1,G2,G3 gap

@@ -1,0 +1,131 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [Data Scientist / User]                                                 │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: kubeconfig credential chain                              │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES CONTROL PLANE                                                │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 6443/TCP (external)                                            │
+│  - Protocol: HTTPS                                                       │
+│  - TLS: 1.2+                                                             │
+│  - Auth: RBAC enforced                                                   │
+│         │                                                                │
+│         │ Port: 9443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS (OpenShift profile or TLS 1.2 intermediate)    │
+│         │ Auth: Kubernetes admission (ValidatingWebhookConfiguration)    │
+│         │ Policy: Fail (blocks if operator unavailable)                  │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  OPERATOR NAMESPACE (Trusted)                                            │
+│                                                                          │
+│  [Training Operator - Controller Manager]                                │
+│  - Deployment: training-operator                                         │
+│  - ServiceAccount: training-operator                                     │
+│  - Image: training-operator (FIPS: strictfipsruntime, CGO_ENABLED=1)    │
+│                                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │  WEBHOOK SERVER                                                    │  │
+│  │  - Service: training-operator (ClusterIP)                         │  │
+│  │  - Port: 443/TCP → 9443/TCP (targetPort)                         │  │
+│  │  - Protocol: HTTPS                                                │  │
+│  │  - Encryption: TLS (self-signed CA via OPA cert-controller)       │  │
+│  │  - Cert Secret: training-operator-webhook-cert                    │  │
+│  │  - Auth: Kubernetes admission webhook                             │  │
+│  │                                                                    │  │
+│  │  Webhook Endpoints (all Validating, Fail policy):                 │  │
+│  │  - /validate-kubeflow-org-v1-pytorchjob  (CREATE, UPDATE)        │  │
+│  │  - /validate-kubeflow-org-v1-tfjob       (CREATE, UPDATE)        │  │
+│  │  - /validate-kubeflow-org-v1-jaxjob      (CREATE, UPDATE)        │  │
+│  │  - /validate-kubeflow-org-v1-paddlejob   (CREATE, UPDATE)        │  │
+│  │  - /validate-kubeflow-org-v1-xgboostjob  (CREATE, UPDATE)        │  │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │  METRICS SERVER                                                    │  │
+│  │  - Service: training-operator (ClusterIP)                         │  │
+│  │  - Port: 8080/TCP                                                 │  │
+│  │  - Protocol: HTTPS                                                │  │
+│  │  - Encryption: TLS (OpenShift profile or TLS 1.2 intermediate)    │  │
+│  │  - Auth: None (network-level access control)                      │  │
+│  │  - Annotations: prometheus.io/scrape, prometheus.io/port          │  │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │  HEALTH PROBES                                                     │  │
+│  │  - Port: 8081/TCP                                                 │  │
+│  │  - Protocol: HTTP (plaintext)                                     │  │
+│  │  - Auth: None (kubelet access by design)                          │  │
+│  │  - /healthz (liveness)                                            │  │
+│  │  - /readyz  (readiness, gates on cert availability)               │  │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS/WSS                                            │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token (in-cluster)                        │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER SERVICES                                                        │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Purpose: CRUD on Pods, Services, ConfigMaps, SA, Roles,             │
+│    RoleBindings, CRDs (kubeflow.org), HPA, NetworkPolicies,            │
+│    PodGroups (Volcano/scheduler-plugins)                                 │
+│  - Auth: RBAC via training-operator ClusterRole                         │
+│                                                                          │
+│  [OpenShift APIServer - config.openshift.io/v1]                         │
+│  - Purpose: Read TLS profile (cipher suites, min version)               │
+│  - Port: 6443/TCP                                                       │
+│  - Auth: ServiceAccount token                                           │
+│  - Access: get only (read-only)                                         │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  MONITORING                                                              │
+│                                                                          │
+│  [Prometheus]                                                            │
+│  - Direction: Inbound scrape → Metrics Server (8080/TCP)                │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: None (application-level)                                        │
+│  - Autodiscovery: prometheus.io annotations                             │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- ClusterRole: training-operator
+  - API Groups: "", kubeflow.org, autoscaling, admissionregistration.k8s.io,
+    rbac.authorization.k8s.io, scheduling.volcano.sh, scheduling.x-k8s.io,
+    config.openshift.io, networking.k8s.io
+  - Resources: pods, pods/exec, services, configmaps, serviceaccounts, events,
+    jaxjobs, mpijobs, paddlejobs, pytorchjobs, tfjobs, xgboostjobs (+ status, finalizers),
+    horizontalpodautoscalers, validatingwebhookconfigurations, roles, rolebindings,
+    podgroups (volcano + scheduler-plugins), apiservers, networkpolicies
+  - Verbs: get, list, watch, create, update, patch, delete
+
+- Role: training-operator-webhook (namespace-scoped)
+  - Resources: secrets
+  - Verbs: get, list, update, watch
+
+Secrets:
+- training-operator-webhook-cert (self-signed CA + serving cert via OPA cert-controller)
+  - Provisioned by: cert-controller library at operator startup
+  - Contains: CA certificate, serving certificate, private key
+  - Rotation: Managed by cert-controller
+
+FIPS Compliance:
+- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, -tags strictfipsruntime
+- Linking: Dynamic (for OpenSSL FIPS module access)
+- Base images: UBI9 go-toolset (builder), UBI9 ubi-minimal (runtime)
+- Crypto: stdlib crypto/tls backed by OpenSSL via strictfipsruntime
+- TLS ciphers: All FIPS-approved AEAD ciphers (ECDHE+AES-GCM, ECDHE+ChaCha20)
+
+Network Policy Capability:
+- The operator has RBAC to create/manage NetworkPolicies in job namespaces

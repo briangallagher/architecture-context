@@ -1,0 +1,38 @@
+graph TD
+    subgraph "ML Metadata RBAC"
+        direction TB
+        Note["No Kubernetes RBAC roles<br/>defined in this repository"]
+    end
+
+    subgraph "Deployment Context"
+        DSPOperator["Data Science Pipelines Operator<br/>Manages RBAC externally"]
+    end
+
+    subgraph "Application-Level Auth"
+        direction TB
+        SSLConfig["SSLConfig (Optional)"]
+        ServerTLS["Server TLS<br/>server_key + server_cert"]
+        ClientVerify["Client mTLS<br/>client_verify + custom_ca"]
+        PlatformDelegated["Platform-Delegated<br/>Service Mesh / NetworkPolicy"]
+    end
+
+    subgraph "Access Patterns"
+        PipelineWorkload["Pipeline Workloads<br/>(same namespace)"]
+        PythonClient["ml_metadata Python Client<br/>(in-cluster)"]
+    end
+
+    DSPOperator -->|"provisions ServiceAccount<br/>& network policies"| Note
+    SSLConfig -->|"when configured"| ServerTLS
+    SSLConfig -->|"when configured"| ClientVerify
+    PipelineWorkload -->|"gRPC :8080<br/>Auth: None / mTLS"| SSLConfig
+    PythonClient -->|"gRPC :8080<br/>Auth: None / mTLS"| SSLConfig
+    PlatformDelegated -.->|"enforces isolation"| PipelineWorkload
+
+    style Note fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style DSPOperator fill:#7ed321,stroke:#333,color:#fff
+    style SSLConfig fill:#dae8fc,stroke:#6c8ebf
+    style ServerTLS fill:#dae8fc,stroke:#6c8ebf
+    style ClientVerify fill:#dae8fc,stroke:#6c8ebf
+    style PlatformDelegated fill:#e1d5e7,stroke:#9673a6
+    style PipelineWorkload fill:#d5e8d4,stroke:#82b366
+    style PythonClient fill:#d5e8d4,stroke:#82b366

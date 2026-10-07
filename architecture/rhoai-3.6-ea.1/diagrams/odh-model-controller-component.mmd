@@ -1,0 +1,115 @@
+graph TB
+    subgraph "odh-model-controller Deployment"
+        direction TB
+        ISvcCtrl["InferenceService<br/>Controller"]
+        IGCtrl["InferenceGraph<br/>Controller"]
+        LLMISvcCtrl["LLMInferenceService<br/>Controller"]
+        SRCtrl["ServingRuntime<br/>Controller"]
+        GWCtrl["Gateway<br/>Controller"]
+        AcctCtrl["Account<br/>Controller"]
+        CMCtrl["ConfigMap<br/>Controller"]
+        SecretCtrl["Secret<br/>Controller"]
+        PodCtrl["Pod<br/>Controller"]
+        APIServerCtrl["APIServer<br/>Controller"]
+
+        subgraph "Admission Webhooks (port 9443)"
+            MutISvc["Mutate InferenceService"]
+            MutIG["Mutate InferenceGraph"]
+            MutLLM1["Mutate LLMInferenceService v1alpha1"]
+            MutLLM2["Mutate LLMInferenceService v1alpha2"]
+            MutPod["Mutate Pod"]
+            ValISvc["Validate InferenceService"]
+            ValIG["Validate InferenceGraph"]
+            ValAcct["Validate NIM Account"]
+        end
+    end
+
+    subgraph "model-serving-api Deployment"
+        direction TB
+        GatewayAPI["/api/v1/gateways<br/>Bearer Auth"]
+        SamplesAPI["/api/v1/samples/llm-d<br/>No Auth"]
+        MetricsAPI["/metrics<br/>port 8080"]
+        AuthMW["Auth Middleware"]
+        GatewayAPI --> AuthMW
+    end
+
+    subgraph "TLS Management"
+        TLSPkg["pkg/tls<br/>OpenShift TLS Profile<br/>Fallback: Mozilla Intermediate<br/>TLS 1.2+"]
+        ProfileWatcher["ProfileWatcher<br/>Restarts on TLS change"]
+    end
+
+    %% CRDs watched
+    ISvcCR["InferenceService CR"]
+    IGCR["InferenceGraph CR"]
+    LLMCR["LLMInferenceService CR"]
+    SRCR["ServingRuntime CR"]
+    AcctCR["NIM Account CR"]
+    GWCR["Gateway CR"]
+
+    ISvcCR -->|watched by| ISvcCtrl
+    IGCR -->|watched by| IGCtrl
+    LLMCR -->|watched by| LLMISvcCtrl
+    SRCR -->|watched by| SRCtrl
+    AcctCR -->|watched by| AcctCtrl
+    GWCR -->|watched by| GWCtrl
+
+    %% Subordinate resources created by InferenceServiceReconciler
+    ISvcCtrl -->|creates| Route["OpenShift Route"]
+    ISvcCtrl -->|creates| NP["NetworkPolicy"]
+    ISvcCtrl -->|creates| SA["ServiceAccount"]
+    ISvcCtrl -->|creates| CRB["ClusterRoleBinding"]
+    ISvcCtrl -->|creates| KEDA["KEDA TriggerAuth"]
+    ISvcCtrl -->|creates| PodMon["PodMonitor"]
+    ISvcCtrl -->|creates| SvcMon["ServiceMonitor"]
+
+    %% Gateway controller creates
+    GWCtrl -->|creates| AuthPolicy["Kuadrant AuthPolicy"]
+    GWCtrl -->|creates| EnvoyFilter["Istio EnvoyFilter"]
+
+    %% Platform CRs read
+    DSC["DataScienceCluster CR"] -.->|read by| ISvcCtrl
+    DSCI["DSCInitialization CR"] -.->|read by| ISvcCtrl
+
+    %% TLS wiring
+    TLSPkg -.->|configures| ISvcCtrl
+    TLSPkg -.->|configures| GatewayAPI
+    APIServerCtrl -->|watches| APIServerCR["OpenShift APIServer"]
+    APIServerCR --> ProfileWatcher
+
+    %% Webhook interception
+    KubeAPI["kube-apiserver"] -->|admission call| MutISvc
+    KubeAPI -->|admission call| ValISvc
+
+    %% Styles
+    style ISvcCtrl fill:#4a90e2,color:#fff
+    style IGCtrl fill:#4a90e2,color:#fff
+    style LLMISvcCtrl fill:#4a90e2,color:#fff
+    style SRCtrl fill:#4a90e2,color:#fff
+    style GWCtrl fill:#4a90e2,color:#fff
+    style AcctCtrl fill:#4a90e2,color:#fff
+    style CMCtrl fill:#4a90e2,color:#fff
+    style SecretCtrl fill:#4a90e2,color:#fff
+    style PodCtrl fill:#4a90e2,color:#fff
+    style APIServerCtrl fill:#4a90e2,color:#fff
+    style GatewayAPI fill:#50b83c,color:#fff
+    style SamplesAPI fill:#50b83c,color:#fff
+    style MetricsAPI fill:#50b83c,color:#fff
+    style ISvcCR fill:#f5a623
+    style IGCR fill:#f5a623
+    style LLMCR fill:#f5a623
+    style SRCR fill:#f5a623
+    style AcctCR fill:#f5a623
+    style GWCR fill:#f5a623
+    style Route fill:#7ed321
+    style NP fill:#7ed321
+    style SA fill:#7ed321
+    style CRB fill:#7ed321
+    style KEDA fill:#7ed321
+    style PodMon fill:#7ed321
+    style SvcMon fill:#7ed321
+    style AuthPolicy fill:#7ed321
+    style EnvoyFilter fill:#7ed321
+    style DSC fill:#e8e8e8
+    style DSCI fill:#e8e8e8
+    style TLSPkg fill:#bd10e0,color:#fff
+    style ProfileWatcher fill:#bd10e0,color:#fff

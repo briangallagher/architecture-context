@@ -1,0 +1,45 @@
+sequenceDiagram
+    participant User as Data Scientist
+    participant SDK as codeflare-sdk
+    participant Auth as kube-authkit
+    participant K8sAPI as Kubernetes API<br/>443/TCP TLS
+    participant Ray as Ray Dashboard<br/>HTTP/HTTPS TLS configurable
+    participant Kueue as Kueue CRDs
+
+    Note over User,Kueue: Flow 1: Client Authentication
+    User->>SDK: Initialize SDK client
+    SDK->>Auth: Auto-detect credentials
+    alt kubeconfig available
+        Auth-->>SDK: kubeconfig credentials
+    else in-cluster
+        Auth-->>SDK: Service account token
+    else Bearer token
+        Auth-->>SDK: Bearer token
+    end
+    SDK->>K8sAPI: Authenticate (TLS)<br/>CA cert via CF_SDK_CA_CERT_PATH<br/>or /etc/pki/tls/custom-certs/ca-bundle.crt
+
+    Note over User,Kueue: Flow 2: TLS Certificate Provisioning
+    User->>SDK: Generate cluster certs
+    SDK->>SDK: generate_cert.py<br/>RSA-3072 / SHA-256<br/>Self-signed CA + server cert
+    SDK->>K8sAPI: Create Secret<br/>(TLS cert + key)
+    K8sAPI-->>SDK: Secret created
+
+    Note over User,Kueue: Flow 3: Workload Submission (via KubeRay)
+    User->>SDK: Define Ray cluster config
+    SDK->>K8sAPI: Create RayCluster CR<br/>(CustomObjects API)
+    K8sAPI-->>SDK: RayCluster created
+    SDK->>K8sAPI: Create RayJob CR<br/>(CustomObjects API)
+    K8sAPI-->>SDK: RayJob created
+
+    Note over User,Kueue: Flow 4: Direct Job Submission (via Ray Dashboard)
+    User->>SDK: Submit job directly
+    SDK->>Ray: POST job submission<br/>Headers + Cookies<br/>TLS verify configurable
+    Ray-->>SDK: Job ID + status
+
+    Note over User,Kueue: Flow 5: Queue Integration
+    User->>SDK: Check queue status
+    SDK->>K8sAPI: List LocalQueues<br/>(CustomObjects API)
+    K8sAPI-->>SDK: LocalQueue list
+    SDK->>K8sAPI: List ClusterQueues<br/>(CustomObjects API)
+    K8sAPI-->>SDK: ClusterQueue list
+    SDK-->>User: Queue status + capacity

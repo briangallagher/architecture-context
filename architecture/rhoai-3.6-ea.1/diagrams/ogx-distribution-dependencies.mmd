@@ -1,0 +1,49 @@
+graph LR
+    OGX["OGX Distribution<br/>AI Agent Gateway"]
+
+    %% Required Dependency
+    OGX -->|"KV + SQL storage<br/>5432/TCP"| PostgreSQL["PostgreSQL<br/>(Required)"]
+
+    %% Internal RHOAI Dependency
+    OGX -->|"inference + embeddings<br/>HTTP(S)"| vLLM["vLLM<br/>(Optional)"]
+
+    %% Cloud Inference Providers
+    OGX -->|"inference<br/>HTTPS/443"| Bedrock["AWS Bedrock"]
+    OGX -->|"inference<br/>HTTPS/443"| WatsonX["IBM WatsonX"]
+    OGX -->|"inference<br/>HTTPS/443"| AzureAI["Azure AI"]
+    OGX -->|"inference<br/>HTTPS/443"| VertexAI["Google Vertex AI"]
+    OGX -->|"inference<br/>HTTPS/443"| OpenAI["OpenAI"]
+    OGX -->|"inference<br/>HTTPS/443"| Gemini["Google Gemini"]
+    OGX -->|"inference<br/>HTTPS/443"| Anthropic["Anthropic"]
+
+    %% Vector Databases
+    OGX -->|"vector ops<br/>HTTP/mTLS"| Milvus["Milvus"]
+    OGX -->|"vector ops<br/>5432/TCP"| PGVector["PGVector"]
+    OGX -->|"vector ops<br/>6333/6334"| Qdrant["Qdrant"]
+
+    %% Tool Runtimes
+    OGX -->|"web search<br/>HTTPS/443"| BraveSearch["Brave Search"]
+    OGX -->|"web search<br/>HTTPS/443"| TavilySearch["Tavily Search"]
+
+    %% External Services
+    OGX -->|"file storage<br/>HTTPS/443"| S3["S3 Storage"]
+    OGX -.->|"traces/metrics<br/>OTLP"| OTEL["OTEL Collector"]
+
+    %% Styling
+    style OGX fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style PostgreSQL fill:#f5a623,stroke:#333,stroke-width:3px,color:#fff
+    style vLLM fill:#7ed321,stroke:#333,color:#fff
+    style Bedrock fill:#999,stroke:#333,color:#fff
+    style WatsonX fill:#999,stroke:#333,color:#fff
+    style AzureAI fill:#999,stroke:#333,color:#fff
+    style VertexAI fill:#999,stroke:#333,color:#fff
+    style OpenAI fill:#999,stroke:#333,color:#fff
+    style Gemini fill:#999,stroke:#333,color:#fff
+    style Anthropic fill:#999,stroke:#333,color:#fff
+    style Milvus fill:#999,stroke:#333,color:#fff
+    style PGVector fill:#999,stroke:#333,color:#fff
+    style Qdrant fill:#999,stroke:#333,color:#fff
+    style BraveSearch fill:#dae8fc,stroke:#6c8ebf
+    style TavilySearch fill:#dae8fc,stroke:#6c8ebf
+    style S3 fill:#f5a623,stroke:#333,color:#fff
+    style OTEL fill:#e8e8e8,stroke:#333

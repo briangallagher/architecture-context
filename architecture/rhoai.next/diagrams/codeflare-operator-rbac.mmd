@@ -1,134 +1,129 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA_Manager["controller-manager<br/>(operator namespace)"]
-        SA_OAuth["per-RayCluster:<br/>{raycluster}-oauth-proxy<br/>(RayCluster namespace)"]
+        SA["controller-manager<br/><i>Namespace: opendatahub</i>"]
+        OAuthSA["{raycluster}-oauth-proxy<br/><i>Namespace: per RayCluster</i>"]
     end
 
-    subgraph ClusterRoleBindings["Cluster Role Bindings"]
-        CRB_Manager["manager-rolebinding<br/>(Cluster-scoped)"]
-        CRB_Leader["leader-election-rolebinding<br/>(Namespace-scoped)"]
-        CRB_OAuth["per-RayCluster:<br/>{raycluster}-{ns}-auth<br/>(Cluster-scoped)"]
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        CRB["manager-rolebinding<br/><i>cluster-wide</i>"]
+        OAuthCRB["{raycluster}-{ns}-auth<br/><i>cluster-wide, per RayCluster</i>"]
     end
 
-    subgraph Roles["Roles"]
-        CR_Manager["ClusterRole:<br/>manager-role"]
-        R_Leader["Role:<br/>leader-election-role"]
-        CR_AuthDelegator["ClusterRole:<br/>system:auth-delegator"]
+    subgraph RoleBindings["Role Bindings (namespace-scoped)"]
+        LERB["leader-election-rolebinding<br/><i>operator namespace</i>"]
+    end
+
+    subgraph ClusterRoles["ClusterRoles"]
+        CR["manager-role"]
+        AuthDel["system:auth-delegator<br/><i>(built-in)</i>"]
+    end
+
+    subgraph Roles["Roles (namespace-scoped)"]
+        LER["leader-election-role"]
     end
 
     %% Bindings
-    SA_Manager -->|"bound via"| CRB_Manager
-    SA_Manager -->|"bound via"| CRB_Leader
-    SA_OAuth -->|"bound via"| CRB_OAuth
-
-    CRB_Manager -->|"grants"| CR_Manager
-    CRB_Leader -->|"grants"| R_Leader
-    CRB_OAuth -->|"grants"| CR_AuthDelegator
+    SA -->|bound via| CRB
+    CRB -->|grants| CR
+    SA -->|bound via| LERB
+    LERB -->|grants| LER
+    OAuthSA -->|bound via| OAuthCRB
+    OAuthCRB -->|grants| AuthDel
 
     subgraph CoreResources["Core API Resources"]
+        Events["core<br/>events"]
+        Nodes["core<br/>nodes"]
         Pods["core<br/>pods"]
         Services["core<br/>services"]
         Secrets["core<br/>secrets"]
-        SAs["core<br/>serviceaccounts"]
-        Events["core<br/>events"]
-        Nodes["core<br/>nodes"]
+        SvcAccts["core<br/>serviceaccounts"]
+        ConfigMaps["core<br/>configmaps"]
+        Leases["coordination.k8s.io<br/>leases"]
     end
 
-    subgraph RayResources["Ray API Resources"]
-        RayClusters["ray.io<br/>rayclusters"]
-        RayClustersFinalize["ray.io<br/>rayclusters/finalizers"]
-        RayClustersStatus["ray.io<br/>rayclusters/status"]
+    subgraph RayResources["Ray Resources"]
+        RayClusters["ray.io<br/>rayclusters<br/>+ finalizers, status"]
         RayJobs["ray.io<br/>rayjobs"]
     end
 
-    subgraph CodeFlareResources["CodeFlare API Resources"]
-        AppWrappers["workload.codeflare.dev<br/>appwrappers"]
-        AppWrappersFinalize["workload.codeflare.dev<br/>appwrappers/finalizers"]
-        AppWrappersStatus["workload.codeflare.dev<br/>appwrappers/status"]
+    subgraph AppWrapperResources["AppWrapper Resources"]
+        AppWrappers["workload.codeflare.dev<br/>appwrappers<br/>+ finalizers, status"]
     end
 
     subgraph NetworkResources["Network Resources"]
-        NetworkPolicies["networking.k8s.io<br/>networkpolicies"]
+        NetPol["networking.k8s.io<br/>networkpolicies"]
         Ingresses["networking.k8s.io<br/>ingresses"]
-        Routes["route.openshift.io<br/>routes"]
-        RoutesCustom["route.openshift.io<br/>routes/custom-host"]
+        Routes["route.openshift.io<br/>routes, routes/custom-host"]
     end
 
-    subgraph AuthResources["Auth Resources"]
-        CRBs["rbac.authorization.k8s.io<br/>clusterrolebindings"]
-        TokenReviews["authentication.k8s.io<br/>tokenreviews"]
-        SARs["authorization.k8s.io<br/>subjectaccessreviews"]
+    subgraph RBACResources["RBAC Resources"]
+        CRBRes["rbac.authorization.k8s.io<br/>clusterrolebindings"]
     end
 
-    subgraph AppWrapperResources["AppWrapper-Managed Resources"]
-        Deployments["apps<br/>deployments"]
-        StatefulSets["apps<br/>statefulsets"]
+    subgraph AdmissionResources["Admission Resources"]
+        MutWH["admissionregistration.k8s.io<br/>mutatingwebhookconfigurations"]
+        ValWH["admissionregistration.k8s.io<br/>validatingwebhookconfigurations"]
+    end
+
+    subgraph WorkloadResources["Workload Resources"]
+        Deployments["apps<br/>deployments, statefulsets"]
         Jobs["batch<br/>jobs"]
         PyTorchJobs["kubeflow.org<br/>pytorchjobs"]
         JobSets["jobset.x-k8s.io<br/>jobsets"]
-        PodGroups["scheduling.sigs.k8s.io<br/>podgroups"]
+        PodGroups["scheduling.sigs.k8s.io<br/>scheduling.x-k8s.io<br/>podgroups"]
     end
 
-    subgraph PlatformResources["Platform Resources"]
-        CRDs["apiextensions.k8s.io<br/>customresourcedefinitions"]
+    subgraph AuthResources["Auth Resources"]
+        TokenReviews["authentication.k8s.io<br/>tokenreviews"]
+        SAR["authorization.k8s.io<br/>subjectaccessreviews"]
+    end
+
+    subgraph OpenShiftResources["OpenShift Resources"]
         OSIngress["config.openshift.io<br/>ingresses"]
         DSCI["dscinitialization.opendatahub.io<br/>dscinitializations"]
-        Webhooks["admissionregistration.k8s.io<br/>webhook configurations"]
+        CRDs["apiextensions.k8s.io<br/>customresourcedefinitions"]
     end
 
     %% manager-role permissions
-    CR_Manager -->|"CRUD"| Pods
-    CR_Manager -->|"CRUD"| Services
-    CR_Manager -->|"CRUD"| Secrets
-    CR_Manager -->|"CRUD"| SAs
-    CR_Manager -->|"create,patch,update,watch"| Events
-    CR_Manager -->|"get,list,watch"| Nodes
-    CR_Manager -->|"CRUD"| RayClusters
-    CR_Manager -->|"update"| RayClustersFinalize
-    CR_Manager -->|"get,patch,update"| RayClustersStatus
-    CR_Manager -->|"CRUD"| RayJobs
-    CR_Manager -->|"CRUD"| AppWrappers
-    CR_Manager -->|"update"| AppWrappersFinalize
-    CR_Manager -->|"get,patch,update"| AppWrappersStatus
-    CR_Manager -->|"CRUD"| NetworkPolicies
-    CR_Manager -->|"CRUD"| Ingresses
-    CR_Manager -->|"CRUD"| Routes
-    CR_Manager -->|"CRUD"| RoutesCustom
-    CR_Manager -->|"CRUD"| CRBs
-    CR_Manager -->|"create"| TokenReviews
-    CR_Manager -->|"create"| SARs
-    CR_Manager -->|"CRUD"| Deployments
-    CR_Manager -->|"CRUD"| StatefulSets
-    CR_Manager -->|"CRUD"| Jobs
-    CR_Manager -->|"CRUD"| PyTorchJobs
-    CR_Manager -->|"CRUD"| JobSets
-    CR_Manager -->|"CRUD"| PodGroups
-    CR_Manager -->|"get,list,watch"| CRDs
-    CR_Manager -->|"get"| OSIngress
-    CR_Manager -->|"get,list,watch"| DSCI
-    CR_Manager -->|"get,list,watch,update"| Webhooks
+    CR -->|"create,patch,update,watch"| Events
+    CR -->|"get,list,watch"| Nodes
+    CR -->|"full CRUD"| Pods
+    CR -->|"full CRUD"| Services
+    CR -->|"get,list,watch,update + create,get,patch"| Secrets
+    CR -->|"full CRUD"| SvcAccts
+    CR -->|"full CRUD"| RayClusters
+    CR -->|"full CRUD"| RayJobs
+    CR -->|"full CRUD"| AppWrappers
+    CR -->|"full CRUD"| NetPol
+    CR -->|"full CRUD"| Ingresses
+    CR -->|"full CRUD"| Routes
+    CR -->|"full CRUD"| CRBRes
+    CR -->|"get,list,update,watch"| MutWH
+    CR -->|"get,list,update,watch"| ValWH
+    CR -->|"full CRUD"| Deployments
+    CR -->|"full CRUD"| Jobs
+    CR -->|"full CRUD"| PyTorchJobs
+    CR -->|"full CRUD"| JobSets
+    CR -->|"full CRUD"| PodGroups
+    CR -->|"create"| TokenReviews
+    CR -->|"create"| SAR
+    CR -->|"get"| OSIngress
+    CR -->|"get,list,watch"| DSCI
+    CR -->|"get,list,watch"| CRDs
 
     %% leader-election-role permissions
-    R_Leader -->|"CRUD"| ConfigMaps["core<br/>configmaps"]
-    R_Leader -->|"CRUD"| Leases["coordination.k8s.io<br/>leases"]
-    R_Leader -->|"create,patch"| LeaderEvents["core<br/>events (leader)"]
+    LER -->|"full CRUD"| ConfigMaps
+    LER -->|"full CRUD"| Leases
+    LER -->|"create,patch"| Events
 
     %% Styling
-    style SA_Manager fill:#4a90e2,stroke:#333,color:#fff
-    style SA_OAuth fill:#4a90e2,stroke:#333,color:#fff
-    style CR_Manager fill:#f5a623,stroke:#333
-    style R_Leader fill:#f5a623,stroke:#333
-    style CR_AuthDelegator fill:#f5a623,stroke:#333
-    style CRB_Manager fill:#c9c9c9,stroke:#333
-    style CRB_Leader fill:#c9c9c9,stroke:#333
-    style CRB_OAuth fill:#c9c9c9,stroke:#333
-    style RayClusters fill:#7ed321,stroke:#333
-    style AppWrappers fill:#7ed321,stroke:#333
-    style Pods fill:#ddd,stroke:#333
-    style Services fill:#ddd,stroke:#333
-    style Secrets fill:#f8cecc,stroke:#333
-    style Routes fill:#ddd,stroke:#333
-    style NetworkPolicies fill:#ddd,stroke:#333
-    style CRBs fill:#ddd,stroke:#333
-    style TokenReviews fill:#f8cecc,stroke:#333
-    style SARs fill:#f8cecc,stroke:#333
+    style SA fill:#4a90e2,color:#fff
+    style OAuthSA fill:#4a90e2,color:#fff
+    style CR fill:#f5a623,color:#fff
+    style LER fill:#f5a623,color:#fff
+    style AuthDel fill:#f5a623,color:#fff
+    style CRB fill:#e8e8e8,stroke:#999
+    style OAuthCRB fill:#e8e8e8,stroke:#999
+    style LERB fill:#e8e8e8,stroke:#999
+    style RayClusters fill:#7ed321,color:#fff
+    style AppWrappers fill:#7ed321,color:#fff

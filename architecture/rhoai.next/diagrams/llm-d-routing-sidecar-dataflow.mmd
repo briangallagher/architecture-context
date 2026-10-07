@@ -1,47 +1,39 @@
 sequenceDiagram
     participant Client as External Client
-    participant Route as OpenShift Route<br/>443/TCP HTTPS<br/>Edge TLS
-    participant Proxy as Routing Sidecar<br/>8000/TCP TLS 1.2+
-    participant Validator as AllowlistValidator<br/>(in-process)
-    participant Prefiller as Remote vLLM Prefiller<br/>Dynamic port HTTP(S)
-    participant Decoder as Local vLLM Decoder<br/>8001/TCP HTTP(S)
-    participant K8sAPI as Kubernetes API<br/>443/TCP HTTPS
+    participant Route as OpenShift Route<br/>443/TCP HTTPS<br/>TLS edge termination
+    participant Sidecar as llm-d-routing-sidecar<br/>8000/TCP HTTPS<br/>TLS 1.2+
+    participant Allowlist as AllowlistValidator<br/>(in-process)
+    participant Prefiller as Remote vLLM Prefiller<br/>header-specified/TCP<br/>HTTP or HTTPS
+    participant Decoder as Local vLLM Decoder<br/>8001/TCP (default)<br/>HTTP or HTTPS
 
-    Note over Client,Decoder: Flow 1: P/D Disaggregated Inference (NIXL v2 Protocol)
+    Note over Client,Decoder: Flow 1: Disaggregated Prefill/Decode (NIXL v2)
 
     Client->>Route: POST /v1/chat/completions<br/>Header: x-prefiller-host-port
-    Route->>Proxy: Forward (edge TLS terminated)
+    Route->>Sidecar: Forward (TLS terminated)
 
-    alt SSRF Protection Enabled
-        Proxy->>Validator: Validate prefill target
-        Validator-->>Proxy: Allowed / Rejected (403)
-    end
+    Sidecar->>Allowlist: Validate prefiller target IP<br/>(InferencePool pod check)
+    Allowlist-->>Sidecar: Allowed ✓
 
-    Proxy->>Prefiller: POST /v1/chat/completions<br/>Optional TLS 1.2+
-    Note right of Prefiller: Prefill phase:<br/>Compute KV cache
-    Prefiller-->>Proxy: Response with kv_transfer_params<br/>{remote_engine_id, block_ids,<br/>host, port}
+    Note over Sidecar: Modify request:<br/>max_tokens=1<br/>stream=false<br/>kv_transfer_params.do_remote_decode=true
 
-    Proxy->>Decoder: POST /v1/chat/completions<br/>Body enriched with kv_transfer_params<br/>Optional TLS 1.2+
-    Note right of Decoder: Decode phase:<br/>Use transferred KV cache
-    Decoder-->>Proxy: Inference result (streaming or batch)
-    Proxy-->>Route: Response
+    Sidecar->>Prefiller: POST /v1/chat/completions<br/>(modified params)<br/>Optional TLS 1.2+
+    Prefiller-->>Sidecar: Response with<br/>kv_transfer_params metadata
+
+    Note over Sidecar: Extract KV cache metadata<br/>Inject into decode request
+
+    Sidecar->>Decoder: POST /v1/chat/completions<br/>(original + kv_transfer_params)<br/>Optional TLS 1.2+
+    Decoder-->>Sidecar: Inference Response
+    Sidecar-->>Route: Response
     Route-->>Client: JSON Response
 
-    Note over Client,Decoder: Flow 2: Direct Decode (No x-prefiller-host-port header)
+    Note over Client,Decoder: Flow 2: Direct Decode (No Prefill Header)
 
-    Client->>Route: POST /v1/chat/completions<br/>(no prefill header)
-    Route->>Proxy: Forward
-    Proxy->>Decoder: Passthrough to local decoder<br/>HTTP(S)/8001
-    Decoder-->>Proxy: Inference result
-    Proxy-->>Route: Response
+    Client->>Route: POST /v1/chat/completions<br/>(no x-prefiller-host-port)
+    Route->>Sidecar: Forward (TLS terminated)
+
+    Note over Sidecar: No prefiller header detected<br/>Passthrough to decoder
+
+    Sidecar->>Decoder: POST /v1/chat/completions<br/>Optional TLS 1.2+
+    Decoder-->>Sidecar: Inference Response
+    Sidecar-->>Route: Response
     Route-->>Client: JSON Response
-
-    Note over Validator,K8sAPI: Flow 3: SSRF Allowlist Maintenance (Background)
-
-    loop Every 30s resync
-        Validator->>K8sAPI: Watch InferencePool<br/>inference.networking.x-k8s.io/v1alpha2<br/>ServiceAccount token auth
-        K8sAPI-->>Validator: InferencePool spec<br/>(label selectors)
-        Validator->>K8sAPI: Watch Pods matching selectors
-        K8sAPI-->>Validator: Pod IPs + names<br/>(add/update/delete events)
-        Note right of Validator: Update in-memory<br/>IP/name allowlist
-    end

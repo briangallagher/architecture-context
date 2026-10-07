@@ -1,69 +1,50 @@
 graph TD
-    subgraph PlatformRBAC["Platform-Managed RBAC (odh-notebook-controller)"]
+    subgraph "notebooks-downstream RBAC Model"
         direction TB
 
-        subgraph ServiceAccounts["Service Accounts (per-notebook)"]
-            NotebookSA["Per-Notebook ServiceAccount<br/>(created by odh-notebook-controller)<br/>Namespace: {user-namespace}"]
-        end
-
-        subgraph SidecarAuth["Authentication Sidecar"]
-            KubeRBACProxy["kube-rbac-proxy<br/>Port: 8443/TCP HTTPS<br/>Injected by odh-notebook-controller"]
-        end
-
-        subgraph AuthMechanisms["Authentication Mechanisms"]
-            SAR["SubjectAccessReview<br/>Per-user RBAC validation"]
-            OAuthToken["OAuth Token Validation<br/>Forwarded from platform Gateway"]
-        end
-
-        NotebookSA -->|"bound to"| KubeRBACProxy
-        KubeRBACProxy -->|"performs"| SAR
-        KubeRBACProxy -->|"validates"| OAuthToken
+        Note["NOTE: notebooks-downstream produces container images,<br/>not operators. It defines NO RBAC roles or bindings.<br/>All RBAC is managed by the deploying components."]
     end
 
-    subgraph WorkbenchEndpoints["Workbench Endpoints"]
+    subgraph "Authentication (Delegated)"
         direction TB
 
-        JupyterEndpoint["JupyterLab<br/>Port: 8888/TCP HTTP<br/>Auth: Token (configurable,<br/>disabled by default in kustomize)"]
-        CodeServerEndpoint["Code Server<br/>Port: 8585/TCP HTTP<br/>Auth: None<br/>(delegated to platform)"]
-        RStudioEndpoint["RStudio Server<br/>Port: 8585/TCP HTTP<br/>Auth: None<br/>(delegated to platform)"]
+        UserBrowser["User Browser"] -->|"OIDC / Bearer Token"| KubeRBAC["kube-rbac-proxy sidecar<br/>(injected by odh-notebook-controller)"]
+        KubeRBAC -->|"Pre-authenticated<br/>HTTP (localhost)"| WorkbenchPod["Workbench Pod<br/>(Jupyter / Code Server / RStudio)"]
     end
 
-    subgraph BuildSecrets["Build-Time Secrets"]
-        RHELSub["rhel-subscription-secret<br/>Type: Opaque<br/>Purpose: RHEL subscription for<br/>RStudio RHEL9 builds<br/>Provisioned: Manual<br/>Rotation: None"]
-        GitAuth["git_auth_secret<br/>Type: kubernetes.io/basic-auth<br/>Purpose: Konflux pipeline Git clones<br/>Provisioned: Konflux/PaC<br/>Rotation: Auto"]
+    subgraph "RBAC Managed By Other Components"
+        direction TB
+
+        subgraph "odh-notebook-controller"
+            NotebookCtrlSA["SA: notebook-controller-manager"]
+            NotebookCtrlRole["ClusterRole: notebook-controller-role<br/>Resources: notebooks, pods, services,<br/>httproutes, events<br/>Verbs: get, list, watch, create,<br/>update, patch, delete"]
+            NotebookCtrlSA -->|"bound via"| NotebookCtrlRole
+        end
+
+        subgraph "Per-User Workbench Pod"
+            WorkbenchSA["SA: {notebook-name}<br/>(auto-created per Notebook CR)"]
+            MountedToken["Mounted ServiceAccount Token<br/>(provides cluster API access)"]
+            WorkbenchSA -->|"token mounted in"| MountedToken
+        end
     end
 
-    subgraph AccessFlow["Request Flow"]
-        User["User Request<br/>(OAuth authenticated)"]
-        Gateway["Platform Gateway<br/>443/TCP HTTPS"]
-    end
+    subgraph "Access Control Enforcement"
+        direction TB
 
-    %% Access flow
-    User -->|"HTTPS/443<br/>OAuth token"| Gateway
-    Gateway -->|"HTTPS/8443<br/>Token forwarded"| KubeRBACProxy
-    KubeRBACProxy -->|"HTTP/8888<br/>Trusted (post-auth)"| JupyterEndpoint
-    KubeRBACProxy -->|"HTTP/8585<br/>Trusted (post-auth)"| CodeServerEndpoint
-    KubeRBACProxy -->|"HTTP/8585<br/>Trusted (post-auth)"| RStudioEndpoint
-
-    %% Notes
-    subgraph RBACNotes["RBAC Design Notes"]
-        Note1["Workbench images do NOT define<br/>their own RBAC resources"]
-        Note2["All RBAC is managed externally by<br/>odh-notebook-controller"]
-        Note3["Per-notebook ServiceAccount +<br/>RoleBinding created at workbench<br/>creation time"]
+        Policy1["Per-user Notebook CR access<br/>Enforced by kube-rbac-proxy"]
+        Policy2["Per-namespace isolation<br/>Enforced by Kubernetes RBAC"]
+        Policy3["No NetworkPolicy in this repo<br/>(relies on platform-level policy)"]
     end
 
     %% Styling
-    style NotebookSA fill:#4a90e2,color:#fff
-    style KubeRBACProxy fill:#f5a623,color:#fff
-    style SAR fill:#f5a623,color:#fff
-    style OAuthToken fill:#f5a623,color:#fff
-    style JupyterEndpoint fill:#7ed321,color:#fff
-    style CodeServerEndpoint fill:#7ed321,color:#fff
-    style RStudioEndpoint fill:#7ed321,color:#fff
-    style RHELSub fill:#e74c3c,color:#fff
-    style GitAuth fill:#e74c3c,color:#fff
-    style User fill:#f9f9f9,stroke:#333
-    style Gateway fill:#ffe6cc,stroke:#d79b00
-    style Note1 fill:#fff,stroke:#ccc
-    style Note2 fill:#fff,stroke:#ccc
-    style Note3 fill:#fff,stroke:#ccc
+    style Note fill:#fff3cd,stroke:#ffc107,stroke-width:2px
+    style KubeRBAC fill:#f5a623,color:#fff
+    style WorkbenchPod fill:#4a90e2,color:#fff
+    style UserBrowser fill:#e8e8e8,stroke:#333
+    style NotebookCtrlSA fill:#7ed321,color:#fff
+    style NotebookCtrlRole fill:#7ed321,color:#fff
+    style WorkbenchSA fill:#dae8fc,stroke:#6c8ebf
+    style MountedToken fill:#dae8fc,stroke:#6c8ebf
+    style Policy1 fill:#f8cecc,stroke:#b85450
+    style Policy2 fill:#f8cecc,stroke:#b85450
+    style Policy3 fill:#f8cecc,stroke:#b85450

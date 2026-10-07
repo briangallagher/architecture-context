@@ -1,85 +1,81 @@
 graph LR
-    vllmcpu["vllm-cpu<br/>(odh-vllm-cpu-rhel9)"]
+    VLLM["vllm-cpu<br/>CPU LLM Inference Server"]
 
-    %% Core Runtime Dependencies
-    vllmcpu -->|"tensor computation<br/>v2.10.0 CPU"| PyTorch["PyTorch"]
-    vllmcpu -->|"model loading<br/>>= 4.56.0"| Transformers["transformers"]
-    vllmcpu -->|"HTTP API framework<br/>>= 0.120.1"| FastAPI["FastAPI"]
-    vllmcpu -->|"ASGI server"| Uvicorn["uvicorn + uvloop"]
-    vllmcpu -->|"gRPC server<br/>>= 1.76.0"| GRPC["grpcio"]
+    %% Core Framework Dependencies
+    VLLM -->|"deep learning framework"| PyTorch["PyTorch 2.11.0+cpu"]
+    VLLM -->|"model configs & tokenizers"| Transformers["transformers >=5.6.0"]
+    VLLM -->|"HTTP API framework"| FastAPI["FastAPI >=0.133.0"]
+    VLLM -->|"ASGI server"| Uvicorn["Uvicorn"]
+    VLLM -->|"gRPC framework"| gRPC["grpcio >=1.76.0"]
+    VLLM -->|"data validation"| Pydantic["Pydantic >=2.12.0"]
 
-    %% Architecture-Specific
-    vllmcpu -.->|"x86_64 only<br/>v2.7.0"| IPEX["Intel Extension<br/>for PyTorch"]
-    vllmcpu -.->|"ppc64le only<br/>source-built"| OpenBLAS["OpenBLAS"]
+    %% Model & Tokenization
+    VLLM -->|"weight serialization"| Safetensors["safetensors >=0.6.2"]
+    VLLM -->|"fast tokenization (Rust)"| Tokenizers["tokenizers >=0.21.1"]
+    VLLM -->|"compressed weights"| CompTensors["compressed-tensors 0.17.1"]
 
-    %% ML/NLP Libraries
-    vllmcpu -->|"tokenization"| SentencePiece["sentencepiece"]
-    vllmcpu -->|"tokenization<br/>>= 0.12.0"| Tiktoken["tiktoken"]
-    vllmcpu -->|"grammar-guided gen<br/>>= 0.1.32"| XGrammar["xgrammar"]
-    vllmcpu -->|"structured output<br/>v0.2.11"| OutlinesCore["outlines_core"]
-    vllmcpu -->|"JIT compilation<br/>v0.61.2"| Numba["numba"]
-
-    %% API Compatibility
-    vllmcpu -->|"Responses API<br/>>= 2.0.0"| OpenAISDK["openai SDK"]
-    vllmcpu -->|"Messages API<br/>>= 0.71.0"| AnthropicSDK["anthropic SDK"]
+    %% CPU-specific (conditional)
+    VLLM -.->|"Intel CPU optimizations<br/>(x86_64 only)"| IntelExt["intel_extension_for_pytorch 2.7.0"]
+    VLLM -.->|"OpenMP runtime<br/>(x86_64 only)"| IntelOMP["intel-openmp 2024.2.1"]
+    VLLM -.->|"NUMA memory<br/>(not macOS/s390x)"| LibNuma["py-libnuma"]
+    VLLM -.->|"JIT compilation<br/>(not s390x)"| Numba["numba 0.65.0"]
+    VLLM -.->|"structured output<br/>(platform-conditional)"| XGrammar["xgrammar >=0.2.1"]
+    VLLM -.->|"guided generation<br/>(platform-conditional)"| LLGuidance["llguidance >=1.7.0"]
 
     %% Observability
-    vllmcpu -->|"metrics export<br/>>= 0.18.0"| PromClient["prometheus_client"]
-    vllmcpu -.->|"optional tracing<br/>>= 1.27.0"| OTelSDK["opentelemetry-sdk"]
+    VLLM -->|"metrics"| PromClient["prometheus_client >=0.18.0"]
+    VLLM -.->|"tracing<br/>(not s390x)"| OTelSDK["opentelemetry-sdk >=1.27.0"]
 
-    %% Platform & Standards
-    vllmcpu -->|"container standards<br/>>= 0.1.13"| MHCS["model-hosting-<br/>container-standards"]
-    vllmcpu -->|"tool server"| MCP["mcp"]
+    %% API Compatibility
+    VLLM -->|"Anthropic format support"| Anthropic["anthropic >=0.71.0"]
+    VLLM -->|"OpenAI Responses API"| OpenAI["openai >=2.0.0"]
+    VLLM -->|"MCP support"| MCP["mcp"]
 
     %% Internal Platform Dependencies
-    KServe["KServe"] -->|"deploys as<br/>runtime container"| vllmcpu
-    vllmcpu -->|"model download<br/>HTTPS 443<br/>Bearer HF_TOKEN"| HFHub["Hugging Face Hub"]
-    vllmcpu -->|"model download<br/>HTTPS 443<br/>AWS IAM"| S3["S3-compatible<br/>Storage"]
+    KServe["KServe"] -->|"deploys as InferenceService"| VLLM
+    Prometheus["Prometheus"] -.->|"scrapes metrics"| VLLM
+    OTelCollector["OTel Collector"] -.->|"receives traces"| VLLM
 
-    %% Integration Points (consumers)
-    Prometheus["Prometheus"] -->|"scrapes /metrics<br/>HTTP 8000"| vllmcpu
-    OTelCollector["OpenTelemetry<br/>Collector"] -.->|"receives traces<br/>OTLP"| vllmcpu
-    MCPServers["MCP Tool Servers"] -.->|"tool execution<br/>HTTP/HTTPS"| vllmcpu
+    %% External Services
+    VLLM -->|"model downloads<br/>443/TCP HTTPS"| HFHub["HuggingFace Hub"]
+    VLLM -.->|"model loading<br/>443/TCP HTTPS"| S3["S3-compatible Storage"]
+    VLLM -.->|"distributed inference"| Ray["Ray Cluster"]
+    VLLM -.->|"inter-process comm<br/>(Gloo for CPU)"| Gloo["torch.distributed<br/>Gloo backend"]
 
     %% Styling
-    style vllmcpu fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style VLLM fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
-    %% Core runtime - blue
-    style PyTorch fill:#999,stroke:#333,color:#fff
-    style Transformers fill:#999,stroke:#333,color:#fff
-    style FastAPI fill:#999,stroke:#333,color:#fff
-    style Uvicorn fill:#999,stroke:#333,color:#fff
-    style GRPC fill:#999,stroke:#333,color:#fff
+    %% Core dependencies (required)
+    style PyTorch fill:#ee4c2c,stroke:#333,color:#fff
+    style Transformers fill:#ff9d00,stroke:#333,color:#fff
+    style FastAPI fill:#009688,stroke:#333,color:#fff
+    style Uvicorn fill:#009688,stroke:#333,color:#fff
+    style gRPC fill:#244c5a,stroke:#333,color:#fff
+    style Pydantic fill:#e92063,stroke:#333,color:#fff
+    style Safetensors fill:#ff9d00,stroke:#333,color:#fff
+    style Tokenizers fill:#ff9d00,stroke:#333,color:#fff
+    style CompTensors fill:#ff9d00,stroke:#333,color:#fff
+    style PromClient fill:#e6522c,stroke:#333,color:#fff
+    style Anthropic fill:#d97706,stroke:#333,color:#fff
+    style OpenAI fill:#412991,stroke:#333,color:#fff
+    style MCP fill:#412991,stroke:#333,color:#fff
 
-    %% Architecture-specific - light gray
-    style IPEX fill:#ccc,stroke:#333
-    style OpenBLAS fill:#ccc,stroke:#333
-
-    %% ML libraries - gray
-    style SentencePiece fill:#999,stroke:#333,color:#fff
-    style Tiktoken fill:#999,stroke:#333,color:#fff
-    style XGrammar fill:#999,stroke:#333,color:#fff
-    style OutlinesCore fill:#999,stroke:#333,color:#fff
+    %% Conditional dependencies (dashed lines)
+    style IntelExt fill:#0071c5,stroke:#333,color:#fff
+    style IntelOMP fill:#0071c5,stroke:#333,color:#fff
+    style LibNuma fill:#999,stroke:#333,color:#fff
     style Numba fill:#999,stroke:#333,color:#fff
+    style XGrammar fill:#999,stroke:#333,color:#fff
+    style LLGuidance fill:#999,stroke:#333,color:#fff
+    style OTelSDK fill:#999,stroke:#333,color:#fff
 
-    %% API SDKs - gray
-    style OpenAISDK fill:#999,stroke:#333,color:#fff
-    style AnthropicSDK fill:#999,stroke:#333,color:#fff
+    %% Platform dependencies (internal)
+    style KServe fill:#7ed321,stroke:#333
+    style Prometheus fill:#7ed321,stroke:#333
+    style OTelCollector fill:#7ed321,stroke:#333
 
-    %% Observability - gray
-    style PromClient fill:#999,stroke:#333,color:#fff
-    style OTelSDK fill:#ccc,stroke:#333
-
-    %% Standards
-    style MHCS fill:#999,stroke:#333,color:#fff
-    style MCP fill:#999,stroke:#333,color:#fff
-
-    %% Internal platform - green
-    style KServe fill:#7ed321,stroke:#333,color:#fff
-    style HFHub fill:#f5a623,stroke:#333,color:#fff
-    style S3 fill:#f5a623,stroke:#333,color:#fff
-
-    %% Consumers - light blue
-    style Prometheus fill:#7ed321,stroke:#333,color:#fff
-    style OTelCollector fill:#7ed321,stroke:#333,color:#fff
-    style MCPServers fill:#f5a623,stroke:#333,color:#fff
+    %% External services
+    style HFHub fill:#f5a623,stroke:#333
+    style S3 fill:#f5a623,stroke:#333
+    style Ray fill:#f5a623,stroke:#333
+    style Gloo fill:#f5a623,stroke:#333

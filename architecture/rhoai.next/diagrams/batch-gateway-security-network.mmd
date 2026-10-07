@@ -3,76 +3,80 @@ graph TB
         Client["External Client"]
     end
 
-    subgraph Ingress["INGRESS (Gateway Layer)"]
-        GatewayAPI["Gateway API + Kuadrant/Authorino<br/>HTTPRoute: /v1/batches, /v1/files<br/>AuthN: Envoy ext_authz<br/>Tenant: X-MaaS-Username (last value)"]
+    subgraph AuthGW["AUTH GATEWAY (Enforcement Point)"]
+        Authorino["Kuadrant / Authorino<br/>API key / SA token / user token<br/>Injects X-MaaS-Username header"]
     end
 
-    subgraph AppLayer["APPLICATION LAYER (Batch Gateway)"]
+    subgraph AppTier["APPLICATION TIER (Must Not Be Directly Reachable)"]
         direction TB
 
-        subgraph NS_Release["Namespace: {release-namespace}"]
-            APIServer["batch-gateway-apiserver<br/>SA: {release}-apiserver<br/>Ports: 8000/TCP (API), 8081/TCP (obs)<br/>TLS 1.2+ optional (cert-manager)<br/>Tenant-scoped data access<br/>Cross-tenant: 404"]
-            Processor["batch-gateway-processor<br/>SA: {release}-processor<br/>Port: 9090/TCP (metrics only)<br/>No inbound connections<br/>Workers: 20, Global: 100, Per-model: 10"]
-            GCSvc["batch-gateway-gc<br/>SA: {release}-gc<br/>No ports, single replica<br/>Interval: 30m"]
+        subgraph NS_API["API Server Pod"]
+            APIServer["batch-gateway-apiserver<br/>SA: {release}-batch-gateway-apiserver<br/>Ports: 8000/TCP (API), 8081/TCP (obs)<br/>TLS 1.2+ (optional)<br/>FIPS: strictfipsruntime + UBI 9"]
+        end
+
+        subgraph NS_Proc["Processor Pod (No Service)"]
+            Processor["batch-gateway-processor<br/>SA: {release}-batch-gateway-processor<br/>Port: 9090/TCP (metrics only)<br/>AIMD adaptive concurrency<br/>No inbound traffic"]
+        end
+
+        subgraph NS_GC["GC Pod (No Service)"]
+            GCPod["batch-gateway-gc<br/>SA: {release}-batch-gateway-gc<br/>Port: 9091/TCP (metrics only)<br/>Orphan reconciler (CAS)<br/>No inbound traffic"]
         end
     end
 
-    subgraph DataLayer["DATA LAYER (Egress)"]
-        PostgreSQL["PostgreSQL<br/>5432/TCP<br/>PostgreSQL wire protocol<br/>Plaintext or TLS<br/>Auth: URL credentials"]
-        Redis["Redis / Valkey<br/>6379/TCP<br/>RESP protocol<br/>Optional TLS<br/>Auth: URL credentials"]
-        S3["S3-compatible Storage<br/>443/TCP<br/>HTTPS, TLS 1.2+<br/>Auth: AWS IAM credentials"]
+    subgraph DataLayer["DATA LAYER (Shared)"]
+        PostgreSQL["PostgreSQL 12+<br/>5432/TCP<br/>TLS (configurable)<br/>Auth: Connection URL<br/>Tenant: WHERE tenant_id = ?"]
+        Redis["Redis / Valkey 6+/8+<br/>6379/TCP<br/>TLS (optional)<br/>Auth: Connection URL<br/>Tenant: Key-prefixed"]
+        S3["S3-compatible Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: AWS IAM / access key<br/>Tenant: SHA256 folder paths"]
     end
 
-    subgraph InferenceLayer["INFERENCE (Egress)"]
-        InferenceGW["Inference Gateway<br/>(llm-d / vLLM)<br/>Configurable port<br/>HTTP/HTTPS, TLS 1.2+<br/>Auth: Bearer token or mTLS"]
+    subgraph Inference["INFERENCE TIER"]
+        LLMDRouter["llm-d Router<br/>Configurable port<br/>TLS 1.2+ / mTLS<br/>Auth: API key (Bearer)"]
     end
 
-    subgraph Observability["OBSERVABILITY"]
-        OTLP["OTLP Collector<br/>4317/TCP gRPC<br/>Plaintext or TLS"]
-        Prometheus["Prometheus<br/>ServiceMonitor + PodMonitor<br/>HTTP plaintext"]
+    subgraph Observability["OBSERVABILITY (Internal)"]
+        Prometheus["Prometheus<br/>HTTP scrape<br/>No encryption / No auth"]
+        OTEL["OTLP Collector<br/>4317/TCP gRPC<br/>Configurable encryption"]
+        Grafana["Grafana<br/>Dashboard ConfigMaps"]
     end
 
-    %% External to Ingress
-    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Delegated auth"| GatewayAPI
+    %% External flows
+    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>API key / SA token / user token"| Authorino
+    Authorino -->|"HTTP(S)/8000<br/>TLS 1.2+ (optional)<br/>X-MaaS-Username header"| APIServer
 
-    %% Ingress to API Server
-    GatewayAPI -->|"HTTP(S)/8000<br/>TLS 1.2+ optional<br/>Tenant header validated"| APIServer
-
-    %% API Server to Data Layer
-    APIServer -->|"TCP/5432<br/>PG wire protocol<br/>URL credentials"| PostgreSQL
-    APIServer -->|"TCP/6379<br/>RESP<br/>URL credentials"| Redis
+    %% App → Data Layer
+    APIServer -->|"TCP/5432<br/>TLS (configurable)<br/>Connection URL"| PostgreSQL
+    APIServer -->|"TCP/6379<br/>TLS (optional)<br/>Connection URL"| Redis
     APIServer -->|"HTTPS/443<br/>TLS 1.2+<br/>AWS IAM"| S3
 
-    %% Processor to Data Layer
-    Processor -->|"TCP/5432<br/>PG wire protocol<br/>URL credentials"| PostgreSQL
-    Processor -->|"TCP/6379<br/>RESP (queue dequeue)<br/>URL credentials"| Redis
+    Processor -->|"TCP/5432<br/>TLS (configurable)<br/>Connection URL"| PostgreSQL
+    Processor -->|"TCP/6379<br/>TLS (optional)<br/>Connection URL"| Redis
     Processor -->|"HTTPS/443<br/>TLS 1.2+<br/>AWS IAM"| S3
 
-    %% Processor to Inference
-    Processor -->|"HTTP(S)/configurable<br/>TLS 1.2+ + mTLS<br/>Bearer token or client certs"| InferenceGW
+    GCPod -->|"TCP/5432<br/>TLS (configurable)<br/>Connection URL"| PostgreSQL
+    GCPod -->|"TCP/6379<br/>TLS (optional)<br/>Connection URL"| Redis
+    GCPod -->|"HTTPS/443<br/>TLS 1.2+<br/>AWS IAM"| S3
 
-    %% GC to Data Layer
-    GCSvc -->|"TCP/5432<br/>Delete expired"| PostgreSQL
-    GCSvc -->|"TCP/6379<br/>Delete expired"| Redis
-    GCSvc -->|"HTTPS/443<br/>Delete expired files"| S3
+    %% Processor → Inference
+    Processor -->|"HTTP(S)/configurable<br/>TLS 1.2+ / mTLS<br/>Bearer API key"| LLMDRouter
 
     %% Observability
-    APIServer -.->|"HTTP/8081<br/>plaintext<br/>ServiceMonitor"| Prometheus
-    Processor -.->|"HTTP/9090<br/>plaintext<br/>PodMonitor"| Prometheus
-    APIServer -.->|"gRPC/4317<br/>OTel traces"| OTLP
-    Processor -.->|"gRPC/4317<br/>OTel traces"| OTLP
+    Prometheus -.->|"HTTP/8081<br/>No auth"| APIServer
+    Prometheus -.->|"HTTP/9090<br/>No auth"| Processor
+    Prometheus -.->|"HTTP/9091<br/>No auth"| GCPod
+    APIServer -.->|"gRPC/4317<br/>OTLP"| OTEL
+    Processor -.->|"gRPC/4317<br/>OTLP"| OTEL
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
-    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef authgw fill:#ffcccc,stroke:#cc3333,stroke-width:2px
     classDef app fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef data fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef inference fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    classDef obs fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef data fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef inference fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef obs fill:#e8e8e8,stroke:#999,stroke-width:1px
 
     class Client external
-    class GatewayAPI ingress
-    class APIServer,Processor,GCSvc app
+    class Authorino authgw
+    class APIServer,Processor,GCPod app
     class PostgreSQL,Redis,S3 data
-    class InferenceGW inference
-    class OTLP,Prometheus obs
+    class LLMDRouter inference
+    class Prometheus,OTEL,Grafana obs

@@ -2,6 +2,31 @@
 
 import argparse
 
+SUPPORTED_DISTRIBUTIONS = frozenset({"both", "odh", "rhoai"})
+PIPELINE_PHASES = (
+    "fetch",
+    "parse-manifests",
+    "discover-components",
+    "static-analysis",
+    "generate-architecture",
+    "generate-platform-architecture",
+    "generate-index",
+    "generate-diagrams",
+)
+
+
+def resolve_distribution(platform: str) -> str:
+    """Resolve a platform key to a supported architecture distribution."""
+    normalized = platform.strip().lower()
+    distribution = normalized.split(".", 1)[0].split("-", 1)[0]
+    if distribution not in SUPPORTED_DISTRIBUTIONS:
+        supported = ", ".join(sorted(SUPPORTED_DISTRIBUTIONS))
+        raise ValueError(
+            f"Unsupported platform identifier {platform!r}; "
+            f"expected a platform rooted in one of: {supported}"
+        )
+    return distribution
+
 
 def resolve_org_dir(org: str, suffix: str = None, branch: str = None) -> str:
     """Return the org directory name, applying suffix or branch if provided."""
@@ -20,7 +45,11 @@ def resolve_script_path(
     script_path: str = None,
 ) -> str:
     """
-    Resolve the path to get_all_manifests.sh.
+    Resolve the path to the operator manifest source.
+
+    Returns the path to get_all_manifests.sh if it exists, otherwise
+    manifests-config.yaml. If neither exists, returns the shell script
+    path so the caller produces the familiar error message.
 
     Args:
         platform: Platform type (odh or rhoai)
@@ -31,7 +60,7 @@ def resolve_script_path(
         script_path: Explicit override path (returned as-is if provided)
 
     Returns:
-        Path string to get_all_manifests.sh
+        Path string to get_all_manifests.sh or manifests-config.yaml
     """
     if script_path:
         return script_path
@@ -42,7 +71,115 @@ def resolve_script_path(
     operator_name = "opendatahub-operator" if platform == "odh" else "rhods-operator"
     org_dir = resolve_org_dir(org, suffix=suffix, branch=branch)
 
-    return f"{checkouts_dir}/{org_dir}/{operator_name}/get_all_manifests.sh"
+    operator_dir = f"{checkouts_dir}/{org_dir}/{operator_name}"
+    shell_script = f"{operator_dir}/get_all_manifests.sh"
+    yaml_config = f"{operator_dir}/manifests-config.yaml"
+
+    from pathlib import Path
+    if Path(shell_script).exists():
+        return shell_script
+    if Path(yaml_config).exists():
+        return yaml_config
+    return shell_script
+
+
+def _add_strace_flag(parser):
+    """Add --strace flag to a subparser."""
+    parser.add_argument(
+        "--strace",
+        action="store_true",
+        default=False,
+        help="Run agents under strace (output to logs/strace/)",
+    )
+
+def _add_simple_generation_flag(parser):
+    """Add --simple-generation flag to a subparser."""
+    parser.add_argument(
+        "--simple-generation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+
+
+def _add_agent_options(parser, help_scope: str = "agent phases"):
+    """Add harness/model selection shared by agent-backed commands."""
+    parser.add_argument(
+        "--harness",
+        choices=["claude", "codex"],
+        default="claude",
+        help=f"Agent harness to use for {help_scope} (default: claude)",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "Model understood by the selected harness. Defaults to opus for "
+            "Claude and the configured Codex default for Codex."
+        ),
+    )
+
+
+def _add_claude_run_limits(parser):
+    """Add optional Claude limits to a directly agent-backed phase."""
+    parser.add_argument(
+        "--max-agent-turns",
+        type=int,
+        default=None,
+        help=(
+            "Maximum Claude SDK turns per agent. The Claude harness rejects "
+            "values below 1; unsupported by Codex."
+        ),
+    )
+    parser.add_argument(
+        "--max-budget-usd",
+        type=float,
+        default=None,
+        help=(
+            "Maximum Claude API-equivalent spend per agent. The Claude "
+            "harness rejects values at or below zero; unsupported by Codex."
+        ),
+    )
+
+
+def _add_structured_synthesis_options(parser):
+    """Add the opt-in bounded structured component route."""
+    parser.add_argument(
+        "--structured-synthesis",
+        action="store_true",
+        default=False,
+        help=(
+            "Use the private bounded JSON synthesis seam; does not publish "
+            "component artifacts (default: disabled)"
+        ),
+    )
+    parser.add_argument(
+        "--structured-inputs",
+        help="Parent-authored JSON evidence and authority input for the opt-in route",
+    )
+    parser.add_argument(
+        "--structured-total-calls",
+        type=int,
+        default=3,
+        help="Maximum model calls per component on the structured route (default: 3)",
+    )
+    parser.add_argument(
+        "--structured-evidence-followups",
+        type=int,
+        default=1,
+        help="Maximum structured evidence follow-ups per component (default: 1)",
+    )
+    parser.add_argument(
+        "--structured-repairs",
+        type=int,
+        default=1,
+        help="Maximum malformed-response repairs per component (default: 1)",
+    )
+    parser.add_argument(
+        "--structured-refresh",
+        action="store_true",
+        default=False,
+        help="Force an explicit structured reuse miss (default: disabled)",
+    )
 
 
 def parse_args():
@@ -202,16 +339,8 @@ def parse_args():
         action="store_true",
         help="Re-run discovery even if component-map.json already exists"
     )
-    discover_parser.add_argument(
-        "--model",
-        choices=["sonnet", "opus", "haiku"],
-        default="opus",
-        help=(
-            "Claude model to use for discovery"
-            " (default: opus -- discovery explores"
-            " many repos and needs large context)"
-        ),
-    )
+    _add_agent_options(discover_parser, "discovery")
+    _add_strace_flag(discover_parser)
 
     # Phase 2c: Static analysis (arch-analyzer)
     static_analysis_parser = subparsers.add_parser(
@@ -256,7 +385,7 @@ def parse_args():
     # Phase 3: Generate architecture
     generate_arch_parser = subparsers.add_parser(
         "generate-architecture",
-        help="Check component repos for GENERATED_ARCHITECTURE.md files"
+        help="Generate component architecture files in the architecture tree"
     )
     generate_arch_parser.add_argument(
         "--platform",
@@ -284,6 +413,14 @@ def parse_args():
         help="Maximum number of agents to run concurrently (default: 5)"
     )
     generate_arch_parser.add_argument(
+        "--log-dir",
+        default="logs/generate-architecture",
+        help=(
+            "Directory for component agent logs "
+            "(default: logs/generate-architecture)"
+        ),
+    )
+    generate_arch_parser.add_argument(
         "--limit",
         type=int,
         help="Limit number of components to process (for testing)"
@@ -298,7 +435,17 @@ def parse_args():
     generate_arch_parser.add_argument(
         "--force",
         action="store_true",
-        help="Delete existing GENERATED_ARCHITECTURE.md and regenerate"
+        help="Delete existing architecture output and regenerate"
+    )
+    generate_arch_parser.add_argument(
+        "--evidence-gated-merge",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Rebase agent synthesis onto analyzer Markdown and apply only "
+            "evidence-backed structured changes (default: enabled; use "
+            "--no-evidence-gated-merge for legacy generation)"
+        ),
     )
     generate_arch_parser.add_argument(
         "--version",
@@ -308,12 +455,9 @@ def parse_args():
             " name or Makefile."
         ),
     )
-    generate_arch_parser.add_argument(
-        "--model",
-        choices=["sonnet", "opus", "haiku"],
-        default="opus",
-        help="Claude model to use (default: opus)"
-    )
+    _add_agent_options(generate_arch_parser, "architecture generation")
+    _add_claude_run_limits(generate_arch_parser)
+    _add_structured_synthesis_options(generate_arch_parser)
     generate_arch_parser.add_argument(
         "--tier",
         choices=["all", "significant", "core"],
@@ -326,77 +470,9 @@ def parse_args():
             " tiers only)"
         ),
     )
+    _add_strace_flag(generate_arch_parser)
 
-    # Phase 4b: Webhook inventory
-    webhook_parser = subparsers.add_parser(
-        "webhook-inventory",
-        help="Build webhook inventory with overlay resolution"
-    )
-    webhook_parser.add_argument(
-        "--platform",
-        required=True,
-        help="Platform identifier (e.g., 'rhoai-3.4', 'odh')"
-    )
-    webhook_parser.add_argument(
-        "--architecture-dir",
-        default="architecture",
-        help="Base architecture directory (default: architecture)"
-    )
-    webhook_parser.add_argument(
-        "--version",
-        help="Specific version to analyze (default: auto-detect)"
-    )
-    webhook_parser.add_argument(
-        "--component",
-        help="Only analyze this specific component"
-    )
-    webhook_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Regenerate even if webhooks.json already exists"
-    )
-    webhook_parser.add_argument(
-        "--model",
-        choices=["sonnet", "opus", "haiku"],
-        default="sonnet",
-        help="Claude model for webhook handler analysis (default: sonnet)"
-    )
-    webhook_parser.add_argument(
-        "--max-concurrent",
-        type=int,
-        default=5,
-        help="Maximum concurrent analysis agents (default: 5)"
-    )
-
-    # Phase 4: Collect architectures
-    collect_parser = subparsers.add_parser(
-        "collect-architectures",
-        help=(
-            "Collect and organize"
-            " GENERATED_ARCHITECTURE.md files into"
-            " architecture/ directory"
-        ),
-    )
-    collect_parser.add_argument(
-        "--architecture-dir",
-        default="architecture",
-        help=(
-            "Base architecture directory containing"
-            " component-map.json files"
-            " (default: architecture)"
-        ),
-    )
-    collect_parser.add_argument(
-        "--platform",
-        default="all",
-        help="Platform to collect, or 'all' (default: all)"
-    )
-    collect_parser.add_argument(
-        "--version",
-        help="Only collect this specific version (default: all versions)"
-    )
-
-    # Phase 5: Generate platform architectures
+    # Phase 4: Generate platform architectures
     platform_arch_parser = subparsers.add_parser(
         "generate-platform-architecture",
         help="Generate PLATFORM.md files for architecture directories that need them"
@@ -431,15 +507,33 @@ def parse_args():
         default=False,
         help="Force regeneration of PLATFORM.md even if up-to-date"
     )
-    platform_arch_parser.add_argument(
-        "--model",
-        choices=["sonnet", "opus", "haiku"],
-        default="opus",
-        help=(
-            "Claude model to use (default: opus --"
-            " platform aggregation needs"
-            " large context)"
-        ),
+    _add_agent_options(platform_arch_parser, "platform architecture generation")
+    _add_strace_flag(platform_arch_parser)
+
+    # Deterministic index between platform architecture and diagrams
+    index_parser = subparsers.add_parser(
+        "generate-index",
+        help="Generate a deterministic INDEX.md for one architecture version",
+    )
+    index_parser.add_argument(
+        "--architecture-dir",
+        default="architecture",
+        help="Base architecture directory (default: architecture)",
+    )
+    index_parser.add_argument(
+        "--platform",
+        required=True,
+        help="Exact version directory containing component-map.json",
+    )
+    index_parser.add_argument(
+        "--platforms-file",
+        default="platforms.yaml",
+        help="Optional version-scoped integration configuration",
+    )
+    index_parser.add_argument(
+        "--overlays-dir",
+        default="overlays",
+        help="Directory containing human-authored overlay metadata",
     )
 
     # Phase 6: Generate diagrams
@@ -490,11 +584,162 @@ def parse_args():
         default=False,
         help="Export Mermaid diagrams to PNG (requires mmdc + Chrome; off by default)"
     )
-    diagrams_parser.add_argument(
-        "--model",
-        choices=["sonnet", "opus", "haiku"],
-        default="opus",
-        help="Claude model to use (default: opus)"
+    _add_agent_options(diagrams_parser, "diagram generation")
+    _add_strace_flag(diagrams_parser)
+
+    # Check eligibility
+    eligibility_parser = subparsers.add_parser(
+        "check-eligibility",
+        help=(
+            "Check analyzer-only eligibility for components using "
+            "analyzer_architecture.md"
+        )
+    )
+    eligibility_parser.add_argument(
+        "--platform",
+        required=True,
+        help=(
+            "Platform identifier matching"
+            " architecture/<platform>/"
+            "component-map.json"
+        ),
+    )
+    eligibility_parser.add_argument(
+        "--architecture-dir",
+        default="architecture",
+        help="Base architecture directory (default: architecture)"
+    )
+    eligibility_parser.add_argument(
+        "components",
+        nargs="*",
+        help="Specific components to check (default: all)"
+    )
+
+    # Targeted pipeline
+    pipeline_parser = subparsers.add_parser(
+        "pipeline",
+        help="Run selected phases in sequence, optionally scoped to components"
+    )
+    pipeline_parser.add_argument(
+        "--platform",
+        required=True,
+        help="Platform identifier from platforms.yaml (e.g., rhoai.next)"
+    )
+    pipeline_parser.add_argument(
+        "--phase",
+        action="append",
+        choices=PIPELINE_PHASES,
+        required=True,
+        help="Phase to run, repeatable and executed in the order provided"
+    )
+    pipeline_parser.add_argument(
+        "--component",
+        action="append",
+        default=[],
+        help="Component key to process, repeatable"
+    )
+    pipeline_parser.add_argument(
+        "--repo",
+        action="append",
+        default=[],
+        help=(
+            "Repository selector to process, repeatable. Accepts component key, "
+            "repo name, org/repo, or repo URL tail from component-map.json"
+        )
+    )
+    pipeline_parser.add_argument(
+        "--architecture-dir",
+        default="architecture",
+        help="Base architecture directory (default: architecture)"
+    )
+    pipeline_parser.add_argument(
+        "--platforms-file",
+        default="platforms.yaml",
+        help="Platform configuration used by generate-index",
+    )
+    pipeline_parser.add_argument(
+        "--overlays-dir",
+        default="overlays",
+        help="Overlay metadata directory used by generate-index",
+    )
+    pipeline_parser.add_argument(
+        "--checkouts-dir",
+        default="checkouts",
+        help="Base checkout directory (default: checkouts)"
+    )
+    pipeline_parser.add_argument(
+        "--org",
+        help="GitHub organization for fetch/parse-manifests phases"
+    )
+    pipeline_parser.add_argument(
+        "--branch",
+        help="Branch name for fetch/parse-manifests phases"
+    )
+    pipeline_parser.add_argument(
+        "--suffix",
+        help="Directory suffix for fetch/parse-manifests phases"
+    )
+    pipeline_parser.add_argument(
+        "--version",
+        help="Explicit version label for generation phases"
+    )
+    pipeline_parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=1,
+        help="Maximum concurrency for component phases (default: 1)"
+    )
+    _add_agent_options(pipeline_parser)
+    _add_structured_synthesis_options(pipeline_parser)
+    pipeline_parser.add_argument(
+        "--log-dir",
+        help=(
+            "Base log directory for pipeline generation logs. Defaults to "
+            "logs/pipeline/<timestamp>/generate-architecture"
+        )
+    )
+    pipeline_parser.add_argument(
+        "--tier",
+        choices=["all", "significant", "core"],
+        default="all",
+        help="Tier filter for generate-architecture when no component filter is set"
+    )
+    pipeline_parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Force selected phases for selected components"
+    )
+    pipeline_parser.add_argument(
+        "--skip-schemas",
+        action="store_true",
+        help="Skip CRD schema extraction during static-analysis"
+    )
+    pipeline_parser.add_argument(
+        "--limit",
+        type=int,
+        help="Limit items in unscoped platform/diagram phases"
+    )
+    pipeline_parser.add_argument(
+        "--export-png",
+        action="store_true",
+        default=False,
+        help="Export Mermaid diagrams to PNG during generate-diagrams"
+    )
+    pipeline_parser.add_argument(
+        "--evidence-gated-merge",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Rebase agent synthesis onto analyzer Markdown and apply only "
+            "evidence-backed structured changes (default: enabled)"
+        ),
+    )
+    _add_strace_flag(pipeline_parser)
+    pipeline_parser.add_argument(
+        "--pull",
+        action="store_true",
+        help="Pull latest changes in existing repos during fetch phase"
     )
 
     # All phases
@@ -538,12 +783,8 @@ def parse_args():
             " name or Makefile."
         ),
     )
-    all_parser.add_argument(
-        "--model",
-        choices=["sonnet", "opus", "haiku"],
-        default="opus",
-        help="Claude model to use for all agent tasks (default: opus)"
-    )
+    _add_agent_options(all_parser, "all agent tasks")
+    _add_structured_synthesis_options(all_parser)
     all_parser.add_argument(
         "--tier",
         choices=["all", "significant", "core"],
@@ -590,5 +831,20 @@ def parse_args():
         default=False,
         help="Export Mermaid diagrams to PNG (requires mmdc + Chrome; off by default)"
     )
+    all_parser.add_argument(
+        "--evidence-gated-merge",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Rebase agent synthesis onto analyzer Markdown and apply only "
+            "evidence-backed structured changes (default: enabled; use "
+            "--no-evidence-gated-merge for legacy generation)"
+        ),
+    )
+    _add_strace_flag(all_parser)
+
+    _add_simple_generation_flag(parser)
+    _add_simple_generation_flag(all_parser)
+    _add_simple_generation_flag(pipeline_parser)
 
     return parser.parse_args()

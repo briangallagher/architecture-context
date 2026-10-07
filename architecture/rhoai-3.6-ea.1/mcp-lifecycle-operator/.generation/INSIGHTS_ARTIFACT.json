@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "mcp-lifecycle-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "mcp-lifecycle-operator-pattern-001",
+      "claim": "The operator performs outbound MCP protocol handshakes to managed server pods, creating a runtime dependency on the MCP server's availability and protocol compliance that is separate from the Kubernetes resource lifecycle.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/mcpserver_controller_handshake.go:92-131"
+        }
+      ],
+      "reasoning": "The MCPServerReconciler connects to MCP server endpoints via HTTP using the upstream MCP Go SDK to verify protocol compliance. This outbound connection pattern means the operator's reconciliation outcome depends not only on Kubernetes resource state but on the MCP server's runtime behavior. Failed handshakes result in Ready=False with exponential backoff retries, which affects the MCPServer CR status propagation to consumers.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "mcp-lifecycle-operator-pattern-002",
+      "claim": "TLS configuration is centralized in a single tlsSettings struct that serves dual purpose: configuring the operator's own metrics server and optionally propagating the same TLS profile to managed MCP server containers.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/tlsconfig.go:17-93"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:194-198"
+        }
+      ],
+      "reasoning": "The tlsSettings struct parses TLS_MIN_VERSION and TLS_CIPHER_SUITES from environment variables and can inject them as Kubernetes EnvVars into MCP server containers when PROPAGATE_TLS_ENV_VARS=true. This ensures consistent TLS profiles across the operator and its managed workloads without per-server configuration, which is architecturally significant for platform-level TLS policy enforcement.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "mcp-lifecycle-operator-risk-001",
+      "claim": "The MCP handshake HTTP client uses Go's default TLS configuration without explicit minimum version or cipher suite constraints, relying solely on the FIPS runtime for crypto correctness.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/mcpserver_controller_handshake.go:110-115"
+        }
+      ],
+      "reasoning": "The StreamableClientTransport creates an http.Client with a 10-second timeout but no custom TLS configuration. While the strictfipsruntime build flag ensures FIPS-approved crypto at the Go runtime level, the handshake client does not enforce a minimum TLS version or restrict cipher suites independently. In a mixed environment where MCP servers might offer non-TLS endpoints, the handshake connects via plain HTTP without upgrade enforcement.",
+      "applicability": "component",
+      "confidence": "medium"
+    }
+  ]
+}

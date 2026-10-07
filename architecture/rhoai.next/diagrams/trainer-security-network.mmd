@@ -1,89 +1,87 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        User["User / SDK / kubectl"]
+        User["Data Scientist / kubectl"]
     end
 
     subgraph ControlPlane["KUBERNETES CONTROL PLANE"]
-        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer / client cert auth"]
+        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Client certs / OIDC"]
+        OSAPI["OpenShift APIServer<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>SA token"]
     end
 
-    subgraph ControllerNS["CONTROLLER NAMESPACE (opendatahub)"]
+    subgraph ControllerNS["CONTROLLER NAMESPACE"]
         direction TB
 
         Controller["trainer-controller-manager<br/>SA: kubeflow-trainer-controller-manager<br/>Image: quay.io/opendatahub/trainer:odh-3.5-ea1"]
 
-        subgraph ControllerPorts["Exposed Ports"]
-            direction LR
-            Health["8081/TCP HTTP<br/>/healthz, /readyz<br/>No auth"]
-            Metrics["8443/TCP HTTPS<br/>/metrics (TLS)<br/>No auth (NetworkPolicy)"]
-            WebhookPort["9443/TCP HTTPS<br/>Webhooks (TLS self-signed)<br/>Auth: AdmissionReview"]
+        subgraph Ports["Exposed Ports"]
+            Webhook["Webhook :9443/TCP<br/>HTTPS TLS (cert-controller)<br/>API server auth"]
+            Metrics["Metrics :8443/TCP<br/>HTTPS TLS (cluster profile)<br/>No auth"]
+            Health["Health :8081/TCP<br/>HTTP /healthz /readyz<br/>No auth"]
         end
 
-        Service["Service: kubeflow-trainer-controller-manager<br/>ClusterIP<br/>443→9443 (webhook)<br/>8443→8443 (metrics)"]
-
-        CertCtrl["cert-controller (OPA)<br/>Self-signed CA<br/>Auto-rotation"]
+        Controller --- Ports
     end
 
-    subgraph UserNS["USER NAMESPACES (Training Workloads)"]
+    subgraph UserNS["USER NAMESPACE (per-tenant)"]
         direction TB
 
-        subgraph TrainingJobPods["Training Pods (per TrainJob)"]
-            direction LR
-            TrainingPod["Training Pod (rank-0)<br/>28080/TCP HTTP metrics<br/>29500/TCP NCCL/gRPC"]
-            PeerPods["Peer Training Pods<br/>29500/TCP NCCL/gRPC<br/>22/TCP SSH (MPI only)"]
+        subgraph TrainingPods["Training Pods (via JobSet)"]
+            Pod0["Rank 0 Pod<br/>Image: registry.redhat.io/rhoai/odh-th06-*"]
+            PodN["Rank N Pods"]
         end
 
-        NetPol["NetworkPolicy (per-TrainJob)<br/>Ingress: same-job pods + controller NS<br/>Default: deny other ingress"]
+        subgraph InitContainers["Init Containers"]
+            DatasetInit["dataset-initializer<br/>(Python)"]
+            ModelInit["model-initializer<br/>(Python)"]
+        end
+
+        NP["NetworkPolicy (per TrainJob)<br/>Rule 1: Intra-job unrestricted<br/>Rule 2: Controller metrics-only :28080"]
     end
 
-    subgraph Orchestration["WORKLOAD ORCHESTRATION"]
-        JobSetCtrl["JobSet Controller<br/>Watches JobSet CRs<br/>Creates Training Pods"]
-        Scheduler["scheduler-plugins / Volcano<br/>(optional gang-scheduling)<br/>Watches PodGroup CRs"]
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        Storage["S3/GCS Storage<br/>HTTPS TLS 1.2+<br/>Secret-based credentials"]
     end
 
     subgraph Monitoring["MONITORING"]
-        Prometheus["Prometheus / OpenShift Monitoring<br/>PodMonitor scrape"]
+        Prometheus["Prometheus<br/>(PodMonitor)"]
     end
 
     %% External → Control Plane
-    User -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| K8sAPI
+    User -->|"HTTPS/443<br/>TLS 1.2+<br/>kubeconfig auth"| K8sAPI
 
-    %% Control Plane ↔ Controller
-    K8sAPI -->|"HTTPS/9443<br/>TLS (self-signed)<br/>AdmissionReview<br/>failurePolicy: Fail"| WebhookPort
-    Controller -->|"HTTPS/443<br/>TLS 1.2+<br/>SA Token<br/>CRUD: CRDs, JobSets,<br/>PodGroups, Secrets,<br/>ConfigMaps, NetworkPolicies"| K8sAPI
+    %% Control Plane → Controller (webhook)
+    K8sAPI -->|"HTTPS/9443<br/>TLS (self-signed)<br/>API server client cert<br/>failurePolicy=Fail"| Webhook
+
+    %% Controller → Control Plane
+    Controller -->|"HTTPS/443<br/>TLS 1.2+<br/>SA token<br/>CRD reconciliation"| K8sAPI
+    Controller -->|"HTTPS/443<br/>TLS 1.2+<br/>SA token<br/>TLS profile read"| OSAPI
 
     %% Controller → Training Pods (RHOAI progression)
-    Controller -->|"HTTP/28080<br/>*** PLAINTEXT ***<br/>No auth<br/>NetworkPolicy-secured<br/>Progression tracking"| TrainingPod
-
-    %% Training Pod Inter-communication
-    TrainingPod <-->|"TCP/29500<br/>NCCL/gRPC plaintext<br/>NetworkPolicy: same-job"| PeerPods
-    TrainingPod -->|"SSH/22 (MPI only)<br/>ECDSA P-521<br/>Key from Secret"| PeerPods
+    Controller -->|"HTTP/28080<br/>No encryption<br/>No auth<br/>NetworkPolicy restricted"| Pod0
 
     %% Monitoring
     Prometheus -->|"HTTPS/8443<br/>TLS (insecureSkipVerify)<br/>No auth"| Metrics
 
-    %% Orchestration
-    JobSetCtrl -->|"HTTPS/443<br/>via K8s API"| K8sAPI
+    %% Inter-pod communication
+    Pod0 <-->|"TCP/29500<br/>No encryption<br/>Headless Service<br/>NetworkPolicy: same-job"| PodN
 
-    %% Cert management
-    CertCtrl -.->|manages certs| WebhookPort
+    %% Init containers → storage
+    DatasetInit -->|"HTTPS/varies<br/>TLS 1.2+<br/>Secret credentials"| Storage
+    ModelInit -->|"HTTPS/varies<br/>TLS 1.2+<br/>Secret credentials"| Storage
 
-    %% NetworkPolicy enforcement
-    NetPol -.->|enforces| TrainingJobPods
-
-    %% Styling
+    %% Styles
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
     classDef controlplane fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
     classDef controller fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef workload fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef orchestration fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    classDef monitoring fill:#f8cecc,stroke:#b85450,stroke-width:2px
-    classDef security fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef userns fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef extsvc fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef monitoring fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef netpolicy fill:#f8cecc,stroke:#b85450,stroke-width:1px,stroke-dasharray:5
 
     class User external
-    class K8sAPI controlplane
-    class Controller,Service,CertCtrl,Health,Metrics,WebhookPort controller
-    class TrainingPod,PeerPods workload
-    class NetPol security
-    class JobSetCtrl,Scheduler orchestration
+    class K8sAPI,OSAPI controlplane
+    class Controller,Webhook,Metrics,Health controller
+    class Pod0,PodN,DatasetInit,ModelInit userns
+    class NP netpolicy
+    class Storage extsvc
     class Prometheus monitoring

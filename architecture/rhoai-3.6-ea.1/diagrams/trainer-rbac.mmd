@@ -1,0 +1,97 @@
+graph TD
+    subgraph "Service Accounts"
+        SA["kubeflow-trainer-controller-manager<br/>(ServiceAccount)"]
+        AuthUsers["system:authenticated<br/>(Group)"]
+    end
+
+    subgraph "ClusterRole Bindings"
+        CRB["kubeflow-trainer-controller-manager<br/>(ClusterRoleBinding)"]
+        PublicRB["kubeflow-trainer-public<br/>(RoleBinding, ns: opendatahub)"]
+    end
+
+    subgraph "ClusterRoles"
+        CR["kubeflow-trainer-controller-manager<br/>(ClusterRole)"]
+        AdminRole["training-admin<br/>(ClusterRole, aggregated)"]
+        EditRole["training-edit<br/>(ClusterRole, aggregated)"]
+        ViewRole["training-view<br/>(ClusterRole, aggregated)"]
+        PublicRole["kubeflow-trainer-public<br/>(Role, ns: opendatahub)"]
+    end
+
+    subgraph "Core Trainer Resources"
+        TrainJobs["trainer.kubeflow.org<br/>TrainJob, TrainingRuntime,<br/>ClusterTrainingRuntime"]
+        TrainStatus["trainer.kubeflow.org<br/>*/status, */finalizers"]
+    end
+
+    subgraph "Orchestration Resources"
+        JobSets["jobset.x-k8s.io<br/>JobSet"]
+        PodGroups["scheduling.x-k8s.io<br/>scheduling.volcano.sh<br/>PodGroup"]
+        NetPolicies["networking.k8s.io<br/>NetworkPolicy"]
+    end
+
+    subgraph "Core Kubernetes Resources"
+        CoreRW["core<br/>ConfigMaps, Secrets"]
+        CoreRO["core<br/>Pods, LimitRanges"]
+        Events["events.k8s.io<br/>Events"]
+        Leases["coordination.k8s.io<br/>Leases"]
+    end
+
+    subgraph "Admin Resources"
+        Webhooks["admissionregistration.k8s.io<br/>Mutating/ValidatingWebhookConfigurations"]
+        RuntimeClasses["node.k8s.io<br/>RuntimeClasses"]
+        OpenShiftConfig["config.openshift.io<br/>APIServers"]
+        PublicCM["core<br/>ConfigMaps (opendatahub)"]
+    end
+
+    %% Controller SA bindings
+    SA -->|bound via| CRB
+    CRB -->|grants| CR
+
+    %% Controller ClusterRole permissions
+    CR -->|"get,list,patch,update,watch"| TrainJobs
+    CR -->|"get,patch,update"| TrainStatus
+    CR -->|"create,delete,get,list,<br/>patch,update,watch"| JobSets
+    CR -->|"create,get,list,<br/>patch,update,watch"| PodGroups
+    CR -->|"create,get,list,<br/>patch,update,watch"| NetPolicies
+    CR -->|"create,get,list,<br/>patch,update,watch"| CoreRW
+    CR -->|"get,list,watch"| CoreRO
+    CR -->|"create,patch,update,watch"| Events
+    CR -->|"create,get,list,update"| Leases
+    CR -->|"get,list,update,watch"| Webhooks
+    CR -->|"get,list,watch"| RuntimeClasses
+    CR -->|"get"| OpenShiftConfig
+
+    %% Aggregation roles (RHOAI-specific)
+    AdminRole -->|"create,delete,get,list,<br/>patch,update,watch"| TrainJobs
+    AdminRole -->|"get"| TrainStatus
+
+    EditRole -->|"create,delete,get,list,<br/>patch,update,watch<br/>(trainjobs only)"| TrainJobs
+    EditRole -->|"get"| TrainStatus
+
+    ViewRole -->|"get,list,watch"| TrainJobs
+    ViewRole -->|"get"| TrainStatus
+
+    %% Public role
+    AuthUsers -->|bound via| PublicRB
+    PublicRB -->|grants| PublicRole
+    PublicRole -->|"get,list,watch"| PublicCM
+
+    style SA fill:#4a90e2,stroke:#333
+    style AuthUsers fill:#4a90e2,stroke:#333
+    style CR fill:#f5a623,stroke:#333
+    style AdminRole fill:#e67e22,stroke:#333
+    style EditRole fill:#e67e22,stroke:#333
+    style ViewRole fill:#e67e22,stroke:#333
+    style PublicRole fill:#e67e22,stroke:#333
+    style TrainJobs fill:#7ed321,stroke:#333
+    style TrainStatus fill:#7ed321,stroke:#333
+    style JobSets fill:#7ed321,stroke:#333
+    style PodGroups fill:#7ed321,stroke:#333
+    style NetPolicies fill:#7ed321,stroke:#333
+    style CoreRW fill:#95a5a6,stroke:#333
+    style CoreRO fill:#95a5a6,stroke:#333
+    style Events fill:#95a5a6,stroke:#333
+    style Leases fill:#95a5a6,stroke:#333
+    style Webhooks fill:#95a5a6,stroke:#333
+    style RuntimeClasses fill:#95a5a6,stroke:#333
+    style OpenShiftConfig fill:#95a5a6,stroke:#333
+    style PublicCM fill:#95a5a6,stroke:#333

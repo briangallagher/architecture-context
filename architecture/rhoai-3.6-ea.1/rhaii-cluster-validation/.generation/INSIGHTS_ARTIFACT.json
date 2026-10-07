@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "rhaii-cluster-validation",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "rhaii-cluster-validation-auth-separation-001",
+      "claim": "The controller and workload Job pods use separate authentication contexts: admin kubeconfig for the controller and a ServiceAccount with privileged SCC for agent pods, limiting the blast radius of privileged access.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "deploy/rbac.yaml:12-13"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/controller/controller.go:404-420"
+        }
+      ],
+      "reasoning": "The deploy/rbac.yaml comment explicitly states 'the controller runs under the invoking admin's kubeconfig, not this SA' and 'Workload pods never call the Kubernetes API'. The controller.go New() function confirms kubeconfig loading via clientcmd. This separation means the privileged SCC binding only affects hardware inspection within validation Jobs, not the controller's broader Kubernetes API access.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "rhaii-cluster-validation-validation-targets-002",
+      "claim": "The component validates the presence of platform CRDs (Gateway API, InferencePool, LeaderWorkerSet, cert-manager) and operators (cert-manager, Istio, LWS) without depending on them at runtime, making it a platform readiness probe rather than a platform consumer.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/checks/crd/crd.go:50-79"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/config/platforms/ocp.yaml:23-45"
+        }
+      ],
+      "reasoning": "The CRD check suite queries for CRD existence and version metadata but never creates or watches custom resources. The operator check looks for namespace presence only. This means the internal_dependencies table is correctly empty: the tool validates platform prerequisites without consuming their APIs.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "rhaii-cluster-validation-multi-platform-003",
+      "claim": "The tool supports multiple xKS platforms (OCP, EKS, CoreWeave) via embedded YAML platform profiles that vary resource requests, GPU driver version thresholds, and network performance criteria.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/config/platforms/ocp.yaml:1-60"
+        }
+      ],
+      "reasoning": "Platform-specific YAML files under pkg/config/platforms/ define per-platform resource requests, CRD expectations, operator namespaces, and network performance thresholds. This enables the same binary to validate different Kubernetes distributions with appropriate criteria.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

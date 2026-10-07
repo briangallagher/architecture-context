@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "llm-d-async",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "llm-d-async-transport-abstraction-001",
+      "claim": "The async processor uses a pluggable transport abstraction (Flow interface) that supports Redis Pub/Sub, Redis Sorted Sets, and GCP Pub/Sub, selected at runtime via a single --transport flag.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/server/runner.go:288-314"
+        }
+      ],
+      "reasoning": "The loadFlow function switches on a transport type string to instantiate one of three concrete Flow implementations. This pattern enables the same binary to serve heterogeneous deployment environments (on-prem Redis vs cloud Pub/Sub) without recompilation, a key requirement for RHOAI's multi-cloud posture.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-async-no-service-manifests-002",
+      "claim": "The repository does not package Kubernetes Service or Ingress manifests for the async processor itself; only example model-server deployment guides are provided.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "docs/guides/e2e-deploy/modelserver/base/kustomization.yaml:1-8"
+        }
+      ],
+      "reasoning": "The absence of Service manifests implies that network exposure is delegated to a higher-level orchestrator (likely the llm-d Helm chart or operator). This is a reasonable separation of concerns but means the async processor's service topology is not self-describing from this repository alone.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-async-fips-strictruntime-003",
+      "claim": "The Konflux Dockerfile uses GOEXPERIMENT=strictfipsruntime with CGO_ENABLED=1 on a UBI 9 base, and the application TLS config uses stdlib crypto/tls with MinVersion TLS 1.2 and no custom cipher suites.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:6,30"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/server/runner.go:402"
+        }
+      ],
+      "reasoning": "The strictfipsruntime experiment tag combined with dynamic linking ensures that Go's crypto operations delegate to the system OpenSSL in FIPS mode. The application does not select custom cipher suites or use non-FIPS algorithms, making it compatible with check-payload validation.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

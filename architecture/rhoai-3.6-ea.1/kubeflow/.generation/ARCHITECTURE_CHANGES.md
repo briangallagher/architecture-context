@@ -1,0 +1,9 @@
+# Architecture Changes: kubeflow
+
+| Action | Category | Row Key | Column | Analyzer Value | Candidate Value | Reason | Evidence |
+|--------|----------|---------|--------|----------------|-----------------|--------|----------|
+| delete | authentication | Operator webhook :: CREATE | * | <empty> | <empty> | Row key migration: Methods column is part of the authentication key and changed from CREATE to CREATE, UPDATE | components/odh-notebook-controller/controllers/notebook_mutating_webhook.go:54 |
+| add | authentication | Operator webhook :: CREATE, UPDATE | * | <empty> | <empty> | Mutating webhook handles both CREATE and UPDATE operations per kubebuilder marker; validating webhook handles UPDATE | components/odh-notebook-controller/controllers/notebook_mutating_webhook.go:54, components/odh-notebook-controller/controllers/notebook_validating_webhook.go:31 |
+| add | authentication | Notebook pod (injected) :: All | * | <empty> | <empty> | Mutating webhook injects kube-rbac-proxy sidecar for token-based authentication on every notebook pod | components/odh-notebook-controller/controllers/notebook_mutating_webhook.go:183-244 |
+| update | internal_dependencies | data-science-pipelines-operator | Interaction Type | Go library | CRD Read + Go library | Runtime behavior is typed Kubernetes API client.Get for DataSciencePipelinesApplication CRs, not just a Go import | components/odh-notebook-controller/controllers/notebook_dspa_secret.go:49-51 |
+| update | internal_dependencies | data-science-pipelines-operator | Purpose | Use runtime packages from github.com/opendatahub-io/data-science-pipelines-operator | Read DataSciencePipelinesApplication CRs to provision Elyra pipeline runtime secrets; gracefully skips if CRD absent | Source shows optional CRD read with graceful degradation, not generic library usage | components/odh-notebook-controller/controllers/notebook_dspa_secret.go:49-66 |

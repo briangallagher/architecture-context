@@ -1,0 +1,46 @@
+sequenceDiagram
+    participant PO as Platform Operator
+    participant K8s as Kubernetes API<br/>6443/TCP HTTPS TLS 1.2+
+    participant TC as Trainer Controller<br/>Informer (scoped)
+    participant JSO as JobSet Operator<br/>operator.openshift.io
+    participant CM as ConfigMap<br/>Target Namespace
+    participant TM as Bundled Templates<br/>/opt/*-template/
+    participant NS as Target Namespace
+
+    Note over PO,NS: Reconciliation Trigger
+    PO->>K8s: Create/Update Trainer CR<br/>(components.platform.opendatahub.io/v1alpha1)
+    K8s-->>TC: Watch event<br/>(namespace-scoped informer)
+
+    Note over TC,JSO: Dependency Verification (OpenShift)
+    TC->>K8s: Check JobSet Operator CRD exists<br/>(operator.openshift.io/jobsetoperators)
+    K8s-->>TC: CRD found
+    TC->>K8s: Check JobSetOperator CR exists
+    K8s-->>TC: CR found
+    TC->>K8s: Check JobSet Operator health
+    K8s-->>TC: Healthy
+
+    alt Dependency check fails
+        TC->>K8s: Set Trainer CR status: Degraded
+        Note over TC: Reconciliation halted
+    end
+
+    Note over TC,NS: Manifest Rendering & Deployment
+    TC->>K8s: Ensure target namespace exists
+    TC->>CM: Read platform version ConfigMap
+    CM-->>TC: Version info
+    TC->>TM: Render manifests-template/
+    TM-->>TC: Trainer infrastructure manifests
+    TC->>TM: Render runtimes-template/
+    TM-->>TC: Training runtime manifests
+    TC->>TM: Render imagestreams-template/
+    TM-->>TC: Image stream manifests
+
+    TC->>K8s: Apply manifests (field owner: trainer-module-controller)<br/>with apply ordering
+    K8s-->>TC: Resources created/updated
+
+    Note over TC,K8s: Garbage Collection
+    TC->>K8s: Remove stale resources<br/>(previous version cleanup)
+
+    Note over TC,NS: Observation Surface
+    TC-->>TC: Expose metrics :8080/TCP (plaintext HTTP)
+    TC-->>TC: Health :8081/healthz, Readiness :8081/readyz

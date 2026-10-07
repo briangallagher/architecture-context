@@ -1,64 +1,68 @@
 graph TB
-    subgraph "MLflow Operator Component"
+    subgraph MLflowOperator["MLflow Operator"]
         direction TB
-        Operator["mlflow-operator<br/>Go Operator (controller-runtime)<br/>8443/TCP metrics, 8081/TCP health"]
-        HelmRenderer["Helm Renderer<br/>(in-process)<br/>charts/mlflow/"]
-        Operator -->|renders chart| HelmRenderer
-    end
 
-    subgraph "Deployed MLflow Workload"
-        direction TB
-        InitCA["combine-ca-bundles<br/>Init Container<br/>Concatenates system + platform + custom CAs"]
-        MLflowServer["mlflow<br/>Python Tracking Server<br/>8443/TCP HTTPS<br/>kubernetes-auth middleware"]
-        CAWatcher["ca-bundle-watcher<br/>Sidecar Container<br/>30s polling interval"]
-        InitCA -->|creates initial bundle| MLflowServer
-        CAWatcher -->|regenerates bundle| MLflowServer
+        subgraph Controllers["Controllers"]
+            MLflowReconciler["MLflowReconciler<br/>(Primary Controller)<br/>Reconciles MLflow CRs"]
+            MLflowOperatorReconciler["MLflowOperatorReconciler<br/>(Module Handoff Controller)<br/>Manages MLflowOperator CR"]
+            NamespaceRBACReconciler["NamespaceRBACReconciler<br/>(Workspace RBAC Controller)<br/>Per-namespace RoleBindings"]
+        end
+
+        subgraph Libraries["Libraries"]
+            HelmRenderer["HelmRenderer<br/>Renders embedded<br/>Helm chart"]
+            SecurityProfileWatcher["SecurityProfileWatcher<br/>Watches TLS profile<br/>changes"]
+        end
+
+        MLflowReconciler -->|renders chart| HelmRenderer
+        MLflowReconciler -->|reads TLS config| SecurityProfileWatcher
     end
 
     %% CRDs
-    MLflowCR["MLflow CR<br/>mlflow.opendatahub.io/v1<br/>Cluster-scoped"]
-    MLflowConfigCR["MLflowConfig CR<br/>mlflow.kubeflow.org/v1<br/>Namespace-scoped"]
+    MLflowCR["MLflow CR<br/>(mlflow.opendatahub.io/v1)<br/>Cluster-scoped"]
+    MLflowOperatorCR["MLflowOperator CR<br/>(components.platform.opendatahub.io/v1alpha1)<br/>Cluster-scoped"]
+    AuthCR["Auth CR<br/>(services.platform.opendatahub.io/v1alpha1)"]
 
-    %% Operator watches and creates
-    MLflowCR -->|watched by| Operator
-    MLflowConfigCR -->|watched by| Operator
-    Operator -->|server-side apply| Deployment["Deployment"]
-    Operator -->|creates| Service["Service<br/>ClusterIP 8443/TCP"]
-    Operator -->|creates| HTTPRoute["HTTPRoute<br/>(Gateway API)"]
-    Operator -->|creates| ConsoleLink["ConsoleLink<br/>(OpenShift)"]
-    Operator -->|creates| NetworkPolicy["NetworkPolicy"]
-    Operator -->|creates| ServiceMonitor["ServiceMonitor"]
-    Operator -->|creates| RBAC["ClusterRole /<br/>ClusterRoleBinding"]
+    %% CRD Watches
+    MLflowCR -->|watched by| MLflowReconciler
+    MLflowOperatorCR -->|watched by| MLflowOperatorReconciler
+    AuthCR -->|watched by| NamespaceRBACReconciler
+    MLflowCR -->|watched by| NamespaceRBACReconciler
 
-    %% External dependencies
-    Operator -->|watches| K8sAPI["Kubernetes API<br/>6443/TCP"]
-    MLflowServer -->|SelfSubjectAccessReview| K8sAPI
-    MLflowServer -->|artifacts| S3["S3-compatible Storage<br/>443/TCP"]
-    MLflowServer -->|metadata| DB["PostgreSQL / MySQL<br/>5432 / 3306 TCP"]
+    %% Created Resources
+    MLflowReconciler -->|Server-Side Apply| ManagedResources["Managed Resources<br/>Deployment, Service,<br/>NetworkPolicy, SA, RBAC,<br/>PVC, ServiceMonitor, CronJob"]
+    MLflowReconciler -->|creates| HTTPRoute["HTTPRoute<br/>(Gateway API)"]
+    MLflowReconciler -->|creates| ConsoleLink["ConsoleLink<br/>(OpenShift)"]
+    MLflowReconciler -->|creates| MigrationJob["Migration Job<br/>(on version change)"]
 
-    %% Platform integrations
-    HTTPRoute -->|parentRef| Gateway["data-science-gateway<br/>Gateway CR"]
-    Service -->|annotation| ServiceCA["OpenShift service-ca<br/>TLS cert provisioning"]
-    CABundle["odh-trusted-ca-bundle<br/>ConfigMap"] -->|mounted into| MLflowServer
+    NamespaceRBACReconciler -->|creates| RoleBindings["Workspace RoleBindings<br/>(mlflow-view, mlflow-edit)"]
+
+    %% Platform Dependencies
+    PlatformOp["opendatahub-operator /<br/>rhods-operator"] -->|creates| MLflowOperatorCR
+    MLflowOperatorReconciler -->|reads gateway config| MLflowOperatorCR
+
+    %% External Dependencies
+    HTTPRoute -->|references| Gateway["data-science-gateway<br/>(openshift-ingress)"]
+
+    %% Health/Metrics
+    HealthProbe["Health Probes<br/>:8081/healthz, /readyz"]
+    MetricsEndpoint["Metrics Endpoint<br/>:8443/metrics (HTTPS)"]
+
+    MLflowOperator --- HealthProbe
+    MLflowOperator --- MetricsEndpoint
 
     %% Styling
-    style Operator fill:#4a90e2,stroke:#333,stroke-width:3px,color:#fff
-    style MLflowServer fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
-    style CAWatcher fill:#6baed6,stroke:#333,color:#fff
-    style InitCA fill:#6baed6,stroke:#333,color:#fff
-    style HelmRenderer fill:#6baed6,stroke:#333,color:#fff
-    style MLflowCR fill:#f5a623,stroke:#333,color:#fff
-    style MLflowConfigCR fill:#f5a623,stroke:#333,color:#fff
-    style Gateway fill:#7ed321,stroke:#333,color:#fff
-    style ServiceCA fill:#7ed321,stroke:#333,color:#fff
-    style CABundle fill:#7ed321,stroke:#333,color:#fff
-    style K8sAPI fill:#e8e8e8,stroke:#333
-    style S3 fill:#e8e8e8,stroke:#333
-    style DB fill:#e8e8e8,stroke:#333
-    style Deployment fill:#d5e8d4,stroke:#333
-    style Service fill:#d5e8d4,stroke:#333
-    style HTTPRoute fill:#d5e8d4,stroke:#333
-    style ConsoleLink fill:#d5e8d4,stroke:#333
-    style NetworkPolicy fill:#d5e8d4,stroke:#333
-    style ServiceMonitor fill:#d5e8d4,stroke:#333
-    style RBAC fill:#d5e8d4,stroke:#333
+    style MLflowReconciler fill:#4a90e2,stroke:#333,color:#fff
+    style MLflowOperatorReconciler fill:#4a90e2,stroke:#333,color:#fff
+    style NamespaceRBACReconciler fill:#4a90e2,stroke:#333,color:#fff
+    style HelmRenderer fill:#50b5e9,stroke:#333,color:#fff
+    style SecurityProfileWatcher fill:#50b5e9,stroke:#333,color:#fff
+    style MLflowCR fill:#f5a623,stroke:#333
+    style MLflowOperatorCR fill:#f5a623,stroke:#333
+    style AuthCR fill:#f5a623,stroke:#333
+    style ManagedResources fill:#7ed321,stroke:#333
+    style HTTPRoute fill:#7ed321,stroke:#333
+    style ConsoleLink fill:#7ed321,stroke:#333
+    style MigrationJob fill:#7ed321,stroke:#333
+    style RoleBindings fill:#7ed321,stroke:#333
+    style PlatformOp fill:#e8e8e8,stroke:#333
+    style Gateway fill:#e8e8e8,stroke:#333

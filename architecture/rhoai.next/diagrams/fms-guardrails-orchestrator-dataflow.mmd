@@ -1,69 +1,51 @@
 sequenceDiagram
     participant Client as External Client
-    participant Orch as Guardrails Orchestrator<br/>8033/TCP HTTP/HTTPS<br/>TLS 1.2+ (optional)
-    participant Health as Health Server<br/>8034/TCP HTTP<br/>Plaintext
-    participant TGIS as TGIS Generation<br/>8033/TCP gRPC<br/>TLS (optional)
-    participant NLP as Caikit NLP<br/>8085/TCP gRPC<br/>TLS (optional)
-    participant Chunker as Caikit Chunkers<br/>8085/TCP gRPC<br/>TLS (optional)
-    participant Detector as Detector Services<br/>8080/TCP HTTP/HTTPS<br/>Bearer (optional)
-    participant OpenAI as OpenAI Server<br/>8080/TCP HTTP/HTTPS<br/>Bearer (optional)
+    participant GS as Guardrails Server<br/>8033/TCP HTTP/HTTPS
+    participant Chunker as Chunker Service<br/>8085/TCP gRPC TLS/mTLS
+    participant InputDet as Input Detectors<br/>8080/TCP HTTP/HTTPS
+    participant LLM as TGIS / Caikit NLP<br/>8033 or 8085/TCP gRPC TLS/mTLS
+    participant OutputDet as Output Detectors<br/>8080/TCP HTTP/HTTPS
+    participant OTLP as OTLP Collector<br/>4317/TCP
 
-    Note over Client,Detector: Flow 1: Classification with Text Generation (v1 Unary)
-    Client->>Orch: POST /api/v1/task/classification-with-text-generation<br/>Headers: passthrough (X-Forwarded-Access-Token)
-    Orch->>Chunker: ChunkerTokenizationTaskPredict (gRPC)<br/>Chunk input text
-    Chunker-->>Orch: Chunked text segments
-    Orch->>Detector: POST /api/v1/text/contents<br/>Input detection on chunks<br/>Auth: Bearer (optional)
-    Detector-->>Orch: Detection scores per chunk
-    Note over Orch: Evaluate input detections<br/>against thresholds
-    alt Input blocked
-        Orch-->>Client: 200 OK with detection results (blocked)
-    else Input passed
-        Orch->>TGIS: Generate (gRPC)<br/>Text generation request
-        TGIS-->>Orch: Generated text
-        Orch->>Detector: POST /api/v1/text/generation<br/>Output detection on generated text
-        Detector-->>Orch: Output detection scores
-        Note over Orch: Evaluate output detections<br/>against thresholds
-        Orch-->>Client: 200 OK with generation + detection results
+    Note over Client,OTLP: Flow 1: Unary Classification with Text Generation
+
+    Client->>GS: POST /api/v1/task/classification-with-text-generation<br/>Header passthrough, TLS optional
+    GS->>OTLP: Trace span (W3C traceparent)
+    GS->>Chunker: ChunkerTokenizationTaskPredict (input text)<br/>mm-model-id header, TLS/mTLS
+    Chunker-->>GS: Tokenized chunks
+    GS->>InputDet: POST /api/v1/text/contents (per chunk)<br/>detector-id, x-model-name headers
+    InputDet-->>GS: Detection results (HAP, toxicity, PII)
+    GS->>LLM: Generate / TextGenerationTaskPredict<br/>Header passthrough, TLS/mTLS
+    LLM-->>GS: Generated text
+    GS->>Chunker: ChunkerTokenizationTaskPredict (output text)<br/>mm-model-id header
+    Chunker-->>GS: Tokenized output chunks
+    GS->>OutputDet: POST /api/v1/text/contents (per chunk)<br/>detector-id, x-model-name headers
+    OutputDet-->>GS: Output detection results
+    GS-->>Client: Classification + generated text response
+
+    Note over Client,OTLP: Flow 2: Streaming Chat Completions with Detection
+
+    Client->>GS: POST /api/v2/chat/completions-detection<br/>Header passthrough, TLS optional
+    GS->>InputDet: POST /api/v1/text/chat (last message)<br/>detector-id header
+    InputDet-->>GS: Input detection result
+
+    rect rgb(230, 245, 255)
+        Note over GS,OutputDet: Concurrent streaming pipeline
+        GS->>LLM: POST /v1/chat/completions (stream=true)<br/>Bearer token, SSE
+        LLM-->>GS: SSE token stream
+        GS->>Chunker: BidiStreamingChunkerTokenizationTaskPredict<br/>mm-model-id, concurrent chunking
+        Chunker-->>GS: Chunk boundaries (streaming)
+        GS->>OutputDet: POST /api/v1/text/contents (per chunk)<br/>Concurrent detection (max 5)
+        OutputDet-->>GS: Detection results (batched & reordered)
     end
 
-    Note over Client,OpenAI: Flow 2: OpenAI Chat Completions with Detection (v2 Streaming)
-    Client->>Orch: POST /api/v2/chat/completions-detection<br/>Headers: passthrough
-    Orch->>Detector: POST /api/v1/text/chat<br/>Input detection on chat messages
-    Detector-->>Orch: Input detection scores
-    Note over Orch: Evaluate input detections
-    alt Input passed
-        Orch->>OpenAI: POST /v1/chat/completions<br/>stream=true<br/>Auth: Bearer (optional)
-        loop SSE Stream
-            OpenAI-->>Orch: SSE chunk
-            Orch-->>Client: SSE forwarded chunk
-        end
-        Orch->>Detector: POST /api/v1/text/generation<br/>Output detection on accumulated text
-        Detector-->>Orch: Output detection scores
-        Orch-->>Client: SSE final chunk with detections
-    end
+    GS-->>Client: SSE stream with detection results
 
-    Note over Client,Chunker: Flow 3: Streaming Content Detection (NDJSON)
-    Client->>Orch: POST /api/v2/text/detection/stream-content<br/>NDJSON stream
-    Orch->>Chunker: BidiStreamingChunkerTokenizationTaskPredict (gRPC)<br/>Bidirectional streaming
-    loop NDJSON Stream
-        Client->>Orch: NDJSON line (text segment)
-        Orch->>Chunker: Stream text chunk
-        Chunker-->>Orch: Tokenized chunk
-        Orch->>Detector: POST /api/v1/text/contents<br/>Detection on chunk
-        Detector-->>Orch: Detection scores
-        Orch-->>Client: NDJSON response line with detections
-    end
+    Note over Client,OTLP: Flow 3: Streaming Content Detection (ND-JSON)
 
-    Note over Client,Health: Health Check Flow
-    Client->>Health: GET /health (8034/TCP, plaintext)
-    Health-->>Client: 200 OK (package info)
-    Client->>Health: GET /info (8034/TCP, plaintext)
-    Health->>TGIS: grpc.health.v1.Health.Check
-    Health->>NLP: grpc.health.v1.Health.Check
-    Health->>Chunker: grpc.health.v1.Health.Check
-    Health->>Detector: GET /health (8081/TCP)
-    TGIS-->>Health: Health status
-    NLP-->>Health: Health status
-    Chunker-->>Health: Health status
-    Detector-->>Health: Health status
-    Health-->>Client: 200 OK (all service health statuses)
+    Client->>GS: POST /api/v2/text/detection/stream-content<br/>ND-JSON stream, TLS optional
+    GS->>Chunker: BidiStreamingChunkerTokenizationTaskPredict<br/>Bidi streaming, mm-model-id
+    Chunker-->>GS: Chunk boundaries (streaming)
+    GS->>OutputDet: POST /api/v1/text/contents (concurrent per-chunk)<br/>detector-id header
+    OutputDet-->>GS: Detection results
+    GS-->>Client: ND-JSON response stream

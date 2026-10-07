@@ -1,106 +1,71 @@
 graph TB
-    subgraph "must-gather Tool"
+    subgraph MustGather["must-gather Container Image"]
         direction TB
+        Gather["gather.sh<br/>(Entrypoint / Orchestrator)"]
+        Common["common.sh<br/>(Shared Library)"]
+        XksUtil["xks_util.sh<br/>(xKS Distribution Detection)"]
 
-        subgraph "Core Framework"
-            Gather["gather.sh<br/>(Main Entrypoint)"]
-            Common["common.sh<br/>(Shared Library)"]
-            XKSUtil["xks_util.sh<br/>(Non-OpenShift Utilities)"]
-            Gather -->|sources| Common
-            Gather -->|sources on xKS| XKSUtil
-        end
+        Gather -->|sources| Common
+        Gather -->|sources| XksUtil
 
-        subgraph "RHOAI Component Collectors"
+        subgraph ComponentGatherers["Component Gatherer Scripts"]
             direction LR
-            Serving["gather_serving.sh<br/>KServe / Authorino / NIM /<br/>LLM-D / MaaS Rate Limiting"]
-            DSP["gather_data_science_pipelines.sh<br/>DSP Applications / Argo"]
-            Notebooks["gather_notebooks.sh<br/>Notebooks / ImageStreams"]
-            Dashboard["gather_dashboard.sh<br/>DashboardConfig / Accelerators /<br/>HardwareProfiles"]
-            KubeRay["gather_kuberay.sh<br/>RayCluster / RayJob / RayService"]
-            Kueue["gather_kueue.sh<br/>ClusterQueue / LocalQueue /<br/>Workload"]
-            KFTO["gather_kfto.sh<br/>PyTorchJob / TrainJob /<br/>TrainingRuntime"]
-            MR["gather_mr.sh<br/>ModelRegistry"]
-            TrustyAI["gather_trustyai.sh<br/>TrustyAIService / LMEvalJob /<br/>EvalHub / Guardrails"]
-            Feast["gather_feastoperator.sh<br/>FeatureStore"]
-            LLS["gather_lls.sh<br/>LlamaStackDistribution"]
-            MLflow["gather_mlflow.sh<br/>MLflow"]
-            Spark["gather_sparkoperator.sh<br/>SparkApplication / SparkConnect"]
-            MaaS["gather_models_as_a_service.sh<br/>MaaSModelRef / MaaSAuthPolicy /<br/>Tenant / ExternalModel"]
+            GatherServing["gather_serving.sh"]
+            GatherDSP["gather_data_science_pipelines.sh"]
+            GatherDashboard["gather_dashboard.sh"]
+            GatherKubeRay["gather_kuberay.sh"]
+            GatherKueue["gather_kueue.sh"]
+            GatherKFTO["gather_kfto.sh"]
+            GatherMR["gather_mr.sh"]
+            GatherTrustyAI["gather_trustyai.sh"]
+            GatherFeast["gather_feastoperator.sh"]
+            GatherLLS["gather_lls.sh"]
+            GatherMLflow["gather_mlflow.sh"]
+            GatherSpark["gather_sparkoperator.sh"]
+            GatherAIGW["gather_aigateway.sh"]
+            GatherMCP["gather_mcp_lifecycle_operator.sh"]
         end
 
-        subgraph "LLM-D Collection"
+        subgraph LLMDGatherers["LLM-D Collection Scripts"]
             direction LR
-            LLMD["gather_llmd.sh<br/>LLMInferenceService /<br/>Gateway API / Inference Extension"]
-            WVA["gather_wva.sh<br/>WVA / KEDA<br/>(opt-in: ENABLE_WVA)"]
-            O11y["gather_o11y.sh<br/>Prometheus Operator /<br/>Azure Managed Prometheus"]
-            Cluster["gather_cluster.sh<br/>Nodes / API Resources /<br/>Cluster-Scoped Resources"]
+            GatherLLMD["gather_llmd.sh"]
+            GatherCluster["gather_cluster.sh"]
+            GatherO11y["gather_o11y.sh"]
+            GatherWVA["gather_wva.sh"]
+            GatherBatch["gather_batch_gateway.sh"]
+            DepCertMgr["dependency/cert-manager.sh"]
+            DepSail["dependency/sail.sh"]
+            DepLWS["dependency/lws.sh"]
         end
 
-        subgraph "LLM-D Dependency Collectors"
-            direction LR
-            CertMgr["cert-manager.sh<br/>Certificates / Issuers"]
-            Sail["sail.sh<br/>Istio / VirtualService /<br/>DestinationRule / EnvoyFilter"]
-            LWS["lws.sh<br/>LeaderWorkerSet"]
-        end
+        Gather -->|dispatches in parallel| ComponentGatherers
+        Gather -->|dispatches| LLMDGatherers
     end
 
-    User["User<br/>oc adm must-gather /<br/>kubectl Job"] -->|invokes| Gather
+    Admin[Cluster Admin] -->|"oc adm must-gather<br/>or kubectl apply"| MustGather
 
-    Gather -->|dispatches in parallel| Serving
-    Gather -->|dispatches in parallel| DSP
-    Gather -->|dispatches in parallel| Notebooks
-    Gather -->|dispatches in parallel| Dashboard
-    Gather -->|dispatches in parallel| KubeRay
-    Gather -->|dispatches in parallel| Kueue
-    Gather -->|dispatches in parallel| KFTO
-    Gather -->|dispatches in parallel| MR
-    Gather -->|dispatches in parallel| TrustyAI
-    Gather -->|dispatches in parallel| Feast
-    Gather -->|dispatches in parallel| LLS
-    Gather -->|dispatches in parallel| MLflow
-    Gather -->|dispatches in parallel| Spark
-    Gather -->|dispatches in parallel| MaaS
-    Gather -->|dispatches| LLMD
+    subgraph CLITools["Bundled CLI Tools"]
+        OC["oc CLI<br/>(from base image)"]
+        Kubectl["kubectl v1.33.3<br/>(from ose-cli-rhel9)"]
+        Helm["helm v4.1.4<br/>(Git LFS artifact)"]
+    end
 
-    LLMD -->|triggers| WVA
-    LLMD -->|triggers| O11y
-    LLMD -->|triggers| Cluster
-    LLMD -->|triggers in parallel| CertMgr
-    LLMD -->|triggers in parallel| Sail
-    LLMD -->|triggers in parallel| LWS
+    MustGather -->|uses| CLITools
 
     K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS"]
+    CLITools -->|"GET, LIST resources<br/>TLS 1.2+ / SA token"| K8sAPI
 
-    Serving -->|reads CRDs| K8sAPI
-    DSP -->|reads CRDs| K8sAPI
-    Notebooks -->|reads CRDs| K8sAPI
-    Dashboard -->|reads CRDs| K8sAPI
-    KubeRay -->|reads CRDs| K8sAPI
-    Kueue -->|reads CRDs| K8sAPI
-    KFTO -->|reads CRDs| K8sAPI
-    MR -->|reads CRDs| K8sAPI
-    TrustyAI -->|reads CRDs| K8sAPI
-    Feast -->|reads CRDs| K8sAPI
-    LLS -->|reads CRDs| K8sAPI
-    MLflow -->|reads CRDs| K8sAPI
-    Spark -->|reads CRDs| K8sAPI
-    MaaS -->|reads CRDs| K8sAPI
-    LLMD -->|reads CRDs| K8sAPI
-    Cluster -->|reads cluster info| K8sAPI
+    Output["/must-gather/<br/>Collected Diagnostics"]
+    MustGather -->|writes| Output
 
-    Filesystem["/must-gather<br/>Local Filesystem"]
-    Gather -->|writes collected data| Filesystem
-
-    style Gather fill:#4a90e2,color:#fff
-    style Common fill:#4a90e2,color:#fff
-    style XKSUtil fill:#4a90e2,color:#fff
-    style K8sAPI fill:#f5a623,color:#fff
-    style User fill:#e8e8e8,stroke:#333
-    style Filesystem fill:#7ed321,color:#fff
-    style LLMD fill:#9b59b6,color:#fff
-    style WVA fill:#9b59b6,color:#fff
-    style O11y fill:#9b59b6,color:#fff
-    style Cluster fill:#9b59b6,color:#fff
-    style CertMgr fill:#8e44ad,color:#fff
-    style Sail fill:#8e44ad,color:#fff
-    style LWS fill:#8e44ad,color:#fff
+    style MustGather fill:#4a90e2,stroke:#333,color:#fff
+    style Gather fill:#3a7bd5,stroke:#333,color:#fff
+    style Common fill:#3a7bd5,stroke:#333,color:#fff
+    style XksUtil fill:#3a7bd5,stroke:#333,color:#fff
+    style Admin fill:#f5a623,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style Output fill:#7ed321,stroke:#333
+    style CLITools fill:#ddd,stroke:#333
+    style OC fill:#ccc,stroke:#333
+    style Kubectl fill:#ccc,stroke:#333
+    style Helm fill:#ccc,stroke:#333

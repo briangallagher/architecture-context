@@ -1,50 +1,46 @@
 sequenceDiagram
-    participant Client as Client / KServe
-    participant API as ModelMeshApi<br/>8033/TCP gRPC<br/>TLS + mTLS (optional)
-    participant Mesh as SidecarModelMesh<br/>(Local Instance)
-    participant Runtime as Model Runtime<br/>8085/TCP or UDS<br/>gRPC plaintext
-    participant RemoteMesh as Remote ModelMesh<br/>8080/TCP Thrift<br/>TLS (optional)
-    participant RemoteRT as Remote Runtime<br/>8085/TCP or UDS<br/>gRPC plaintext
-    participant etcd as etcd<br/>2379/TCP gRPC<br/>TLS (configurable)
+    participant Client as External Client
+    participant API as ModelMeshApi<br/>8033/TCP gRPC<br/>Optional TLS/mTLS
+    participant Cache as SidecarModelMesh<br/>LRU Cache
+    participant Runtime as Model Runtime<br/>8085/TCP gRPC<br/>Plaintext (localhost)
+    participant Litelinks as Litelinks<br/>8080/TCP Thrift<br/>Optional TLS
+    participant RemoteMM as Remote ModelMesh Pod
+    participant RemoteRT as Remote Runtime
+    participant etcd as etcd Cluster<br/>2379/TCP gRPC<br/>Optional TLS
 
-    Note over Client,etcd: Flow 1: Model Inference Request (Cache Hit)
-    Client->>API: gRPC inference RPC<br/>TLS + mTLS (optional)
-    API->>Mesh: Java method call (in-process)
-    Mesh->>Mesh: Check local model cache
-    alt Model loaded locally (cache hit)
-        Mesh->>Runtime: gRPC inference forward<br/>plaintext (localhost)
-        Runtime-->>Mesh: Inference result
-    else Model on remote instance (cache miss)
-        Mesh->>RemoteMesh: Thrift (Litelinks) forward<br/>TLS + mTLS (optional)
-        RemoteMesh->>RemoteRT: gRPC inference forward<br/>plaintext (localhost)
-        RemoteRT-->>RemoteMesh: Inference result
-        RemoteMesh-->>Mesh: Inference result
-    end
-    Mesh-->>API: Response
+    Note over Client,etcd: Flow 1: Model Inference (Cache Hit - Local)
+    Client->>API: gRPC inference request<br/>model-id in header/protobuf
+    API->>Cache: Local cache lookup<br/>(in-process method call)
+    Cache->>Runtime: Forward inference (ProtoSplicer)<br/>gRPC/8085 Plaintext
+    Runtime-->>Cache: Prediction result
+    Cache-->>API: Response
     API-->>Client: gRPC response
 
-    Note over Client,etcd: Flow 2: Model Registration and Loading
-    Client->>API: registerModel RPC<br/>TLS + mTLS (optional)
-    API->>Mesh: Register model (in-process)
-    Mesh->>etcd: Create ModelRecord<br/>gRPC TLS (configurable)
-    etcd-->>Mesh: Confirm write
-    Mesh->>Mesh: Select instance for loading<br/>(capacity, constraints, balancing)
-    Mesh->>Runtime: loadModel RPC<br/>gRPC plaintext (localhost)
-    Runtime-->>Mesh: Model loaded (size, metadata)
-    Mesh->>etcd: Update ModelRecord status<br/>→ LOADED
-    etcd-->>Mesh: Confirm update
-    Mesh-->>API: Registration result
-    API-->>Client: Model registered + status
+    Note over Client,etcd: Flow 1b: Model Inference (Cache Miss - Remote)
+    Client->>API: gRPC inference request
+    API->>Cache: Local cache lookup<br/>(model not loaded locally)
+    Cache->>Litelinks: Route to remote instance<br/>Thrift RPC/8080
+    Litelinks->>RemoteMM: Serialized request<br/>Optional TLS/mTLS
+    RemoteMM->>RemoteRT: Forward inference<br/>gRPC/8085 Plaintext
+    RemoteRT-->>RemoteMM: Prediction result
+    RemoteMM-->>Litelinks: Serialized response
+    Litelinks-->>Cache: Deserialized response
+    Cache-->>API: Response
+    API-->>Client: gRPC response
 
-    Note over Client,etcd: Flow 3: Virtual Model Transition (Zero-Downtime)
-    Client->>API: setVModel RPC<br/>(vmodel_id, target_model_id)
-    API->>Mesh: Set vmodel (in-process)
-    Mesh->>etcd: Create/update VModelRecord<br/>gRPC TLS (configurable)
-    etcd-->>Mesh: Confirm write
-    Mesh->>Mesh: VModelManager: ensureLoaded<br/>for target model
-    Mesh->>Runtime: loadModel (target)<br/>gRPC plaintext (localhost)
-    Runtime-->>Mesh: Target model loaded
-    Mesh->>etcd: Atomic swap:<br/>active ↔ target model
-    etcd-->>Mesh: Swap confirmed
-    Mesh-->>API: VModel transition complete
-    API-->>Client: VModel updated
+    Note over Client,etcd: Flow 2: Model Registration & Loading
+    Client->>API: registerModel RPC<br/>gRPC/8033
+    API->>Cache: Register model
+    Cache->>etcd: Write model record<br/>gRPC/2379 (etcd v3 API)
+    etcd-->>Cache: Confirm write
+    Cache->>Runtime: loadModel RPC<br/>gRPC/8085 Plaintext
+    Runtime-->>Cache: Load complete + model size
+    Cache->>etcd: Update model status<br/>gRPC/2379
+    etcd-->>Cache: Confirm update
+    Cache-->>API: Registration result
+    API-->>Client: Success response
+
+    Note over Client,etcd: Flow 3: Prometheus Metrics Scraping
+    participant Prom as Prometheus Scraper
+    Prom->>API: GET /metrics<br/>HTTPS/2112<br/>TLS (self-signed cert)
+    API-->>Prom: Metrics response<br/>(latency, cache stats, capacity)

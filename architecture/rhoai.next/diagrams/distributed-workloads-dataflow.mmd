@@ -1,0 +1,50 @@
+sequenceDiagram
+    participant CI as CI/CD Pipeline
+    participant TR as Test Runner (Go)<br/>test-runner-image
+    participant K8s as Kubernetes API<br/>6443/TCP HTTPS TLS1.2+
+    participant S3 as S3 Storage<br/>443/TCP HTTPS TLS1.2+
+    participant KFTO as Kubeflow Training Op v1
+    participant TV2 as Kubeflow Trainer v2
+    participant Launcher as Launcher Pod<br/>(mpirun)
+    participant Workers as Worker Pods<br/>(orted)
+    participant GPU as GPU Hardware<br/>CUDA / ROCm
+    participant Prom as Prometheus<br/>9090/TCP HTTPS
+    participant WBC as OpenShift Workbench<br/>Controller
+    participant Jupyter as Universal Image<br/>8888/TCP HTTP
+
+    rect rgb(220, 240, 255)
+        Note over CI,Prom: Flow 1: Integration Test Execution
+        CI->>TR: Launch test binary
+        TR->>K8s: Create namespace, RBAC<br/>Auth: kubeconfig Bearer Token
+        TR->>S3: Upload training data<br/>Auth: AWS credentials
+        TR->>K8s: Create PyTorchJob / TrainJob CR
+        K8s-->>KFTO: Watch: PyTorchJob created
+        K8s-->>TV2: Watch: TrainJob created
+        KFTO->>K8s: Create training Pods
+        TV2->>K8s: Create JobSet → training Pods
+        Note over TR,K8s: Test polls for Pod completion
+        TR->>Prom: Query GPU utilization<br/>Auth: Bearer Token
+        Prom-->>TR: PromQL metrics
+        TR->>K8s: Assert CRD status, cleanup
+    end
+
+    rect rgb(255, 240, 220)
+        Note over Launcher,GPU: Flow 2: MPI Distributed Training
+        KFTO->>Launcher: Start launcher pod (mpirun)
+        Launcher->>Workers: SSH connect<br/>Port: 2222/TCP<br/>Auth: Pre-shared SSH keys
+        Workers->>Workers: NCCL/RCCL all-reduce<br/>RDMA/InfiniBand
+        Workers->>GPU: Compute forward/backward pass<br/>PCIe/NVLink
+        GPU-->>Workers: Gradient results
+        Workers-->>Launcher: Training complete
+    end
+
+    rect rgb(220, 255, 220)
+        Note over WBC,Jupyter: Flow 3: Universal Image Dual-Mode
+        alt Workbench Mode (NOTEBOOK_ARGS set)
+            WBC->>Jupyter: Inject NOTEBOOK_ARGS env
+            Jupyter->>Jupyter: Start Jupyter server<br/>Port: 8888/TCP
+        else Training Mode (entrypoint override)
+            TV2->>Jupyter: Override entrypoint<br/>Run training command
+            Jupyter->>GPU: Execute training
+        end
+    end

@@ -1,0 +1,47 @@
+sequenceDiagram
+    participant Client as Client<br/>(CLI / UI / DSP)
+    participant Gatekeeper as Gatekeeper Interceptor<br/>AuthN: Bearer/SSO/Server
+    participant ArgoServer as Argo Server<br/>2746/TCP HTTP+gRPC
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant Controller as Workflow Controller<br/>6060/TCP (health)
+    participant WorkflowPod as Workflow Pod<br/>(argoexec sidecar)
+    participant Storage as Artifact Storage<br/>(S3/GCS/Azure)
+
+    Note over Client,Storage: Flow 1: Workflow Submission and API Access
+
+    Client->>Gatekeeper: POST /api/v1/workflows<br/>Auth: Bearer Token / SSO OIDC
+    Gatekeeper->>Gatekeeper: Validate token<br/>(client/server/sso mode)
+    Gatekeeper->>ArgoServer: Forward authenticated request
+    ArgoServer->>K8sAPI: Create Workflow CR<br/>HTTPS/6443
+    K8sAPI-->>ArgoServer: Workflow created
+    ArgoServer-->>Client: Workflow response (JSON/gRPC)
+
+    Note over Client,Storage: Flow 2: Workflow Orchestration
+
+    K8sAPI->>Controller: Workflow CR watch event
+    Controller->>K8sAPI: Create workflow step Pod<br/>(with argoexec sidecar)
+    K8sAPI-->>Controller: Pod created
+    Controller->>K8sAPI: Create PodDisruptionBudget
+    Controller->>K8sAPI: Create/Update ConfigMap<br/>(memoization cache)
+
+    Note over Client,Storage: Flow 3: Workflow Execution
+
+    WorkflowPod->>WorkflowPod: argoexec: execute script
+    WorkflowPod->>Storage: Upload output artifacts<br/>HTTPS
+    Storage-->>WorkflowPod: Upload confirmed
+    WorkflowPod->>K8sAPI: Update WorkflowTaskResult CR
+
+    Note over Client,Storage: Flow 4: Artifact Retrieval
+
+    Client->>Gatekeeper: GET /artifacts/{namespace}/{workflow}/{node}/{artifact}
+    Gatekeeper->>ArgoServer: Forward (authenticated)
+    ArgoServer->>Storage: Fetch artifact
+    Storage-->>ArgoServer: Artifact data
+    ArgoServer-->>Client: Artifact response (HTTP)
+
+    Note over Client,Storage: Flow 5: Observability
+
+    Client->>ArgoServer: GET /metrics<br/>(conditional auth via ARGO_SERVER_METRICS_AUTH)
+    ArgoServer-->>Client: Prometheus metrics
+    Client->>Controller: GET /healthz (port 6060)<br/>(no auth)
+    Controller-->>Client: Health status

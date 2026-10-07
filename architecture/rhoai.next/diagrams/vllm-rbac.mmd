@@ -1,54 +1,49 @@
 graph TD
-    subgraph "vLLM RBAC Context"
+    subgraph "vLLM CUDA - Authentication & Authorization Model"
         direction TB
 
-        Note["Note: No RBAC resources defined in this repository.<br/>All RBAC is managed by KServe and RHOAI platform operators."]
-
-        subgraph "Platform-Managed RBAC (KServe)"
-            direction TB
-            KServeSA["ServiceAccount<br/>(created by KServe per InferenceService)"]
-            KServeRole["Role/ClusterRole<br/>(managed by KServe Operator)"]
+        subgraph "Note"
+            Note["This is a container image, not an operator.<br/>No ClusterRoles or RoleBindings are defined.<br/>All auth is delegated to the serving infrastructure."]
         end
 
-        subgraph "Authentication (Platform-Managed)"
-            direction TB
-            ProxySA["kube-rbac-proxy Sidecar"]
-            BearerToken["Bearer Token<br/>(Platform Auth Policy)"]
+        subgraph "External Request Flow"
+            Client["External Client<br/>(Bearer Token - OAuth/OIDC)"]
         end
 
-        subgraph "Container Security"
-            direction TB
-            NonRoot["Non-Root User<br/>UID 2000"]
-            NoTLS["No TLS at Container<br/>(Plaintext HTTP/gRPC)"]
-            FIPSDelegated["FIPS Compliance<br/>Delegated to RHAIIS Base Image"]
+        subgraph "Gateway Layer"
+            Gateway["Gateway API (Envoy)<br/>TLS Termination<br/>Port 443/TCP"]
         end
 
-        subgraph "Secrets"
-            direction TB
-            ModelCreds["(model storage credentials)<br/>Type: Opaque<br/>Purpose: S3/HuggingFace access<br/>Provisioned by: User / RHOAI<br/>Auto-Rotate: No"]
+        subgraph "Pod-Level Auth Enforcement"
+            KubeRBAC["kube-rbac-proxy Sidecar<br/>(Injected by RHOAI Platform Operator)"]
+
+            subgraph "Auth Mechanism"
+                SAR["SubjectAccessReview<br/>against Kubernetes API Server"]
+            end
+
+            KubeRBAC -->|"validates each request"| SAR
+        end
+
+        subgraph "Application (No Auth)"
+            HTTPEndpoints["/v1/completions<br/>/v1/chat/completions<br/>/v1/models<br/>/v1/embeddings<br/>/health<br/>Port 8000/TCP - No Auth"]
+            GRPCEndpoint["TGIS GenerationService<br/>Port 8033/TCP - No Auth"]
+        end
+
+        subgraph "Namespace-Level Isolation"
+            NSPolicy["Namespace Boundary<br/>- NetworkPolicy per namespace<br/>- ResourceQuota / LimitRange<br/>- Per-namespace Secrets for model storage"]
         end
     end
 
-    subgraph "Access Paths"
-        direction LR
-        ExternalAccess["External Access<br/>/v1/* endpoints"]
-        InternalAccess["Internal Access<br/>TGIS gRPC/8033"]
-    end
+    Client -->|"HTTPS/443"| Gateway
+    Gateway -->|"HTTPS/8443"| KubeRBAC
+    KubeRBAC -->|"HTTP/8000<br/>(pre-authorized)"| HTTPEndpoints
+    KubeRBAC -->|"gRPC/8033<br/>(pre-authorized)"| GRPCEndpoint
 
-    ExternalAccess -->|"Bearer Token required<br/>Enforced by kube-rbac-proxy"| ProxySA
-    InternalAccess -->|"No auth at container<br/>Platform network policy"| KServeSA
-
-    ProxySA -->|"validates against"| BearerToken
-    KServeSA -->|"bound via"| KServeRole
-
-    style Note fill:#fff3cd,stroke:#ffc107,stroke-width:2px
-    style KServeSA fill:#4a90e2,stroke:#333,color:#fff
-    style KServeRole fill:#f5a623,stroke:#333,color:#fff
-    style ProxySA fill:#4a90e2,stroke:#333,color:#fff
-    style BearerToken fill:#f5a623,stroke:#333,color:#fff
-    style NonRoot fill:#7ed321,stroke:#333,color:#fff
-    style NoTLS fill:#e74c3c,stroke:#333,color:#fff
-    style FIPSDelegated fill:#9b59b6,stroke:#333,color:#fff
-    style ModelCreds fill:#e8e8e8,stroke:#333
-    style ExternalAccess fill:#f9f9f9,stroke:#999
-    style InternalAccess fill:#f9f9f9,stroke:#999
+    style Note fill:#fff3cd,stroke:#856404,stroke-width:2px
+    style KubeRBAC fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style SAR fill:#f8cecc,stroke:#b85450
+    style HTTPEndpoints fill:#d5e8d4,stroke:#82b366
+    style GRPCEndpoint fill:#d5e8d4,stroke:#82b366
+    style Gateway fill:#ffe6cc,stroke:#d79b00
+    style Client fill:#f9f9f9,stroke:#999
+    style NSPolicy fill:#dae8fc,stroke:#6c8ebf

@@ -1,0 +1,410 @@
+{
+  "schema_version": "1.0.0",
+  "identity": {
+    "component": "typed-only",
+    "source_component": "typed-only",
+    "repository": "https://github.com/example/typed-only.git",
+    "source_revision": "abcdef0123456789",
+    "version_scope": "rhoai.next",
+    "integration_status": "current",
+    "aliases": []
+  },
+  "producers": {
+    "analyzer_version": "arch-analyzer/test",
+    "normalizer_version": "structured-component-normalizer/v1",
+    "renderer_version": "arch-analyzer-markdown/v1"
+  },
+  "analyzer_input": {
+    "schema_version": "1",
+    "bundle_fingerprint": "sha256:b193fafa94d88500e4874bab665cd3ba38fb7385989b600a68b22e5578db2131",
+    "extracted_at": "2026-09-06T00:00:00Z"
+  },
+  "rendering_config": {
+    "distribution": "Both",
+    "generated_by": "arch-analyzer"
+  },
+  "assembly_inputs": {
+    "component_map": null
+  },
+  "facts": [
+    {
+      "id": "fact:summary:f25d010e3d2317b7ea2125b30379ad177361e3189e0220c3e29cce6af97ba55d",
+      "type": "summary",
+      "ordinal": 0,
+      "value": "Typed-only mapper fixture.",
+      "input_pointer": "/summary",
+      "evidence": [],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    },
+    {
+      "id": "fact:controller_watch:92772946c0a332bf72173fb47f4a11b02989e1acdc65ff943c5e90077b339e40",
+      "type": "controller_watch",
+      "ordinal": 0,
+      "value": {
+        "controller": "TypedController",
+        "gvk": "apps/v1.Deployment",
+        "resource_ops": [],
+        "source": "controllers/typed.go:12",
+        "type": "Owns"
+      },
+      "input_pointer": "/controller_watches/0",
+      "evidence": [
+        {
+          "path": "controllers/typed.go",
+          "start_line": 12,
+          "end_line": 12,
+          "revision": "abcdef0123456789"
+        }
+      ],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    },
+    {
+      "id": "fact:webhook:21310a038345be3e6c35b95ae6e274fc82ccd89489f4f7412e0e8f934bcd982b",
+      "type": "webhook",
+      "ordinal": 0,
+      "value": {
+        "failure_policy": "Fail",
+        "name": "vtyped.example.io",
+        "path": "/validate",
+        "port": 9443,
+        "purpose": "Validate typed resources",
+        "rules": [
+          {
+            "apiGroups": [
+              "example.io"
+            ],
+            "apiVersions": [
+              "v1"
+            ],
+            "operations": [
+              "CREATE"
+            ],
+            "resources": [
+              "typed"
+            ]
+          }
+        ],
+        "service_ref": "typed-webhook",
+        "sources": [
+          {
+            "file": "config/webhook.yaml",
+            "line": 7,
+            "repo": "example/typed-only",
+            "type": "webhook_manifest"
+          }
+        ],
+        "type": "validating"
+      },
+      "input_pointer": "/webhooks/0",
+      "evidence": [
+        {
+          "path": "config/webhook.yaml",
+          "start_line": 7,
+          "end_line": 7,
+          "revision": "abcdef0123456789"
+        }
+      ],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    },
+    {
+      "id": "fact:external_webhook:74b2077f814d26929858f84b7b58cab31ffb4381dd546cefa79ed629eaea7189",
+      "type": "external_webhook",
+      "ordinal": 0,
+      "value": {
+        "component": "external-policy",
+        "webhook": "check"
+      },
+      "input_pointer": "/external_webhooks/0",
+      "evidence": [],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    },
+    {
+      "id": "fact:dockerfile:4471badf25d14d9f71c580bc0d9f78a5e1e2b6a07f8b30296ba7f108d5953007",
+      "type": "dockerfile",
+      "ordinal": 0,
+      "value": {
+        "base_image": "registry.example/base:1",
+        "issues": [
+          "none"
+        ],
+        "path": "Dockerfile",
+        "user": "1001"
+      },
+      "input_pointer": "/dockerfiles/0",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "revision": "abcdef0123456789"
+        }
+      ],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    },
+    {
+      "id": "fact:data_coverage:7edbadfbb143e2d54ffc3e5df24208795995bee04907e4249d88c8affe10f7fb",
+      "type": "data_coverage",
+      "key": "typed",
+      "ordinal": 0,
+      "value": "complete",
+      "input_pointer": "/data_coverage/typed",
+      "evidence": [],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    },
+    {
+      "id": "fact:cross_cutting_evidence:19d29805d4b155388654aa153301671432293e0600fcb3908b0f595d6349754f",
+      "type": "cross_cutting_evidence",
+      "key": "fips",
+      "ordinal": 0,
+      "value": {
+        "claim": "uses system crypto",
+        "sources": [
+          "go.mod:3"
+        ],
+        "status": "literal"
+      },
+      "input_pointer": "/cross_cutting_evidence/fips/0",
+      "evidence": [
+        {
+          "path": "go.mod",
+          "start_line": 3,
+          "end_line": 3,
+          "revision": "abcdef0123456789"
+        }
+      ],
+      "uncertainty": {
+        "status": "extracted"
+      },
+      "authority": {
+        "kind": "analyzer",
+        "origin": "analyzer-input",
+        "claim_class": "implementation"
+      }
+    }
+  ],
+  "fact_accounting": [
+    {
+      "fact_id": "fact:summary:f25d010e3d2317b7ea2125b30379ad177361e3189e0220c3e29cce6af97ba55d",
+      "input_pointer": "/summary",
+      "disposition": "rendered",
+      "sections": [
+        "purpose"
+      ]
+    },
+    {
+      "fact_id": "fact:controller_watch:92772946c0a332bf72173fb47f4a11b02989e1acdc65ff943c5e90077b339e40",
+      "input_pointer": "/controller_watches/0",
+      "disposition": "rendered",
+      "sections": [
+        "integration-points"
+      ]
+    },
+    {
+      "fact_id": "fact:webhook:21310a038345be3e6c35b95ae6e274fc82ccd89489f4f7412e0e8f934bcd982b",
+      "input_pointer": "/webhooks/0",
+      "disposition": "rendered",
+      "sections": [
+        "admission-webhooks",
+        "apis-exposed"
+      ]
+    },
+    {
+      "fact_id": "fact:external_webhook:74b2077f814d26929858f84b7b58cab31ffb4381dd546cefa79ed629eaea7189",
+      "input_pointer": "/external_webhooks/0",
+      "disposition": "rendered",
+      "sections": [
+        "integration-points"
+      ]
+    },
+    {
+      "fact_id": "fact:dockerfile:4471badf25d14d9f71c580bc0d9f78a5e1e2b6a07f8b30296ba7f108d5953007",
+      "input_pointer": "/dockerfiles/0",
+      "disposition": "rendered",
+      "sections": [
+        "architecture-components",
+        "metadata"
+      ]
+    },
+    {
+      "fact_id": "fact:data_coverage:7edbadfbb143e2d54ffc3e5df24208795995bee04907e4249d88c8affe10f7fb",
+      "input_pointer": "/data_coverage/typed",
+      "disposition": "retained",
+      "sections": [
+        "architectural-analysis"
+      ]
+    },
+    {
+      "fact_id": "fact:cross_cutting_evidence:19d29805d4b155388654aa153301671432293e0600fcb3908b0f595d6349754f",
+      "input_pointer": "/cross_cutting_evidence/fips/0",
+      "disposition": "retained",
+      "sections": [
+        "security"
+      ]
+    }
+  ],
+  "sections": [],
+  "patch_inputs": [],
+  "proposal_dispositions": [],
+  "uncertainty": [
+    {
+      "scope": "component-integration",
+      "status": "current",
+      "detail": "Integration status is supplied by release/component context; analyzer source facts alone do not establish shipment or roadmap intent."
+    }
+  ],
+  "rendering_view": {
+    "component": "typed-only",
+    "metadata": {
+      "repository": "https://github.com/example/typed-only.git",
+      "version": "abcdef0123456789",
+      "distribution": "Both",
+      "languages": "Go",
+      "deployment_type": "Kubernetes Operator / Controller",
+      "generated_by": "arch-analyzer"
+    },
+    "repo_lineage": null,
+    "purpose": "Typed-only mapper fixture.",
+    "architecture_components": [
+      {
+        "component": "Dockerfile",
+        "type": "Container image",
+        "purpose": "registry.example/base:1"
+      }
+    ],
+    "crds": [],
+    "serving_runtimes": [],
+    "http_endpoints": [
+      {
+        "path": "/validate",
+        "method": "POST",
+        "port": "9443",
+        "protocol": "HTTPS",
+        "transport": "Unknown",
+        "encryption": "TLS",
+        "auth": "Kubernetes admission",
+        "owner": "",
+        "purpose": "Validate typed resources"
+      }
+    ],
+    "grpc_services": [],
+    "external_dependencies": [],
+    "internal_dependencies": [],
+    "services": [],
+    "ingress": [],
+    "egress": [],
+    "cluster_roles": [],
+    "role_bindings": [],
+    "secrets": [],
+    "authentication": null,
+    "security_evidence": null,
+    "behavioral_evidence": [],
+    "webhooks": [
+      {
+        "name": "vtyped.example.io",
+        "type": "validating",
+        "path": "/validate",
+        "port": "9443",
+        "failure_policy": "Fail",
+        "resources": "typed",
+        "operations": "CREATE",
+        "purpose": "Validate typed resources"
+      }
+    ],
+    "integration_points": [
+      {
+        "component": "apps/v1.Deployment",
+        "interaction_type": "Controller watch (Owns)",
+        "role": "",
+        "port": "",
+        "protocol": "Kubernetes API",
+        "encryption": "TLS",
+        "purpose": "TypedController"
+      },
+      {
+        "component": "external-policy",
+        "interaction_type": "External admission webhook",
+        "role": "",
+        "port": "",
+        "protocol": "HTTPS",
+        "encryption": "TLS",
+        "purpose": "check"
+      }
+    ],
+    "recent_changes": null,
+    "sources": [
+      {
+        "file": "Dockerfile",
+        "lines": "Unknown",
+        "sections": "Architecture Components"
+      },
+      {
+        "file": "config/webhook.yaml",
+        "lines": "7",
+        "sections": "APIs Exposed, Security"
+      },
+      {
+        "file": "controllers/typed.go",
+        "lines": "12",
+        "sections": "Integration Points"
+      }
+    ],
+    "data_coverage": {
+      "typed": "complete"
+    },
+    "category_coverage": null,
+    "cross_references": null,
+    "coverage_findings": null,
+    "synthesis_evidence": null,
+    "cross_cutting_evidence": {
+      "fips": [
+        {
+          "claim": "uses system crypto",
+          "status": "literal",
+          "sources": [
+            "go.mod:3"
+          ]
+        }
+      ]
+    }
+  }
+}

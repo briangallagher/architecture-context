@@ -1,49 +1,62 @@
 graph TD
-    subgraph Notice["training-hub: No Kubernetes RBAC"]
-        direction TB
-        Note["training-hub is a Python library (pip package)<br/>It does NOT define Kubernetes RBAC resources<br/>(no ClusterRoles, Roles, RoleBindings, or ServiceAccounts)"]
-    end
-
-    subgraph RuntimeContext["Runtime RBAC Context<br/>(Determined by execution environment)"]
+    subgraph LibraryContext["Training Hub - Runtime Security Context"]
         direction TB
 
-        subgraph PodExecution["When running in a Kubernetes Pod"]
-            SA["Pod ServiceAccount<br/><i>Inherited from pod spec</i>"]
-            PodRole["Pod Role / ClusterRole<br/><i>Defined by orchestrator</i>"]
-            SA -->|bound via| PodRole
+        subgraph DeploymentNote["Deployment Type: Python Library (not a K8s workload)"]
+            Note["Training Hub defines no Kubernetes RBAC resources.<br/>No ClusterRoles, RoleBindings, or ServiceAccounts.<br/><br/>Security context is inherited from the consuming<br/>application/pipeline that imports the library."]
         end
 
-        subgraph Credentials["Credential Delegation via Environment Variables"]
-            HFToken["HF_TOKEN<br/><i>HuggingFace Hub access</i><br/>Scope: gated model downloads"]
-            WandBKey["WANDB_API_KEY<br/><i>WandB experiment tracking</i><br/>Scope: metrics write"]
-            MLflowToken["MLFLOW_TRACKING_URI + Token<br/><i>MLflow tracking server</i><br/>Scope: metrics write"]
+        subgraph RuntimeCredentials["Runtime Credentials (Environment Variables)"]
+            direction TB
+            HFToken["HF_TOKEN<br/>(HuggingFace Hub)<br/>Optional"]
+            WandBKey["WANDB_API_KEY<br/>(Weights & Biases)<br/>Optional"]
+            MLflowToken["MLFLOW_TRACKING_TOKEN<br/>(MLflow Server)<br/>Optional"]
+            LLMKey["LLM API Key<br/>(Provider-specific)<br/>Optional"]
         end
 
-        subgraph GPUAccess["GPU Resource Access"]
-            NVIDIADevice["NVIDIA GPU Devices<br/><i>nvidia.com/gpu resource limits</i>"]
-            NCCLNetwork["NCCL Network Access<br/><i>Inter-node GPU communication</i><br/>Ports: dynamic/TCP"]
+        subgraph EgressPermissions["Egress Permissions Required by Host"]
+            direction TB
+            EgressHF["Allow HTTPS/443<br/>→ huggingface.co<br/>(model downloads)"]
+            EgressWandB["Allow HTTPS/443<br/>→ api.wandb.ai<br/>(metrics logging)"]
+            EgressMLflow["Allow HTTP/HTTPS<br/>→ MLflow server<br/>(experiment tracking)"]
+            EgressLLM["Allow HTTP/HTTPS<br/>→ LLM API endpoint<br/>(GEPA optimization)"]
+            EgressvLLM["Allow HTTP<br/>→ vLLM endpoint<br/>(GRPO rollouts)"]
+        end
+
+        subgraph DistributedTrainingPerms["Distributed Training Network Permissions"]
+            direction TB
+            NCCL["Allow TCP<br/>NCCL ports (configurable)<br/>Between GPU nodes<br/>(torchrun rendezvous)"]
+            RayPorts["Allow TCP<br/>Ray ports (configurable)<br/>Between Ray workers<br/>(verl backend only)"]
+        end
+
+        subgraph HostRequirements["Host Pod/Container Requirements"]
+            direction TB
+            GPUAccess["GPU Device Access<br/>nvidia.com/gpu resource"]
+            SharedMemory["Shared Memory<br/>/dev/shm (enlarged)<br/>Required for NCCL"]
+            FileSystem["Filesystem Write<br/>Checkpoint + log directories"]
         end
     end
 
-    subgraph SupplyChain["Supply Chain Security"]
-        direction TB
-        LiteLLMWarning["⚠️ litellm version pinning<br/>>=1.82.0, <1.82.7<br/><i>Versions 1.82.7-1.82.8 compromised</i><br/><i>TeamPCP attack 2026-03-24</i>"]
+    HFToken -->|"authenticates"| EgressHF
+    WandBKey -->|"authenticates"| EgressWandB
+    MLflowToken -->|"authenticates"| EgressMLflow
+    LLMKey -->|"authenticates"| EgressLLM
+
+    subgraph SupplyChainSecurity["Supply Chain Security"]
+        LiteLLMExclusion["litellm v1.82.7-1.82.8<br/>EXCLUDED<br/>(supply chain attack)<br/>Enforced via pyproject.toml<br/>version constraints"]
     end
 
-    %% Styling
-    style Notice fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    style Note fill:#e3f2fd,stroke:#1976d2
-    style RuntimeContext fill:#f5f5f5,stroke:#999,stroke-width:1px
-    style PodExecution fill:#e8f5e9,stroke:#388e3c,stroke-width:1px
-    style Credentials fill:#fff3e0,stroke:#f57c00,stroke-width:1px
-    style GPUAccess fill:#fce4ec,stroke:#c62828,stroke-width:1px
-    style SupplyChain fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style LibraryContext fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style DeploymentNote fill:#fff3e0,stroke:#f5a623,stroke-width:2px
+    style RuntimeCredentials fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
+    style EgressPermissions fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+    style DistributedTrainingPerms fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style HostRequirements fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
+    style SupplyChainSecurity fill:#ffebee,stroke:#c62828,stroke-width:3px
 
-    style SA fill:#e8f5e9,stroke:#388e3c
-    style PodRole fill:#e8f5e9,stroke:#388e3c
-    style HFToken fill:#fff3e0,stroke:#f57c00
-    style WandBKey fill:#fff3e0,stroke:#f57c00
-    style MLflowToken fill:#fff3e0,stroke:#f57c00
-    style NVIDIADevice fill:#fce4ec,stroke:#c62828
-    style NCCLNetwork fill:#fce4ec,stroke:#c62828
-    style LiteLLMWarning fill:#ffcdd2,stroke:#c62828
+    style Note fill:#fff3e0,stroke:#f5a623
+    style HFToken fill:#4caf50,color:#fff
+    style WandBKey fill:#4caf50,color:#fff
+    style MLflowToken fill:#4caf50,color:#fff
+    style LLMKey fill:#4caf50,color:#fff
+    style LiteLLMExclusion fill:#e91e63,color:#fff

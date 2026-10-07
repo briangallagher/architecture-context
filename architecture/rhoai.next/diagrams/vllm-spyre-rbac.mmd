@@ -1,43 +1,51 @@
 graph TD
-    subgraph "Authentication & Authorization Model"
+    subgraph "vllm-spyre RBAC Model"
         direction TB
 
-        subgraph "Note"
-            Note["No RBAC resources defined in this repository.<br/>All authentication and authorization is delegated<br/>to the platform-injected kube-rbac-proxy sidecar."]
-        end
-
-        subgraph "Runtime Auth Flow"
-            Client["Client Request<br/>(Bearer Token / JWT)"]
-            Proxy["kube-rbac-proxy Sidecar<br/>(Platform-Injected)"]
-            SAR["SubjectAccessReview<br/>(Kubernetes API)"]
-        end
-
-        subgraph "Protected Endpoints"
-            HTTP["HTTP API<br/>8000/TCP<br/>/v1/completions<br/>/v1/chat/completions<br/>/v1/models<br/>/health"]
-            GRPC["gRPC API<br/>8033/TCP<br/>TGIS GenerationService"]
-        end
-
-        subgraph "Platform-Managed RBAC"
-            KServeSA["KServe ServiceAccount<br/>(manages pod lifecycle)"]
-            KServeRoles["KServe ClusterRoles<br/>(ServingRuntime, InferenceService)"]
-        end
-
-        Client -->|"HTTPS/8443<br/>Bearer Token"| Proxy
-        Proxy -->|"validates token via"| SAR
-        SAR -->|"authorized"| Proxy
-        Proxy -->|"HTTP/8000 (localhost)"| HTTP
-        Proxy -->|"gRPC/8033 (localhost)"| GRPC
-
-        KServeSA -->|"bound via"| KServeRoles
-        KServeRoles -->|"manages"| HTTP
-        KServeRoles -->|"manages"| GRPC
+        Note["NOTE: vllm-spyre defines no RBAC resources.<br/>It is a container image with no Kubernetes API interactions.<br/>All authentication and authorization is delegated<br/>to the kube-rbac-proxy sidecar."]
     end
 
-    style Note fill:#fff3cd,stroke:#ffc107,stroke-width:2px
-    style Client fill:#f9f9f9,stroke:#999
-    style Proxy fill:#f5a623,stroke:#333,color:#fff
-    style SAR fill:#f5a623,stroke:#333,color:#fff
-    style HTTP fill:#4a90e2,stroke:#333,color:#fff
-    style GRPC fill:#4a90e2,stroke:#333,color:#fff
-    style KServeSA fill:#7ed321,stroke:#333,color:#fff
-    style KServeRoles fill:#7ed321,stroke:#333,color:#fff
+    subgraph "Platform-Injected Auth (kube-rbac-proxy sidecar)"
+        direction TB
+
+        ExtClient["External Client"]
+        KRBAC["kube-rbac-proxy<br/>(Sidecar Container)"]
+        PlatformRBAC["Platform RBAC Policy<br/>(Defined by RHOAI Operator)"]
+
+        ExtClient -->|"HTTPS/8443<br/>Bearer Token"| KRBAC
+        KRBAC -->|"evaluates against"| PlatformRBAC
+    end
+
+    subgraph "Protected Endpoints"
+        direction TB
+
+        HTTPEndpoints["HTTP Endpoints (8000/TCP)"]
+        HTTP1["/v1/completions - POST"]
+        HTTP2["/v1/chat/completions - POST"]
+        HTTP3["/v1/models - GET"]
+        HTTP4["/health - GET"]
+
+        GRPCEndpoints["gRPC Endpoints (8033/TCP)"]
+        GRPC1["TGIS GenerationService<br/>unary/streaming"]
+
+        HTTPEndpoints --- HTTP1
+        HTTPEndpoints --- HTTP2
+        HTTPEndpoints --- HTTP3
+        HTTPEndpoints --- HTTP4
+        GRPCEndpoints --- GRPC1
+    end
+
+    KRBAC -->|"authorized requests<br/>(localhost, no auth)"| HTTPEndpoints
+    KRBAC -->|"authorized requests<br/>(localhost, no auth)"| GRPCEndpoints
+
+    subgraph "Container Security Context"
+        SecurityCtx["Non-root execution: USER 2000<br/>No privileged capabilities<br/>No Kubernetes API access"]
+    end
+
+    style Note fill:#fff3cd,stroke:#856404,stroke-width:2px
+    style KRBAC fill:#e8a838,stroke:#333,stroke-width:2px
+    style PlatformRBAC fill:#f5a623,stroke:#333,stroke-width:2px
+    style ExtClient fill:#e8e8e8,stroke:#333,stroke-width:2px
+    style HTTPEndpoints fill:#4a90e2,stroke:#333,stroke-width:2px
+    style GRPCEndpoints fill:#4a90e2,stroke:#333,stroke-width:2px
+    style SecurityCtx fill:#d5e8d4,stroke:#82b366,stroke-width:2px

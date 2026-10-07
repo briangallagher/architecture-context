@@ -1,0 +1,64 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        User["User / kubectl"]
+    end
+
+    subgraph ControlPlane["KUBERNETES CONTROL PLANE"]
+        K8sAPI["Kubernetes API Server<br/>6443/TCP · HTTPS<br/>TLS 1.2+ · RBAC"]
+    end
+
+    subgraph OperatorNS["OPERATOR NAMESPACE (ogx-k8s-operator-system)"]
+        direction TB
+
+        subgraph OperatorPod["ogx-k8s-operator-controller-manager"]
+            direction LR
+            WebhookSvr["Webhook Server<br/>9443/TCP · TLS<br/>Platform TLS Profile"]
+            MetricsSvr["Metrics Server<br/>8443/TCP · HTTPS<br/>TokenReview Auth"]
+            HealthSvr["Health Probes<br/>8081/TCP · HTTP<br/>No Auth"]
+        end
+
+        WebhookSvc["ogx-k8s-operator-webhook-service<br/>ClusterIP · 443→9443/TCP"]
+        MetricsSvc["metrics-service<br/>ClusterIP · 8443/TCP"]
+    end
+
+    subgraph ModuleNS["OGX-MODULE NAMESPACE"]
+        ModuleCtrl["ogx-module Controller<br/>SA: operator<br/>Platform Lifecycle Mgmt"]
+    end
+
+    subgraph MonitoringNS["MONITORING NAMESPACE"]
+        Prometheus["Prometheus Operator<br/>Watches PrometheusRules<br/>& ServiceMonitors"]
+    end
+
+    %% External → Control Plane
+    User -->|"HTTPS/6443<br/>TLS 1.2+<br/>kubeconfig / Bearer"| K8sAPI
+
+    %% Control Plane → Webhook (admission)
+    K8sAPI -->|"HTTPS/9443<br/>TLS (platform profile)<br/>Admission webhook<br/>Fail policy"| WebhookSvc
+    WebhookSvc --> WebhookSvr
+
+    %% Operator → API Server (egress)
+    OperatorPod -->|"HTTPS+WSS/6443<br/>TLS 1.2+<br/>ServiceAccount token<br/>SA: ogx-k8s-operator-controller-manager"| K8sAPI
+
+    %% Module → API Server (egress)
+    ModuleCtrl -->|"HTTPS/6443<br/>TLS 1.2+<br/>ServiceAccount token<br/>SA: operator"| K8sAPI
+
+    %% Monitoring
+    OperatorPod -.->|"Creates/manages<br/>PrometheusRules<br/>ServiceMonitors"| Prometheus
+
+    %% Metrics access
+    MetricsSvc --> MetricsSvr
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef controlplane fill:#e6f3ff,stroke:#4a90e2,stroke-width:2px
+    classDef operator fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef module fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef monitoring fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef service fill:#f5f5f5,stroke:#666,stroke-width:1px,stroke-dasharray: 5 5
+
+    class User external
+    class K8sAPI controlplane
+    class WebhookSvr,MetricsSvr,HealthSvr,OperatorPod operator
+    class ModuleCtrl module
+    class Prometheus monitoring
+    class WebhookSvc,MetricsSvc service

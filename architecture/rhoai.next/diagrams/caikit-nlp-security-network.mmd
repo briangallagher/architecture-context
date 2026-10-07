@@ -1,70 +1,53 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Client["External Client"]
+        Client["Client / Platform Service"]
     end
 
-    subgraph Ingress["INGRESS (KServe / Gateway Layer)"]
-        Gateway["KServe InferenceService Gateway<br/>TLS Termination<br/>AuthN: kube-rbac-proxy / Gateway API"]
-    end
-
-    subgraph Application["APPLICATION (caikit Runtime Container)"]
+    subgraph Platform["PLATFORM BOUNDARY (KServe / ModelMesh)"]
         direction TB
 
-        subgraph RuntimePod["Pod: InferenceService<br/>Namespace: {user-namespace}<br/>User: UID 1001 (caikit, non-root)"]
-            HTTPServer["caikit HTTP Server<br/>8080/TCP ClusterIP<br/>Encryption: Runtime-configured<br/>Auth: Runtime-configured"]
-            gRPCServer["caikit gRPC Server<br/>8085/TCP ClusterIP<br/>Encryption: Runtime-configured<br/>Auth: Runtime-configured"]
+        subgraph Container["Caikit Runtime Container<br/>Image: odh-caikit-nlp-rhel9 (UBI9)"]
+            HTTPServer["Caikit HTTP Server<br/>8080/TCP<br/>TLS configurable<br/>Auth: Platform-managed"]
+            GRPCServer["Caikit gRPC Server<br/>8085/TCP<br/>TLS configurable<br/>Auth: Platform-managed"]
 
-            subgraph CaikitNLP["caikit-nlp Library (in-process)<br/>RUNTIME_LIBRARY=caikit_nlp"]
-                TextGen["TextGeneration<br/>(Local HF Models)"]
-                TextGenTGIS["TextGenerationTGIS<br/>(Remote TGIS)"]
-                Embed["EmbeddingModule<br/>(SentenceTransformer)"]
-                Peft["PeftPromptTuning<br/>(Local Training)"]
-                PeftTGIS["PeftPromptTuningTGIS<br/>(Remote TGIS)"]
-                SeqClass["SequenceClassification"]
-                SpanClass["FilteredSpanClassification"]
+            subgraph Modules["NLP Modules (in-process)"]
+                TextGenMods["Text Generation<br/>(Local + TGIS)"]
+                EmbedMods["Embedding / Reranking<br/>(sentence-transformers)"]
+                ClassMods["Classification<br/>(Sequence + Token)"]
             end
+
+            HTTPServer -->|dispatches| Modules
+            GRPCServer -->|dispatches| Modules
         end
     end
 
     subgraph ExternalServices["EXTERNAL SERVICES"]
-        TGIS["TGIS Server<br/>configurable/TCP<br/>gRPC<br/>TLS optional"]
-        HFHub["HuggingFace Hub<br/>huggingface.co<br/>443/TCP HTTPS<br/>TLS 1.2+"]
+        TGIS["TGIS Backend<br/>configurable/TCP gRPC<br/>TLS optional mTLS<br/>Auth: mTLS certs"]
+        HFHub["HuggingFace Hub<br/>huggingface.co<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: HF Token (optional)"]
     end
 
-    subgraph LocalStorage["LOCAL STORAGE"]
-        ModelMount["/caikit/ Volume Mount<br/>Model artifacts<br/>Prompt vectors (encoder.pt, decoder.pt)"]
+    subgraph LocalServices["LOCAL SERVICES (Training only)"]
+        TorchDist["torch.distributed<br/>localhost:29550/TCP<br/>No encryption<br/>No auth"]
     end
 
-    %% External → Ingress
-    Client -->|"HTTPS<br/>TLS (platform-managed)<br/>Bearer Token"| Gateway
+    %% Ingress flows
+    Client -->|"HTTP/8080 or gRPC/8085<br/>TLS configurable<br/>Auth: Platform (KServe,<br/>kube-rbac-proxy)"| Container
 
-    %% Ingress → Application
-    Gateway -->|"HTTP/8080<br/>Runtime-configured"| HTTPServer
-    Gateway -->|"gRPC/8085<br/>Runtime-configured"| gRPCServer
-
-    %% Runtime → Modules
-    HTTPServer -->|in-process| CaikitNLP
-    gRPCServer -->|in-process| CaikitNLP
-
-    %% Egress: Modules → External
-    TextGenTGIS -->|"gRPC<br/>TLS optional<br/>mTLS optional<br/>ca_cert_file / client_cert"| TGIS
-    PeftTGIS -->|"gRPC<br/>TLS optional<br/>mTLS optional"| TGIS
-    Embed -.->|"HTTPS/443<br/>TLS 1.2+<br/>API token (optional)<br/>allow_downloads=false"| HFHub
-
-    %% Local storage
-    TextGen -->|"File I/O"| ModelMount
-    Peft -->|"File I/O<br/>Save prompt vectors"| ModelMount
-    Embed -->|"File I/O<br/>Load model"| ModelMount
+    %% Egress flows
+    TextGenMods -->|"gRPC<br/>TLS optional mTLS<br/>ca_cert + client_cert"| TGIS
+    Modules -->|"HTTPS/443<br/>TLS 1.2+<br/>HF_TOKEN<br/>(ALLOW_DOWNLOADS=1)"| HFHub
+    Modules -->|"TCP/29550<br/>No encryption<br/>Multi-GPU training"| TorchDist
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
-    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
-    classDef application fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef platform fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef container fill:#d5e8d4,stroke:#82b366,stroke-width:2px
     classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef storage fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef localservice fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef module fill:#e1d5e7,stroke:#9673a6
 
     class Client external
-    class Gateway ingress
-    class HTTPServer,gRPCServer,TextGen,TextGenTGIS,Embed,Peft,PeftTGIS,SeqClass,SpanClass application
+    class HTTPServer,GRPCServer container
+    class TextGenMods,EmbedMods,ClassMods module
     class TGIS,HFHub externalservice
-    class ModelMount storage
+    class TorchDist localservice

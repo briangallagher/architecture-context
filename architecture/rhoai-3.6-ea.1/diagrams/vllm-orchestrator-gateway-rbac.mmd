@@ -1,0 +1,33 @@
+graph TD
+    subgraph "vllm-orchestrator-gateway RBAC"
+        direction TB
+        Note["No cluster-scoped RBAC roles<br/>or bindings defined"]
+    end
+
+    subgraph "Authentication Model"
+        direction TB
+        AuthNote["Authorization header pass-through<br/>No gateway-level enforcement"]
+    end
+
+    subgraph "Auth Flow"
+        Client["API Client"] -->|"Authorization: Bearer {token}"| Gateway["vllm-orchestrator-gateway<br/>(pass-through, no inspection)"]
+        Gateway -->|"Authorization header forwarded<br/>x-forwarded-* headers forwarded"| Orchestrator["vllm-orchestrator<br/>(enforces auth)"]
+    end
+
+    subgraph "TLS Identity (Platform-Managed)"
+        direction LR
+        Cert["/etc/tls/private/tls.crt<br/>Client Certificate"]
+        Key["/etc/tls/private/tls.key<br/>Client Private Key"]
+        CA["/etc/tls/ca/service-ca.crt<br/>CA Certificate"]
+    end
+
+    Gateway -.->|"mTLS identity<br/>(PKCS#12, OpenSSL)"| Cert
+
+    style Note fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style AuthNote fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style Client fill:#e8e8e8,stroke:#999
+    style Gateway fill:#4a90e2,stroke:#333,color:#fff
+    style Orchestrator fill:#7ed321,stroke:#333
+    style Cert fill:#f9f9f9,stroke:#999,stroke-dasharray: 5 5
+    style Key fill:#f9f9f9,stroke:#999,stroke-dasharray: 5 5
+    style CA fill:#f9f9f9,stroke:#999,stroke-dasharray: 5 5

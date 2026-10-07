@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "component": "vllm-cpu",
+  "reads": [
+    {
+      "path": "vllm/entrypoints/openai/api_server.py",
+      "line_range": "250-299",
+      "gap_category": ["authentication"],
+      "question": "Where is authentication enforced for this surface, and is it conditional?",
+      "expected_signal": "middleware, filter, policy, or enforcement branch",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization", "Architectural Analysis", "Purpose"]
+    },
+    {
+      "path": "Dockerfile.cpu.ubi",
+      "line_range": "95-107",
+      "gap_category": ["fips_compliance"],
+      "question": "What is the container entrypoint and base image for FIPS assessment?",
+      "expected_signal": "base image, entrypoint, crypto build flags",
+      "outcome": "resolved",
+      "sections": ["Architecture Components", "FIPS Compliance"]
+    },
+    {
+      "path": "vllm/entrypoints/serve/utils/server_utils.py",
+      "line_range": "1-101",
+      "gap_category": ["authentication", "fips_compliance"],
+      "question": "What is the AuthenticationMiddleware implementation, and what crypto does it use?",
+      "expected_signal": "middleware class, token verification, guarded prefix, crypto primitives",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization", "Architectural Analysis", "FIPS Compliance"]
+    },
+    {
+      "path": "Dockerfile.konflux.cpu",
+      "line_range": "1-30",
+      "gap_category": ["fips_compliance"],
+      "question": "Does the Konflux build set FIPS-relevant build flags or crypto configuration?",
+      "expected_signal": "GRPC_PYTHON_BUILD_SYSTEM_OPENSSL, FIPS flags, base image",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Architectural Analysis"]
+    },
+    {
+      "path": "Dockerfile.konflux.cpu",
+      "line_range": "55-179",
+      "gap_category": ["fips_compliance"],
+      "question": "What is the final image base and runtime crypto environment?",
+      "expected_signal": "base image, runtime dependencies, OpenSSL presence",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    },
+    {
+      "path": "vllm/transformers_utils/s3_utils.py",
+      "line_range": "1-60",
+      "gap_category": ["integration_points"],
+      "question": "How does vllm-cpu integrate with S3 for model storage?",
+      "expected_signal": "boto3 client usage, S3 path handling",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Data Flows", "Architectural Analysis"]
+    },
+    {
+      "path": "pyproject.toml",
+      "line_range": "1-60",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "What are the declared dependencies and plugin entrypoints revealing integration points?",
+      "expected_signal": "dependency declarations, entrypoints, plugin registrations",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Internal Platform Dependencies", "Purpose"]
+    }
+  ]
+}

@@ -1,115 +1,107 @@
 graph TB
-    subgraph OVMS["OpenVINO Model Server (OVMS)"]
+    subgraph OVMS["OpenVINO Model Server (C++ Binary)"]
         direction TB
 
-        subgraph Core["Core Server (C++/Bazel)"]
-            Server["Server<br/>(singleton orchestrator)"]
-            Config["CLI Parser / Config"]
-            Server -->|reads| Config
+        subgraph Frontends["API Frontends"]
+            HTTPServer["HTTP/REST Frontend<br/>(Drogon)<br/>Port 8888/TCP"]
+            GRPCServer["gRPC Frontend<br/>(GRPCServerModule)<br/>Port 8001/TCP"]
         end
 
-        subgraph APILayer["API Layer (Multi-Protocol)"]
-            direction LR
-            DrogonHTTP["Drogon HTTP Server<br/>(REST frontend)"]
-            GRPCServer["gRPC Server<br/>(gRPC frontend)"]
+        subgraph APIRoutes["API Families"]
+            TFSv1["/v1/* TFS API<br/>predict, classify, regress"]
+            KServev2["/v2/* KServe v2 API<br/>infer, ready, metadata"]
+            OpenAIv3["/v3/* OpenAI API<br/>chat, completions, embeddings"]
+            Metrics["/metrics<br/>Prometheus"]
         end
 
-        subgraph Handlers["Request Handlers"]
-            direction LR
-            TFSHandler["TFS v1 Handler<br/>/v1/models/**"]
-            KFSHandler["KServe v2 Handler<br/>/v2/models/**"]
-            V3Handler["OpenAI v3 Handler<br/>/v3/v1/**"]
+        subgraph GenAI["GenAI Modules (MediaPipe Calculators)"]
+            LLM["LLM Module<br/>HttpLLMCalculator<br/>Continuous Batching"]
+            Embeddings["Embeddings Module<br/>EmbeddingsCalculatorOv"]
+            Rerank["Rerank Module<br/>RerankCalculatorOv"]
+            ImageGen["Image Generation<br/>ImageGenCalculator"]
+            STT["Speech-to-Text<br/>S2TCalculator"]
+            TTS["Text-to-Speech<br/>T2SCalculator"]
         end
 
-        subgraph InferenceEngine["Inference Engine"]
-            direction TB
-            MediaPipe["MediaPipe Graph<br/>Executor"]
-            CustomNodes["Custom Node<br/>System (C ABI)"]
-            ServableManager["Servable Manager<br/>Module"]
+        subgraph Core["Core Engine"]
+            ServableManager["Servable Manager<br/>Model Loading & Lifecycle"]
+            DAGScheduler["DAG Scheduler<br/>Pipeline Engine"]
+            MediaPipe["MediaPipe Integration<br/>Graph Orchestration"]
+            PythonInterp["Python Interpreter<br/>(pybind11, optional)"]
+            MetricModule["Metrics Module<br/>Prometheus Client"]
         end
 
-        subgraph RuntimeLibs["Runtime Libraries"]
-            direction LR
-            OVRuntime["OpenVINO Runtime<br/>2026.1"]
-            OVGenAI["OpenVINO GenAI<br/>(LLM/VLM pipelines)"]
-            OVTokenizers["OpenVINO Tokenizers"]
+        subgraph Storage["Storage Backends"]
+            LocalFS["Local Filesystem"]
+            S3Client["S3 Client<br/>(AWS SDK)"]
+            GCSClient["GCS Client<br/>(GCS SDK)"]
+            AzureClient["Azure Blob Client<br/>(Azure SDK 7.5)"]
+            HFPull["HuggingFace Pull<br/>(libgit2)"]
         end
 
-        subgraph Extensions["Extensions"]
-            direction LR
-            PythonBinding["Python Binding<br/>(pybind11)"]
-            CAPILib["libovms_shared.so<br/>(C API)"]
-            HFPull["HuggingFace Pull<br/>Module"]
+        subgraph Runtime["Inference Runtime"]
+            OpenVINORT["OpenVINO Runtime 2026.2"]
+            OpenVINOGenAI["OpenVINO GenAI 2026.2"]
+            OpenVINOTok["OpenVINO Tokenizers 2026.2"]
         end
-
-        subgraph Metrics["Observability"]
-            MetricsEndpoint["Prometheus Metrics<br/>/metrics"]
-            Profiler["Profiler Module"]
-        end
-
-        Server -->|starts| DrogonHTTP
-        Server -->|starts| GRPCServer
-        Server -->|starts| ServableManager
-        Server -->|starts| HFPull
-
-        DrogonHTTP -->|routes| TFSHandler
-        DrogonHTTP -->|routes| KFSHandler
-        DrogonHTTP -->|routes| V3Handler
-        DrogonHTTP -->|routes| MetricsEndpoint
-
-        GRPCServer -->|dispatches| KFSHandler
-        GRPCServer -->|dispatches| TFSHandler
-
-        TFSHandler -->|executes| ServableManager
-        KFSHandler -->|executes| ServableManager
-        V3Handler -->|executes| MediaPipe
-
-        MediaPipe -->|invokes| OVGenAI
-        MediaPipe -->|invokes| CustomNodes
-        ServableManager -->|loads models| OVRuntime
-        OVGenAI -->|uses| OVTokenizers
-        OVGenAI -->|uses| OVRuntime
     end
 
-    %% External integrations
-    Client["Client / Gateway"]
-    KServe["KServe Controller"]
-    KubeRBACProxy["kube-rbac-proxy<br/>(sidecar)"]
+    %% External connections
+    HTTPServer --> TFSv1
+    HTTPServer --> KServev2
+    HTTPServer --> OpenAIv3
+    HTTPServer --> Metrics
 
-    subgraph ModelStorage["Model Storage"]
-        direction LR
-        PVC["PVC / Local"]
-        S3["AWS S3"]
-        Azure["Azure Blob"]
-        GCS["Google Cloud<br/>Storage"]
-        HFHub["HuggingFace Hub"]
-    end
+    GRPCServer --> KServev2
+    GRPCServer --> TFSv1
 
-    Client -->|REST/gRPC| KubeRBACProxy
-    KubeRBACProxy -->|proxied requests| DrogonHTTP
-    KubeRBACProxy -->|proxied requests| GRPCServer
-    KServe -->|deploys pod with| OVMS
+    OpenAIv3 --> LLM
+    OpenAIv3 --> Embeddings
+    OpenAIv3 --> Rerank
+    OpenAIv3 --> ImageGen
+    OpenAIv3 --> STT
+    OpenAIv3 --> TTS
 
-    HFPull -->|downloads models| HFHub
-    ServableManager -->|loads from| PVC
-    ServableManager -->|loads from| S3
-    ServableManager -->|loads from| Azure
-    ServableManager -->|loads from| GCS
+    LLM --> MediaPipe
+    Embeddings --> MediaPipe
+    Rerank --> MediaPipe
+    ImageGen --> MediaPipe
+    STT --> MediaPipe
+    TTS --> MediaPipe
+
+    TFSv1 --> ServableManager
+    KServev2 --> ServableManager
+
+    ServableManager --> DAGScheduler
+    ServableManager --> OpenVINORT
+    MediaPipe --> OpenVINOGenAI
+    OpenVINOGenAI --> OpenVINOTok
+    OpenVINOGenAI --> OpenVINORT
+
+    ServableManager --> LocalFS
+    ServableManager --> S3Client
+    ServableManager --> GCSClient
+    ServableManager --> AzureClient
+    ServableManager --> HFPull
+
+    %% External systems
+    KServe["KServe Controller"] -->|"deploys as<br/>ServingRuntime"| OVMS
+    KubeRBACProxy["kube-rbac-proxy<br/>Sidecar (8443/TCP)"] -->|"proxies to"| HTTPServer
+    Prometheus["Prometheus"] -->|"scrapes"| Metrics
 
     %% Styling
-    style OVMS fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    style Core fill:#bbdefb,stroke:#1565c0
-    style APILayer fill:#c8e6c9,stroke:#2e7d32
-    style Handlers fill:#fff9c4,stroke:#f9a825
-    style InferenceEngine fill:#f3e5f5,stroke:#7b1fa2
-    style RuntimeLibs fill:#ffe0b2,stroke:#e65100
-    style Extensions fill:#f0f4c3,stroke:#827717
-    style Metrics fill:#b2ebf2,stroke:#00838f
-    style ModelStorage fill:#fff3e0,stroke:#e65100
-
-    style Server fill:#1565c0,color:#fff
-    style DrogonHTTP fill:#2e7d32,color:#fff
-    style GRPCServer fill:#2e7d32,color:#fff
-    style KubeRBACProxy fill:#c62828,color:#fff
-    style KServe fill:#6a1b9a,color:#fff
-    style Client fill:#37474f,color:#fff
+    style OVMS fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style HTTPServer fill:#4a90e2,color:#fff
+    style GRPCServer fill:#4a90e2,color:#fff
+    style LLM fill:#7ed321,color:#fff
+    style Embeddings fill:#7ed321,color:#fff
+    style Rerank fill:#7ed321,color:#fff
+    style ImageGen fill:#7ed321,color:#fff
+    style STT fill:#7ed321,color:#fff
+    style TTS fill:#7ed321,color:#fff
+    style OpenVINORT fill:#f5a623,color:#fff
+    style OpenVINOGenAI fill:#f5a623,color:#fff
+    style OpenVINOTok fill:#f5a623,color:#fff
+    style KServe fill:#e8e8e8,stroke:#333
+    style KubeRBACProxy fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333

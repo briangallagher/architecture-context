@@ -1,0 +1,74 @@
+graph TB
+    subgraph "pipelines-components"
+        direction TB
+        subgraph "Init Container"
+            InitEntry["init_managed_pipelines<br/>(Container Entrypoint)"]
+            Compiler["Pipeline Compiler<br/>Python DSL → YAML"]
+            ImageSubst["Image Substitution<br/>RELATED_IMAGE_* handling"]
+        end
+
+        subgraph "KFP Component Library (kfp-components)"
+            direction TB
+            subgraph "Data Processing"
+                DatasetDownload["Dataset Download<br/>S3 / HuggingFace"]
+                ParseChunk["Parse & Chunk<br/>Document Processing"]
+                AutoMLLoader["AutoML Data Loader<br/>Tabular Data from S3"]
+            end
+
+            subgraph "Training"
+                InstructLab["InstructLab Fine-Tuning<br/>SFT / LoRA / ORPO"]
+                AutoGluon["AutoGluon Training<br/>Tabular ML"]
+            end
+
+            subgraph "Evaluation"
+                EvalHub["Eval Hub<br/>via KServe"]
+            end
+
+            subgraph "Deployment"
+                KServeDeployComp["KServe Model Serving<br/>Deployment"]
+                ModelRegComp["Model Registry<br/>Registration"]
+            end
+        end
+    end
+
+    %% Init container flow
+    InitEntry -->|"reads"| PrecompiledYAMLs["Pre-compiled<br/>Pipeline YAMLs<br/>(/app)"]
+    InitEntry -->|"checks"| RelatedImages["RELATED_IMAGE_*<br/>env vars"]
+    RelatedImages -->|"if set"| ImageSubst
+    ImageSubst -->|"recompiles"| Compiler
+    InitEntry -->|"copies to"| SharedVolume["/config/managed-pipelines<br/>(Shared Volume)"]
+    SharedVolume -->|"consumed by"| KFPAPI["KFP API Server"]
+
+    %% Pipeline execution dependencies
+    DatasetDownload -->|"boto3"| S3["S3-Compatible Storage"]
+    DatasetDownload -->|"huggingface_hub"| HFHub["HuggingFace Hub"]
+    ParseChunk -->|"CodeFlare SDK"| RayJob["RayJob<br/>(Distributed Processing)"]
+    AutoMLLoader -->|"boto3"| S3
+    EvalHub -->|"inference"| KServe["KServe<br/>Serving Runtime"]
+    ModelRegComp -->|"registers"| ModelRegistry["Kubeflow<br/>Model Registry"]
+
+    %% K8s integration
+    ParseChunk -->|"load_incluster_config()"| K8sAPI["Kubernetes API"]
+
+    %% Styling
+    style InitEntry fill:#4a90e2,color:#fff
+    style Compiler fill:#4a90e2,color:#fff
+    style ImageSubst fill:#4a90e2,color:#fff
+    style DatasetDownload fill:#7ed321,color:#fff
+    style ParseChunk fill:#7ed321,color:#fff
+    style AutoMLLoader fill:#7ed321,color:#fff
+    style InstructLab fill:#f5a623,color:#fff
+    style AutoGluon fill:#f5a623,color:#fff
+    style EvalHub fill:#9b59b6,color:#fff
+    style KServeDeployComp fill:#e74c3c,color:#fff
+    style ModelRegComp fill:#e74c3c,color:#fff
+    style S3 fill:#e8e8e8,stroke:#333
+    style HFHub fill:#e8e8e8,stroke:#333
+    style RayJob fill:#e8e8e8,stroke:#333
+    style KServe fill:#e8e8e8,stroke:#333
+    style ModelRegistry fill:#e8e8e8,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style KFPAPI fill:#e8e8e8,stroke:#333
+    style SharedVolume fill:#fff2cc,stroke:#d6b656
+    style PrecompiledYAMLs fill:#fff2cc,stroke:#d6b656
+    style RelatedImages fill:#fff2cc,stroke:#d6b656

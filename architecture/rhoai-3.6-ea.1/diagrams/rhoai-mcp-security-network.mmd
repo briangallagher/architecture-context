@@ -1,0 +1,65 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Agent["AI Agent / MCP Client"]
+    end
+
+    subgraph Application["APPLICATION LAYER (Namespace: rhoai-mcp)"]
+        direction TB
+
+        subgraph AuthLayer["Authentication Layer"]
+            OIDCMiddleware["OIDC Auth Middleware<br/>(ASGI)<br/>JWT / TokenReview validation<br/>Exempts: /health, /.well-known/*"]
+        end
+
+        subgraph ServerLayer["Server Layer"]
+            FastMCP["FastMCP Server<br/>SA: rhoai-mcp<br/>Image: rhoai-mcp:latest<br/>Replicas: 1<br/>Per-tool RBAC (SubjectAccessReview)"]
+        end
+
+        subgraph PluginLayer["Plugin Layer (pluggy)"]
+            direction LR
+            Workbench["Workbench<br/>(kubeflow.org/notebooks)"]
+            Serving["Model Serving<br/>(serving.kserve.io)"]
+            Training["Training<br/>(trainer.kubeflow.org)"]
+            Pipeline["Pipelines<br/>(DSPA)"]
+            Cluster["Cluster Mgmt<br/>(core resources)"]
+        end
+
+        OIDCMiddleware --> FastMCP
+        FastMCP --> Workbench
+        FastMCP --> Serving
+        FastMCP --> Training
+        FastMCP --> Pipeline
+        FastMCP --> Cluster
+    end
+
+    subgraph K8sLayer["KUBERNETES API SERVER"]
+        K8sAPI["Kubernetes API<br/>6443/TCP<br/>TLS 1.2+<br/>SA Token / User Token / Impersonation"]
+    end
+
+    subgraph Service["CLUSTER SERVICE"]
+        ClusterIP["rhoai-mcp Service<br/>ClusterIP<br/>8000/TCP<br/>Internal Only"]
+    end
+
+    %% Flows
+    Agent -->|"MCP Protocol<br/>stdio (no network)<br/>OR SSE/streamable-http<br/>Port 8000/TCP<br/>Auth: OIDC Bearer (optional)"| ClusterIP
+    ClusterIP -->|"8000/TCP<br/>HTTP"| OIDCMiddleware
+
+    Workbench -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+    Serving -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+    Training -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+    Pipeline -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+    Cluster -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef auth fill:#e74c3c,stroke:#c0392b,stroke-width:2px,color:#fff
+    classDef server fill:#3498db,stroke:#2980b9,stroke-width:2px,color:#fff
+    classDef plugin fill:#27ae60,stroke:#229954,stroke-width:2px,color:#fff
+    classDef k8s fill:#326ce5,stroke:#2457b5,stroke-width:2px,color:#fff
+    classDef service fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+
+    class Agent external
+    class OIDCMiddleware auth
+    class FastMCP server
+    class Workbench,Serving,Training,Pipeline,Cluster plugin
+    class K8sAPI k8s
+    class ClusterIP service

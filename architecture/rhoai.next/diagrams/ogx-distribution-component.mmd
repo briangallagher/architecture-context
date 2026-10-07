@@ -1,0 +1,113 @@
+graph TB
+    subgraph External["External Clients"]
+        Client[Client Application]
+    end
+
+    subgraph Platform["RHOAI Platform"]
+        direction TB
+        Operator["rhods-operator<br/>Manages deployment"]
+        Ingress["Platform Ingress<br/>TLS Termination"]
+    end
+
+    subgraph OGXServer["OGX Server (8321/TCP)"]
+        direction TB
+        API["API Layer<br/>/v1/* endpoints"]
+        Auth["OAuth2/JWT Auth<br/>(conditional)"]
+        InferenceRouter["Inference Router"]
+        VectorIO["Vector I/O Manager"]
+        FileProcessor["File Processor"]
+        AgentRuntime["Agent/Responses Runtime"]
+        OTel["OpenTelemetry<br/>Instrumentation"]
+
+        API --> Auth
+        API --> InferenceRouter
+        API --> VectorIO
+        API --> FileProcessor
+        API --> AgentRuntime
+        AgentRuntime --> InferenceRouter
+        AgentRuntime --> VectorIO
+        AgentRuntime --> FileProcessor
+    end
+
+    subgraph InferenceProviders["Inference Providers"]
+        direction TB
+        vLLM["vLLM<br/>HTTP, Bearer Token"]
+        OpenAI["OpenAI<br/>HTTPS/443, API Key"]
+        Bedrock["AWS Bedrock<br/>HTTPS/443, IAM"]
+        Azure["Azure OpenAI<br/>HTTPS/443, API Key"]
+        VertexAI["Google Vertex AI<br/>HTTPS/443, GCP Creds"]
+        WatsonX["IBM WatsonX<br/>HTTPS/443, API Key"]
+        Gemini["Google Gemini<br/>HTTPS/443, API Key"]
+        Anthropic["Anthropic<br/>HTTPS/443, API Key"]
+    end
+
+    subgraph Storage["Storage & Vector DBs"]
+        direction TB
+        PostgreSQL["PostgreSQL<br/>5432/TCP, Password"]
+        Milvus["Milvus<br/>TCP, Token"]
+        pgvector["pgvector<br/>5432/TCP, Password"]
+        Qdrant["Qdrant<br/>6333/6334 TCP, API Key"]
+        S3["S3 Storage<br/>HTTPS/443, IAM"]
+    end
+
+    subgraph Tools["Tool Providers"]
+        direction TB
+        Brave["Brave Search<br/>HTTPS/443"]
+        Tavily["Tavily Search<br/>HTTPS/443"]
+        DoclingServe["Docling Serve<br/>HTTP, API Key"]
+        MCP["MCP Servers<br/>varies"]
+    end
+
+    subgraph EmbeddedModels["Pre-fetched Models (in-image)"]
+        GraniteEmb["Granite Embedding<br/>125m-english"]
+        DoclingModels["Docling Models<br/>v2.3.0"]
+        RapidOCR["RapidOCR v3.8.0"]
+    end
+
+    subgraph AuthProvider["Auth Provider"]
+        OIDC["OAuth2/OIDC Issuer<br/>JWKS endpoint"]
+    end
+
+    Client -->|HTTPS| Ingress
+    Ingress -->|HTTP/8321| API
+    Operator -->|manages| OGXServer
+
+    InferenceRouter --> vLLM
+    InferenceRouter --> OpenAI
+    InferenceRouter --> Bedrock
+    InferenceRouter --> Azure
+    InferenceRouter --> VertexAI
+    InferenceRouter --> WatsonX
+    InferenceRouter --> Gemini
+    InferenceRouter --> Anthropic
+
+    VectorIO --> Milvus
+    VectorIO --> pgvector
+    VectorIO --> Qdrant
+
+    FileProcessor --> S3
+    FileProcessor --> DoclingServe
+    FileProcessor --> GraniteEmb
+    FileProcessor --> DoclingModels
+    FileProcessor --> RapidOCR
+
+    AgentRuntime --> Brave
+    AgentRuntime --> Tavily
+    AgentRuntime --> MCP
+
+    OGXServer --> PostgreSQL
+    Auth --> OIDC
+    OTel -->|OTLP| OTelCollector["OTel Collector"]
+
+    style API fill:#4a90e2,stroke:#333,color:#fff
+    style Auth fill:#e8544e,stroke:#333,color:#fff
+    style InferenceRouter fill:#4a90e2,stroke:#333,color:#fff
+    style VectorIO fill:#4a90e2,stroke:#333,color:#fff
+    style FileProcessor fill:#4a90e2,stroke:#333,color:#fff
+    style AgentRuntime fill:#4a90e2,stroke:#333,color:#fff
+    style OTel fill:#9b59b6,stroke:#333,color:#fff
+    style PostgreSQL fill:#336791,stroke:#333,color:#fff
+    style vLLM fill:#7ed321,stroke:#333,color:#fff
+    style Operator fill:#ee0000,stroke:#333,color:#fff
+    style OIDC fill:#f5a623,stroke:#333,color:#fff
+    style Client fill:#f9f9f9,stroke:#999

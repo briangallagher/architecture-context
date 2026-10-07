@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jctanner/odh.architecture-context/schemas/structured-component-assembly-policy-v1.schema.json",
+  "title": "Trusted structured component assembly policy v1",
+  "description": "Trusted orchestrator/CLI policy that binds attribution, authority, and human decisions to one canonical proposal and analyzer input. It must never be populated from model response fields.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "policy_id", "patch_id", "proposal_fingerprint", "bundle_fingerprint", "version_scope", "origin", "authority", "decisions"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "policy_id": {"$ref": "#/$defs/nonEmptyString"},
+    "patch_id": {"$ref": "#/$defs/nonEmptyString"},
+    "proposal_fingerprint": {"$ref": "#/$defs/sha256"},
+    "bundle_fingerprint": {"$ref": "#/$defs/sha256"},
+    "version_scope": {"allOf": [{"$ref": "#/$defs/nonEmptyString"}, {"not": {"const": "unknown"}}]},
+    "origin": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "id", "claim_class"],
+      "properties": {
+        "kind": {"enum": ["model", "human-correction", "overlay"]},
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "claim_class": {"enum": ["implementation", "support", "planned", "correction"]}
+      }
+    },
+    "authority": {
+      "type": "object", "additionalProperties": false,
+      "required": ["actor", "allowed_fact_types"],
+      "properties": {
+        "actor": {"$ref": "#/$defs/nonEmptyString"},
+        "allowed_fact_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "structured-component-document-v1.schema.json#/$defs/factType"}}
+      }
+    },
+    "decisions": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/decision"}}
+  },
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "decision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision_id", "operation_id", "decision", "decided_by", "reason"],
+      "properties": {
+        "decision_id": {"$ref": "#/$defs/nonEmptyString"},
+        "operation_id": {"$ref": "#/$defs/nonEmptyString"},
+        "decision": {"enum": ["accept", "reject"]},
+        "decided_by": {"$ref": "#/$defs/nonEmptyString"},
+        "reason": {"$ref": "#/$defs/nonEmptyString"}
+      }
+    }
+  }
+}

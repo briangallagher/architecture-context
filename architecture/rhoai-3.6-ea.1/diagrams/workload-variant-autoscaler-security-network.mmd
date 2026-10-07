@@ -1,0 +1,67 @@
+graph TB
+    subgraph ClusterInternal["CLUSTER INTERNAL (No External Ingress)"]
+        direction TB
+
+        subgraph NS_WVA["Namespace: workload-variant-autoscaler-system"]
+            direction TB
+            Controller["controller-manager<br/>SA: controller-manager<br/>Image: UBI9 (FIPS)<br/>GOEXPERIMENT=strictfipsruntime"]
+            MetricsSvc["controller-manager-metrics-service<br/>ClusterIP :8443/TCP<br/>TLS (self-signed/cert-manager)<br/>Auth: TokenReview + SAR"]
+            HealthProbes[":8081/TCP Health Probes<br/>/healthz, /readyz<br/>HTTP plaintext<br/>Auth: None"]
+        end
+
+        subgraph K8sControl["Kubernetes Control Plane"]
+            K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>SA Token Auth"]
+        end
+
+        subgraph MonitoringStack["Monitoring"]
+            Prometheus["Prometheus<br/>HTTP/HTTPS<br/>TLS 1.2+ (when HTTPS)<br/>Bearer Token / mTLS"]
+            PromScraper["Prometheus Scraper<br/>SA: kube-prometheus-stack-prometheus<br/>Role: metrics-reader"]
+        end
+
+        subgraph ConditionalDeps["Conditional Dependencies"]
+            KEDA["KEDA<br/>ScaledObject CRDs<br/>(optional)"]
+            GatewayAPI["Gateway API Inference Extension<br/>InferencePool CRDs<br/>(optional)"]
+        end
+    end
+
+    %% Controller to K8s API
+    Controller -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token (in-cluster)<br/>RBAC: manager-role"| K8sAPI
+
+    %% Controller to Prometheus (metrics queries)
+    Controller -->|"HTTP or HTTPS<br/>TLS 1.2+ min (HTTPS)<br/>Bearer Token / mTLS<br/>Custom CA supported<br/>Hard dependency"| Prometheus
+
+    %% Controller watches via K8s API
+    K8sAPI -.->|"Watch: ConfigMaps<br/>HPAs, InferencePools<br/>ScaledObjects"| Controller
+
+    %% Scaling actions via K8s API
+    Controller -->|"PATCH Scale subresource<br/>Deployments, LWS<br/>RBAC: manager-role"| K8sAPI
+
+    %% Prometheus scrapes metrics endpoint
+    PromScraper -->|"HTTPS/8443<br/>TokenReview + SAR<br/>metrics-reader role"| MetricsSvc
+
+    %% Conditional dependencies via K8s API
+    Controller -.->|"Watch ScaledObjects<br/>(if CRDs present)"| KEDA
+    Controller -.->|"Watch InferencePools<br/>(if CRDs present)"| GatewayAPI
+
+    %% EPP metrics
+    subgraph EPPAccess["EPP Metrics Access"]
+        EPPReader["SA: epp-metrics-reader<br/>Token: epp-metrics-token<br/>Role: epp-metrics-reader-role"]
+    end
+    EPPReader -.->|"Cluster-scoped<br/>metrics read"| MetricsSvc
+
+    %% Styling
+    classDef controller fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    classDef service fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef k8s fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef monitoring fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef conditional fill:#f9f9f9,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    classDef probes fill:#f8cecc,stroke:#b85450,stroke-width:1px
+    classDef epp fill:#ffe6cc,stroke:#d79b00,stroke-width:1px
+
+    class Controller controller
+    class MetricsSvc service
+    class HealthProbes probes
+    class K8sAPI k8s
+    class Prometheus,PromScraper monitoring
+    class KEDA,GatewayAPI conditional
+    class EPPReader epp

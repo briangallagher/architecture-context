@@ -1,0 +1,59 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client<br/>Inference Consumer"]
+    end
+
+    subgraph MTLSProxy["OPTIONAL: mTLS PROXY (nginx sidecar)"]
+        Nginx["nginx Reverse Proxy<br/>TLS 1.2 + Client Cert<br/>Ciphers: AES256+EECDH<br/>HSTS Enforced"]
+    end
+
+    subgraph Application["APPLICATION (OVMS Pod)"]
+        direction TB
+
+        subgraph RESTAPIs["REST API Endpoints"]
+            TFSV1["/v1/models/* (TFS V1)<br/>Predict, Metadata, Status"]
+            KServeV2["/v2/models/* (KServe V2)<br/>Infer, Ready, Metadata"]
+            OpenAIV3["/v3/* (OpenAI V3)<br/>Chat, Embeddings, Models"]
+            Health["/v2/health/ready, /v2/health/live<br/>Health Probes"]
+            MetricsEP["/metrics<br/>Prometheus Metrics"]
+        end
+
+        subgraph GRPCAPIs["gRPC Services"]
+            GRPCInfer["ModelInfer / ModelStreamInfer<br/>KServe V2 gRPC"]
+        end
+
+        OVMSBinary["/ovms/bin/ovms<br/>C++ Inference Engine<br/>Image: UBI 9 Minimal"]
+    end
+
+    subgraph Storage["STORAGE"]
+        ModelFiles["/mnt/models<br/>Model Artifacts<br/>Provisioned by KServe<br/>Storage Initializer"]
+    end
+
+    subgraph Monitoring["MONITORING"]
+        Prometheus["Prometheus<br/>Pod Annotation Discovery"]
+    end
+
+    %% Default path (no mTLS)
+    Client -->|"REST: 8888/TCP (RHOAI)<br/>HTTP, No Encryption<br/>Auth: None / API Key"| OVMSBinary
+    Client -->|"gRPC: 8001/TCP (RHOAI)<br/>No Encryption<br/>Auth: None"| OVMSBinary
+
+    %% mTLS path
+    Client -.->|"TLS 1.2 + mTLS<br/>Client Certificate<br/>AES256+EECDH"| Nginx
+    Nginx -.->|"proxy_pass (REST)<br/>grpc_pass (gRPC)<br/>Loopback, No Encryption"| OVMSBinary
+
+    %% Internal
+    OVMSBinary -->|"Filesystem<br/>/mnt/models"| ModelFiles
+    Prometheus -->|"GET /metrics<br/>HTTP, No Auth"| MetricsEP
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef mtls fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef application fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef storage fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef monitoring fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+
+    class Client external
+    class Nginx mtls
+    class OVMSBinary,TFSV1,KServeV2,OpenAIV3,Health,MetricsEP,GRPCInfer application
+    class ModelFiles storage
+    class Prometheus monitoring

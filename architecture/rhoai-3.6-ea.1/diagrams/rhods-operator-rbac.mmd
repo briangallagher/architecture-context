@@ -1,0 +1,137 @@
+graph TD
+    subgraph ServiceAccounts["Service Accounts"]
+        SA_Manager["opendatahub-operator-<br/>controller-manager"]
+        SA_Controller["controller-manager"]
+        SA_ClusterProxy["data-science-prometheus-<br/>cluster-proxy"]
+        SA_NSProxy["data-science-prometheus-<br/>namespace-proxy"]
+        SA_Collector["data-science-collector-<br/>collector"]
+        SA_Alertmanager["data-science-monitoringstack-<br/>alertmanager"]
+    end
+
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        CRB_Manager["opendatahub-operator-controller-<br/>manager-rolebinding"]
+        CRB_Controller["controller-manager-<br/>rolebinding"]
+        CRB_ClusterProxy["data-science-prometheus-<br/>cluster-proxy"]
+        CRB_ClusterProxyAuth["data-science-prometheus-<br/>cluster-proxy-auth-delegator"]
+        CRB_NSProxy["data-science-prometheus-<br/>namespace-proxy"]
+        CRB_NSProxyAuth["data-science-prometheus-<br/>namespace-proxy-auth-delegator"]
+        CRB_Collector["data-science-collector-<br/>mlflow-trace-export"]
+        CRB_CollectorProc["generate-processors-<br/>collector-rolebinding"]
+        CRB_Alertmanager["data-science-monitoringstack-<br/>alertmanager-prometheus-<br/>metrics-reader"]
+    end
+
+    subgraph ClusterRoles["ClusterRoles"]
+        CR_Manager["controller-manager-role"]
+        CR_AuthDelegator["system:auth-delegator"]
+        CR_MonView["cluster-monitoring-view"]
+        CR_MLflow["data-science-collector-<br/>mlflow-trace-export"]
+        CR_GenProc["generate-processors-role"]
+    end
+
+    subgraph ComponentEditorRoles["Component Editor/Viewer Roles"]
+        CR_DSPEditor["datasciencepipelines-editor-role"]
+        CR_DSPViewer["datasciencepipelines-viewer-role"]
+        CR_KueueEditor["kueue-editor-role"]
+        CR_KueueViewer["kueue-viewer-role"]
+        CR_MREditor["modelregistry-editor-role"]
+        CR_MRViewer["modelregistry-viewer-role"]
+        CR_RayEditor["ray-editor-role"]
+        CR_RayViewer["ray-viewer-role"]
+        CR_TOEditor["trainingoperator-editor-role"]
+        CR_TOViewer["trainingoperator-viewer-role"]
+        CR_TAIEditor["trustyai-editor-role"]
+        CR_TAIViewer["trustyai-viewer-role"]
+        CR_KServeEditor["kserve-editor-role"]
+        CR_KServeViewer["kserve-viewer-role"]
+        CR_WBEditor["workbenches-editor-role"]
+        CR_WBViewer["workbenches-viewer-role"]
+        CR_DashEditor["dashboard-editor-role"]
+        CR_DashViewer["dashboard-viewer-role"]
+    end
+
+    subgraph AdminGroupRoles["Admin/Allowed Group Roles"]
+        CR_AdminCluster["data-science-<br/>admingroupcluster-role"]
+        CR_AdminGroup["data-science-<br/>admingroup-role"]
+        CR_AdminMaaS["data-science-<br/>admingroup-maas-role"]
+        CR_AdminKuadrant["data-science-<br/>admingroup-kuadrant-role"]
+        CR_AllowedGroup["data-science-<br/>allowedgroupcluster-role"]
+        CR_MetricsView["data-science-<br/>metrics-view"]
+    end
+
+    subgraph Resources["Key API Resources"]
+        R_DSC["datasciencecluster.opendatahub.io<br/>DataScienceClusters"]
+        R_Components["components.platform.opendatahub.io<br/>DSP, Kueue, ModelRegistry,<br/>Ray, Spark, Trainer,<br/>TrainingOp, TrustyAI, KServe,<br/>Dashboard, Workbenches"]
+        R_Services["services.platform.opendatahub.io<br/>Auths, Monitorings,<br/>GatewayConfigs"]
+        R_Infra["infrastructure.opendatahub.io<br/>HardwareProfiles"]
+        R_ModelReg["modelregistry.opendatahub.io<br/>ModelRegistries"]
+        R_MaaS["maas.opendatahub.io<br/>MaaSModelRefs,<br/>MaaSAuthPolicies,<br/>MaaSSubscriptions"]
+        R_Monitoring["monitoring.coreos.com<br/>PodMonitors, ServiceMonitors,<br/>PrometheusRules"]
+        R_OpenShift["OpenShift APIs<br/>Routes, ImageStreams,<br/>Users, Groups"]
+    end
+
+    %% Operator SA bindings
+    SA_Manager -->|bound via| CRB_Manager
+    CRB_Manager -->|grants| CR_Manager
+    SA_Controller -->|bound via| CRB_Controller
+    CRB_Controller -->|grants| CR_Manager
+
+    %% Monitoring SA bindings
+    SA_ClusterProxy -->|bound via| CRB_ClusterProxy
+    CRB_ClusterProxy -->|grants| CR_MonView
+    SA_ClusterProxy -->|bound via| CRB_ClusterProxyAuth
+    CRB_ClusterProxyAuth -->|grants| CR_AuthDelegator
+    SA_NSProxy -->|bound via| CRB_NSProxy
+    CRB_NSProxy -->|grants| CR_MonView
+    SA_NSProxy -->|bound via| CRB_NSProxyAuth
+    CRB_NSProxyAuth -->|grants| CR_AuthDelegator
+    SA_Collector -->|bound via| CRB_Collector
+    CRB_Collector -->|grants| CR_MLflow
+    SA_Collector -->|bound via| CRB_CollectorProc
+    CRB_CollectorProc -->|grants| CR_GenProc
+    SA_Alertmanager -->|bound via| CRB_Alertmanager
+    CRB_Alertmanager -->|grants| CR_MonView
+
+    %% Role to resource mappings
+    CR_Manager -->|"full lifecycle mgmt"| R_DSC
+    CR_Manager -->|"full lifecycle mgmt"| R_Components
+    CR_Manager -->|"full lifecycle mgmt"| R_Services
+
+    CR_AdminCluster -->|"get,list,patch,update,watch"| R_DSC
+    CR_AdminCluster -->|"CRUD"| R_ModelReg
+    CR_AdminCluster -->|"get,list,watch"| R_MaaS
+
+    CR_AdminGroup -->|"get,list,patch,update,watch"| R_Services
+    CR_AdminGroup -->|"CRUD"| R_Infra
+    CR_AdminGroup -->|"get,list,watch"| R_OpenShift
+
+    CR_AdminMaaS -->|"CRUD"| R_MaaS
+    CR_AllowedGroup -->|"get,list,watch"| R_Services
+
+    CR_GenProc -->|"get,list,watch"| R_Monitoring
+
+    %% Styling
+    style SA_Manager fill:#4a90e2,color:#fff
+    style SA_Controller fill:#4a90e2,color:#fff
+    style SA_ClusterProxy fill:#4a90e2,color:#fff
+    style SA_NSProxy fill:#4a90e2,color:#fff
+    style SA_Collector fill:#4a90e2,color:#fff
+    style SA_Alertmanager fill:#4a90e2,color:#fff
+    style CR_Manager fill:#f5a623
+    style CR_AuthDelegator fill:#f5a623
+    style CR_MonView fill:#f5a623
+    style CR_MLflow fill:#f5a623
+    style CR_GenProc fill:#f5a623
+    style CR_AdminCluster fill:#e67e22
+    style CR_AdminGroup fill:#e67e22
+    style CR_AdminMaaS fill:#e67e22
+    style CR_AdminKuadrant fill:#e67e22
+    style CR_AllowedGroup fill:#e67e22
+    style CR_MetricsView fill:#e67e22
+    style R_DSC fill:#7ed321,color:#fff
+    style R_Components fill:#7ed321,color:#fff
+    style R_Services fill:#7ed321,color:#fff
+    style R_Infra fill:#7ed321,color:#fff
+    style R_ModelReg fill:#7ed321,color:#fff
+    style R_MaaS fill:#7ed321,color:#fff
+    style R_Monitoring fill:#7ed321,color:#fff
+    style R_OpenShift fill:#7ed321,color:#fff

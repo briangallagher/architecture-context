@@ -21,6 +21,9 @@ func DiscoverVersions(fsys fs.FS, symlinks map[string]string) ([]types.VersionIn
 	for alias, target := range symlinks {
 		targetToAliases[target] = append(targetToAliases[target], alias)
 	}
+	for target := range targetToAliases {
+		sort.Strings(targetToAliases[target])
+	}
 
 	var realDirs []string
 	for _, entry := range entries {
@@ -85,13 +88,19 @@ func countComponentFiles(fsys fs.FS, dir string) int {
 	if err != nil {
 		return 0
 	}
-	count := 0
+	components := make(map[string]bool)
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") && !isExcludedFile(e.Name()) {
-			count++
+			components[strings.TrimSuffix(e.Name(), ".md")] = true
+			continue
+		}
+		if e.IsDir() && !isExcludedDirectory(e.Name()) {
+			if info, statErr := fs.Stat(fsys, dir+"/"+e.Name()+"/document.json"); statErr == nil && !info.IsDir() {
+				components[e.Name()] = true
+			}
 		}
 	}
-	return count
+	return len(components)
 }
 
 // LoadSymlinksFromDisk discovers symlinks by reading the real filesystem.
@@ -132,6 +141,7 @@ func LoadSymlinksFromFS(fsys fs.FS) map[string]string {
 }
 
 var excludedFiles = map[string]bool{
+	"INDEX.md":              true,
 	"PLATFORM.md":           true,
 	"README.md":             true,
 	"RHOAI-Build-Config.md": true,
@@ -141,6 +151,22 @@ var excludedFiles = map[string]bool{
 
 func isExcludedFile(name string) bool {
 	return excludedFiles[name]
+}
+
+var excludedDirectories = map[string]bool{
+	".analyzer":    true,
+	".generation":  true,
+	"attempts":     true,
+	"contracts":    true,
+	"diagrams":     true,
+	"logs":         true,
+	"metadata":     true,
+	"run-metadata": true,
+	"runs":         true,
+}
+
+func isExcludedDirectory(name string) bool {
+	return excludedDirectories[name]
 }
 
 func versionSortKey(name string) string {

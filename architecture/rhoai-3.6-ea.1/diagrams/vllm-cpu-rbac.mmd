@@ -1,0 +1,53 @@
+graph TD
+    subgraph "vllm-cpu Authentication Model"
+        direction TB
+
+        Note["Note: vllm-cpu has no Kubernetes RBAC<br/>(ClusterRoles/RoleBindings) defined<br/>at the application level.<br/><br/>Authentication is handled at the<br/>application layer via Bearer tokens."]
+
+        subgraph "Application-Level Auth"
+            direction TB
+            Config["Configuration<br/>--api-key flag or<br/>VLLM_API_KEY env var"]
+            AuthMW["AuthenticationMiddleware<br/>(ASGI Middleware)"]
+            Config -->|"enables"| AuthMW
+        end
+
+        subgraph "Guarded Paths"
+            direction LR
+            V1["/v1/*<br/>OpenAI, Anthropic,<br/>LoRA, Audio APIs"]
+            V2["/v2/*<br/>Embed, Rerank APIs"]
+            Inference["/inference/*<br/>Inference API"]
+        end
+
+        subgraph "Unguarded Paths"
+            direction LR
+            Health["/health<br/>/ready<br/>/readyz"]
+            Ops["/load<br/>/docs<br/>/version<br/>/ping"]
+        end
+
+        AuthMW -->|"Bearer token required<br/>SHA-256 + compare_digest"| V1
+        AuthMW -->|"Bearer token required<br/>SHA-256 + compare_digest"| V2
+        AuthMW -->|"Bearer token required<br/>SHA-256 + compare_digest"| Inference
+
+        subgraph "Sensitive Environment Variables"
+            direction TB
+            VLLM_KEY["VLLM_API_KEY<br/>API authentication token"]
+            S3_KEY["S3_SECRET_ACCESS_KEY<br/>S3 storage credentials"]
+            OPENAI_KEY["OPENAI_API_KEY<br/>External API key"]
+            GH_KEY["GH_TOKEN / GITHUB_TOKEN<br/>GitHub access"]
+            HF_KEY["MODELSCOPE_API_TOKEN<br/>HuggingFace/ModelScope"]
+        end
+    end
+
+    style Note fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style AuthMW fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style Config fill:#dae8fc,stroke:#6c8ebf
+    style V1 fill:#d5e8d4,stroke:#82b366
+    style V2 fill:#d5e8d4,stroke:#82b366
+    style Inference fill:#d5e8d4,stroke:#82b366
+    style Health fill:#fff2cc,stroke:#d6b656
+    style Ops fill:#fff2cc,stroke:#d6b656
+    style VLLM_KEY fill:#f8cecc,stroke:#b85450
+    style S3_KEY fill:#f8cecc,stroke:#b85450
+    style OPENAI_KEY fill:#e8e8e8,stroke:#999
+    style GH_KEY fill:#e8e8e8,stroke:#999
+    style HF_KEY fill:#e8e8e8,stroke:#999

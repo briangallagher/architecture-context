@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "component": "kube-rbac-proxy",
+  "reads": [
+    {
+      "path": "cmd/kube-rbac-proxy/app/kube-rbac-proxy.go",
+      "line_range": "200-325",
+      "gap_category": ["authentication", "integration_points"],
+      "question": "How is authentication initialized (OIDC vs delegating), how is the authorizer chain constructed, and how does the reverse proxy integrate with the upstream service?",
+      "expected_signal": "authenticator construction, authorizer chain assembly, reverse proxy transport initialization",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Integration Points", "Data Flows"]
+    },
+    {
+      "path": "cmd/kube-rbac-proxy/app/kube-rbac-proxy.go",
+      "line_range": "320-440",
+      "gap_category": ["authentication", "fips_compliance"],
+      "question": "How is the authentication handler chain applied to HTTP requests, what TLS configuration is used for the secure listener, and how is the /healthz endpoint configured?",
+      "expected_signal": "WithAuthentication/WithAuthorization filter chain, TLS config with cipher suites and min version, healthz handler",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "HTTP Endpoints", "FIPS Compliance", "Data Flows"]
+    },
+    {
+      "path": "cmd/kube-rbac-proxy/app/kube-rbac-proxy.go",
+      "line_range": "490-550",
+      "gap_category": ["authentication"],
+      "question": "How is kubeconfig-based authentication initialized for out-of-cluster and in-cluster modes?",
+      "expected_signal": "kubeconfig credential chain, in-cluster config fallback",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization"]
+    },
+    {
+      "path": "cmd/kube-rbac-proxy/main.go",
+      "line_range": "1-32",
+      "gap_category": ["integration_points"],
+      "question": "What is the entrypoint structure and how does it initialize the proxy command?",
+      "expected_signal": "main function, Cobra command construction, CLI entry point",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Integration Points"]
+    },
+    {
+      "path": "Dockerfile.konflux",
+      "line_range": "1-36",
+      "gap_category": ["fips_compliance"],
+      "question": "What FIPS build flags (GOEXPERIMENT, CGO_ENABLED, build tags), base images, and linking mode are configured for the Konflux build?",
+      "expected_signal": "GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, -tags strictfipsruntime, UBI base images",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    },
+    {
+      "path": "cmd/kube-rbac-proxy/app/transport.go",
+      "line_range": "1-78",
+      "gap_category": ["fips_compliance", "authentication"],
+      "question": "What TLS configuration is applied to upstream transport connections? Is TLS minimum version enforced, and are there any non-FIPS crypto risks?",
+      "expected_signal": "TLS min version, cipher suite config, upstream CA/mTLS support, no InsecureSkipVerify",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Architectural Analysis", "Integration Points"]
+    }
+  ]
+}

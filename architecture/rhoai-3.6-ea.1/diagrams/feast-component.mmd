@@ -1,0 +1,77 @@
+graph TB
+    subgraph FeastOperator["Feast Operator (Go)"]
+        direction TB
+        FeatureStoreReconciler["FeatureStoreReconciler<br/>controller-runtime v0.23.3<br/>Owns 12 resource types"]
+        NotebookCMReconciler["NotebookConfigMapReconciler<br/>Injects Feast client config<br/>into Kubeflow Notebooks"]
+        Webhook["Webhook Server<br/>Validates FeatureStore CRs"]
+        MetricsEndpoint["Metrics Endpoint<br/>:8443/metrics<br/>TokenReview + SAR auth"]
+    end
+
+    subgraph GoFeatureServer["Go Feature Server"]
+        direction TB
+        HTTPHandler["HTTP Handler<br/>/get-online-features<br/>/health"]
+        GRPCServing["gRPC ServingService<br/>GetFeastServingInfo<br/>GetOnlineFeatures"]
+        GRPCHealth["gRPC Health<br/>Check"]
+        PrometheusMetrics["Prometheus Metrics<br/>/metrics"]
+    end
+
+    subgraph PythonFeatureServer["Python Feature Server"]
+        direction TB
+        FastAPIApp["FastAPI/Starlette App<br/>90+ REST endpoints<br/>Port 6566"]
+        SecurityManager["SecurityManager<br/>AuthManager<br/>OIDC / K8s RBAC / NoAuth"]
+        GRPCRegistry["gRPC RegistryServer<br/>55+ RPCs"]
+        GRPCFeature["gRPC GrpcFeatureServer<br/>GetOnlineFeatures / Push"]
+        GRPCTransform["gRPC TransformationService<br/>TransformFeatures"]
+        FeastUI["Feast UI<br/>Web interface"]
+        LineageTracker["Lineage Tracker<br/>OpenLineage integration"]
+        MonitoringEngine["Monitoring Engine<br/>Feature drift / quality"]
+    end
+
+    %% CRD
+    User[Data Scientist / Admin] -->|creates| FeatureStoreCR["FeatureStore CR<br/>feast.dev/v1, v1alpha1<br/>Namespaced"]
+    FeatureStoreCR -->|watched by| FeatureStoreReconciler
+    FeatureStoreCR -->|watched by| NotebookCMReconciler
+
+    %% Operator creates owned resources
+    FeatureStoreReconciler -->|creates| Deployments["Deployments"]
+    FeatureStoreReconciler -->|creates| Services["Services"]
+    FeatureStoreReconciler -->|creates| ConfigMaps["ConfigMaps"]
+    FeatureStoreReconciler -->|creates| ServiceAccounts["ServiceAccounts"]
+    FeatureStoreReconciler -->|creates| HPAs["HorizontalPodAutoscalers"]
+    FeatureStoreReconciler -->|creates| PDBs["PodDisruptionBudgets"]
+    FeatureStoreReconciler -->|creates| CronJobs["CronJobs"]
+    FeatureStoreReconciler -->|creates| Routes["OpenShift Routes"]
+    FeatureStoreReconciler -->|creates| RBACResources["Roles / RoleBindings"]
+    FeatureStoreReconciler -->|creates| PVCs["PersistentVolumeClaims"]
+
+    %% Notebook integration
+    NotebookCMReconciler -->|injects config into| KubeflowNotebooks["Kubeflow Notebooks"]
+
+    %% Go Feature Server connections
+    HTTPHandler -->|reads from| OnlineStore["Online Store<br/>PostgreSQL / Redis / Valkey"]
+    HTTPHandler -->|reads from| Registry["Registry<br/>S3 / GCS"]
+    GRPCServing -->|reads from| OnlineStore
+    GRPCServing -->|reads from| Registry
+
+    %% Python Feature Server connections
+    FastAPIApp -->|auth via| SecurityManager
+    SecurityManager -->|validates tokens| OIDCProvider["OIDC Provider"]
+    SecurityManager -->|validates tokens| K8sAPI["Kubernetes API<br/>:6443"]
+    FastAPIApp -->|reads/writes| OnlineStore
+    FastAPIApp -->|reads/writes| Registry
+    LineageTracker -->|emits events| OpenLineage["OpenLineage"]
+
+    %% Monitoring
+    FeatureStoreReconciler -->|creates| ServiceMonitors["ServiceMonitors<br/>prometheus-operator"]
+
+    %% Styling
+    style FeastOperator fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    style GoFeatureServer fill:#7ed321,stroke:#333,stroke-width:2px,color:#fff
+    style PythonFeatureServer fill:#f5a623,stroke:#333,stroke-width:2px,color:#000
+    style FeatureStoreCR fill:#e8e8e8,stroke:#333,stroke-width:2px
+    style OnlineStore fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style Registry fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style OIDCProvider fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style K8sAPI fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style KubeflowNotebooks fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    style OpenLineage fill:#fff2cc,stroke:#d6b656,stroke-width:2px

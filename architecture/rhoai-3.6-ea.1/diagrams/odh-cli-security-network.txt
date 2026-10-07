@@ -1,0 +1,94 @@
+┌──────────────────────────────────────────────────────────────────────────┐
+│  USER WORKSTATION (Trusted)                                              │
+│                                                                          │
+│  [User / AI Agent]                                                       │
+│         │                                                                │
+│         │ Transport: stdin/stdout (stdio) OR HTTP SSE                     │
+│         │ MCP SSE Bind: 127.0.0.1:8080 (localhost only, no auth)         │
+│         │                                                                │
+│         ▼                                                                │
+│  [rhai-cli / kubectl-odh]                                                │
+│  - Binary: /opt/rhai-cli/bin/rhai-cli                                    │
+│  - Base image: ose-cli-rhel9 (UBI-derived)                               │
+│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                   │
+│  - Auth source: kubeconfig credential chain                              │
+│  - Crypto: stdlib crypto/tls via OpenSSL (FIPS strictfipsruntime)        │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS / WSS                                          │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: kubeconfig credential chain                              │
+│         │   (bearer token, client certificate, or OIDC)                  │
+│         │                                                                │
+│         ▼                                                                │
+├──────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES CONTROL PLANE (Trusted)                                      │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 6443/TCP                                                        │
+│  - Protocol: HTTPS / WSS                                                 │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: RBAC (pre-flight via SelfSubjectAccessReview)                   │
+│  - Client types:                                                         │
+│    - Dynamic client (arbitrary resources)                                │
+│    - Discovery client (API discovery)                                    │
+│    - Core client (pods, services, namespaces)                            │
+│    - Authorization client (SelfSubjectAccessReview)                      │
+│    - API extensions client (CRDs)                                        │
+│    - Metadata client (partial object metadata)                           │
+│                                                                          │
+│  [OLM API]                                                               │
+│  - Accessed via Kubernetes API                                           │
+│  - Resources: ClusterServiceVersions, Subscriptions                      │
+│  - Purpose: Operator lifecycle inspection                                │
+│                                                                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│  IN-CLUSTER SERVICES (Conditional - Migration Only)                      │
+│                                                                          │
+│  [TrustYAI Service]                                                      │
+│  - Discovered via: OpenShift Route (by label or name)                    │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+ (InsecureSkipVerify=true)                       │
+│  - Auth: Bearer token (from kubeconfig REST config)                      │
+│  - Methods: GET /metrics/schedule (backup)                               │
+│             POST /metrics/schedule (restore)                             │
+│  - Risk: Certificate verification disabled for in-cluster                │
+│           self-signed routes                                             │
+│                                                                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│  LOCAL SERVICES (Optional - MCP Mode Only)                               │
+│                                                                          │
+│  [MCP Server]                                                            │
+│  - Transport: stdio (default) OR SSE HTTP                                │
+│  - SSE Bind: 127.0.0.1:8080 (localhost only)                            │
+│  - Auth: None (relies on localhost-only binding)                         │
+│  - Security: Process-level kubeconfig credentials                        │
+│  - Purpose: Expose CLI operations as MCP tool calls                      │
+│             for AI agent integration                                     │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No cluster roles or role bindings are bundled with the CLI
+- RBAC enforcement: Pre-flight SelfSubjectAccessReview before privileged operations
+- CLI inherits permissions from the user's kubeconfig identity
+- Required permissions depend on subcommand (get, list, watch, create, update, delete
+  on various resources)
+
+Authentication Chain:
+- Primary: kubeconfig credential chain (bearer token, client certificate, OIDC)
+- Kubernetes API: ServiceAccount token or user credentials via rest.Config
+- TrustYAI: Bearer token extracted from kubeconfig REST config
+- MCP: No authentication (localhost-only)
+
+FIPS Compliance:
+- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
+- Runtime: Dynamic linking against OpenSSL via ose-cli-rhel9 base
+- Crypto: stdlib crypto/tls backed by FIPS-validated OpenSSL
+- Risk: InsecureSkipVerify=true on TrustYAI client (bypasses cert validation,
+         does not affect cipher suite selection)
+
+Secrets:
+- No secrets are provisioned or managed by the CLI itself
+- All credentials sourced from user's kubeconfig environment

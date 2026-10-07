@@ -1,0 +1,52 @@
+graph TD
+    subgraph "Service Account"
+        SA["async-processor SA<br/>(default or configured)"]
+    end
+
+    subgraph "Authentication & Authorization"
+        direction TB
+        HealthAuth["Health Endpoints<br/>/healthz, /readyz<br/>Port: 8081"]
+        MetricsAuth["Metrics Endpoint<br/>/metrics<br/>Port: 9090"]
+    end
+
+    subgraph "Auth Mechanisms"
+        NoAuth["No Authentication<br/>(kubelet probes only)"]
+        K8sAuth["Kubernetes Delegated Auth<br/>controller-runtime<br/>WithAuthenticationAndAuthorization"]
+    end
+
+    subgraph "Network Access"
+        KubeletAccess["Kubelet<br/>(pod-local network)"]
+        K8sAPIAccess["Kubernetes API<br/>:6443/TCP HTTPS<br/>ServiceAccount Token"]
+    end
+
+    subgraph "External Service Auth"
+        RedisAuth["Redis Auth<br/>Password-based<br/>(runtime config)"]
+        GCPAuth["GCP IAM<br/>OAuth2 / Workload Identity"]
+        TLSAuth["mTLS Client Certs<br/>(optional, via CLI flags)"]
+    end
+
+    %% Relationships
+    SA -->|"accesses"| K8sAPIAccess
+    KubeletAccess -->|"probes"| HealthAuth
+    HealthAuth -->|"enforced by"| NoAuth
+    MetricsAuth -->|"enforced by"| K8sAuth
+
+    SA -->|"connects to Redis"| RedisAuth
+    SA -->|"connects to GCP"| GCPAuth
+    SA -->|"connects to backends"| TLSAuth
+
+    %% Notes
+    Note["NOTE: No ClusterRoles or<br/>RoleBindings defined in<br/>component manifests.<br/>RBAC managed by higher-level<br/>llm-d stack orchestrator."]
+
+    %% Styling
+    style SA fill:#4a90e2,stroke:#333,color:#fff
+    style HealthAuth fill:#7ed321,stroke:#333,color:#fff
+    style MetricsAuth fill:#f5a623,stroke:#333,color:#fff
+    style NoAuth fill:#7ed321,stroke:#333,color:#fff
+    style K8sAuth fill:#f5a623,stroke:#333,color:#fff
+    style KubeletAccess fill:#e8e8e8,stroke:#333
+    style K8sAPIAccess fill:#e8e8e8,stroke:#333
+    style RedisAuth fill:#d9534f,stroke:#333,color:#fff
+    style GCPAuth fill:#5bc0de,stroke:#333,color:#fff
+    style TLSAuth fill:#9013fe,stroke:#333,color:#fff
+    style Note fill:#fff3cd,stroke:#856404,color:#856404

@@ -1,68 +1,61 @@
 graph TB
-    subgraph "KServe AutoGluon Server"
+    subgraph AutoGluonServer["KServe AutoGluon Server (Python)"]
         direction TB
-        Main["__main__.py<br/>Entry Point"]
-        Factory["PredictorFactory<br/>Model Type Detection"]
-        Detect["predictor_detect.py<br/>Try-Load Detection"]
-        TabModel["AutoGluonTabularModel<br/>v1 + v2 inference"]
-        TSModel["AutoGluonTimeSeriesModel<br/>v1 inference only"]
-        RuntimePaths["runtime_paths.py<br/>CWD Hardening"]
+        MainEntry["__main__.py<br/>Entry Point"]
+        DetectedModel["AutoGluonDetectedModel<br/>Strategy Facade"]
+        TabularModel["AutoGluonTabularModel<br/>v1 + v2 Protocol"]
+        TSModel["AutoGluonTimeSeriesModel<br/>v1 Protocol"]
+        PredictorDetect["predictor_detect.py<br/>Auto-Detection"]
+        PredictorFactory["predictor_factory.py<br/>Factory"]
+        VersionCompat["version_compat.py<br/>Version Matching"]
+        RuntimePaths["runtime_paths.py<br/>Container Path Fixes"]
+        ModelRepo["autogluon_model_repository.py<br/>Model Repository"]
 
-        Main -->|initializes| Factory
-        Factory -->|delegates to| Detect
-        Detect -->|TimeSeriesPredictor?| TSModel
-        Detect -->|TabularPredictor?| TabModel
-        Main -->|ensures writable cwd| RuntimePaths
+        MainEntry -->|initializes| DetectedModel
+        MainEntry -->|configures| RuntimePaths
+        DetectedModel -->|delegates| PredictorDetect
+        PredictorDetect -->|tries TimeSeriesPredictor| TSModel
+        PredictorDetect -->|falls back TabularPredictor| TabularModel
+        PredictorFactory -->|creates| TabularModel
+        PredictorFactory -->|creates| TSModel
+        VersionCompat -->|validates version| PredictorDetect
     end
 
-    subgraph "Vendored KServe SDK"
-        ModelServer["KServe ModelServer<br/>HTTP/gRPC Framework"]
-        InferProto["Inference Protocol<br/>v1 JSON + v2 Tensor"]
-        ModelRepo["Model Repository"]
+    subgraph KServeSDK["KServe SDK (vendored)"]
+        ModelServer["ModelServer<br/>(uvicorn + fastapi)"]
+        ModelBase["Model Base Class"]
+        InferProtocol["Inference Protocol<br/>v1 JSON + v2 Tensor"]
     end
 
-    subgraph "Vendored kserve-storage"
-        StorageLib["Storage Library<br/>S3, GCS, Azure, HF Hub"]
+    subgraph KServeStorage["KServe Storage (vendored)"]
+        StorageHandler["Storage Handler<br/>S3/GCS/Azure/HF/Local"]
     end
 
-    Main -->|starts| ModelServer
-    TabModel -->|implements| InferProto
-    TSModel -->|implements| InferProto
-    Main -->|registers models| ModelRepo
-    Main -->|downloads model via| StorageLib
+    MainEntry -->|starts| ModelServer
+    DetectedModel -->|extends| ModelBase
+    TabularModel -->|uses| InferProtocol
+    TSModel -->|uses| InferProtocol
+    DetectedModel -->|downloads model via| StorageHandler
 
-    %% External interactions
-    Client[External Client] -->|POST /v1/models/:predict<br/>POST /v2/models/:infer| ModelServer
-    Prometheus[Prometheus] -->|GET /metrics| ModelServer
+    User[Data Scientist / Client] -->|POST inference request| ModelServer
+    ModelServer -->|routes to| DetectedModel
 
-    subgraph "Sidecar (Platform-injected)"
-        RBAC["kube-rbac-proxy<br/>8443/TCP HTTPS"]
-    end
+    KServeController[KServe Controller] -->|creates pod with| MainEntry
+    ISVC["InferenceService CR<br/>modelFormat: autogluon"] -->|watched by| KServeController
+    CSR["ClusterServingRuntime<br/>autogluon runtime"] -->|defines image for| KServeController
 
-    Client -->|443/TCP HTTPS| Ingress["Platform Ingress<br/>Gateway / Route"]
-    Ingress -->|8443/TCP HTTPS| RBAC
-    RBAC -->|8080/TCP HTTP<br/>localhost| ModelServer
+    StorageHandler -->|downloads from| ObjectStorage["Object Storage<br/>(S3/GCS/Azure/HF)"]
 
-    StorageLib -->|443/TCP HTTPS| S3["S3 / GCS / Azure / HF Hub"]
-
-    KServeCtrl["KServe Controller"] -->|creates pods with<br/>this image| Main
-    CSR["ClusterServingRuntime CR<br/>serving.kserve.io/v1alpha1"] -.->|defines container spec| KServeCtrl
-
-    %% Styling
-    style Main fill:#4a90e2,color:#fff
-    style Factory fill:#4a90e2,color:#fff
-    style Detect fill:#4a90e2,color:#fff
-    style TabModel fill:#4a90e2,color:#fff
+    style AutoGluonServer fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style KServeSDK fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style KServeStorage fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style MainEntry fill:#4a90e2,color:#fff
+    style DetectedModel fill:#4a90e2,color:#fff
+    style TabularModel fill:#4a90e2,color:#fff
     style TSModel fill:#4a90e2,color:#fff
-    style RuntimePaths fill:#4a90e2,color:#fff
-    style ModelServer fill:#7ed321,color:#fff
-    style InferProto fill:#7ed321,color:#fff
-    style ModelRepo fill:#7ed321,color:#fff
-    style StorageLib fill:#7ed321,color:#fff
-    style RBAC fill:#f5a623,color:#fff
-    style Ingress fill:#f5a623,color:#fff
-    style S3 fill:#e8e8e8
-    style KServeCtrl fill:#e8e8e8
-    style CSR fill:#e8e8e8
-    style Client fill:#f9f9f9
-    style Prometheus fill:#f9f9f9
+    style ModelServer fill:#9c27b0,color:#fff
+    style KServeController fill:#e8e8e8,stroke:#333
+    style ISVC fill:#f5a623,stroke:#333
+    style CSR fill:#f5a623,stroke:#333
+    style ObjectStorage fill:#fff9c4,stroke:#f9a825
+    style User fill:#c8e6c9,stroke:#2e7d32

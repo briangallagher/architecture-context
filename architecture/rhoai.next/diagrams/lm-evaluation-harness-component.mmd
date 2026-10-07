@@ -1,0 +1,58 @@
+graph TB
+    subgraph External["External Triggers"]
+        EvalHub["EvalHub Service"]
+    end
+
+    subgraph LMEvalJob["LM Evaluation Harness (Batch Job)"]
+        direction TB
+        Adapter["LMEval Adapter<br/>(main.py)<br/>FrameworkAdapter"]
+        Library["lm-evaluation-harness<br/>Core Library<br/>(simple_evaluate API)"]
+        OCIPublisher["OCI Artifact Publisher<br/>(scripts/oci.py)"]
+        S3Downloader["S3 Downloader<br/>(scripts/s3_downloader.py)"]
+
+        Adapter -->|"translates JobSpec<br/>to simple_evaluate()"| Library
+        Adapter -->|"pushes results"| OCIPublisher
+        S3Downloader -->|"pre-populates<br/>/test_data volume"| Library
+    end
+
+    subgraph TaskRegistry["Evaluation Tasks"]
+        BuiltIn["200+ Built-in Tasks<br/>(MMLU, HellaSwag, ARC,<br/>GPQA, IFEval, etc.)"]
+        Unitxt["Unitxt Custom Catalogs<br/>(/opt/app-root/src/my_catalogs)"]
+    end
+
+    subgraph ExternalServices["External Services"]
+        ModelEndpoint["Model Inference Endpoint<br/>(OpenAI-compatible /v1/completions)"]
+        HFHub["HuggingFace Hub"]
+        OCIRegistry["OCI Registry"]
+        S3Storage["S3-Compatible Storage"]
+        MLflow["MLflow Tracking Server"]
+    end
+
+    %% Inbound
+    EvalHub -->|"ConfigMap mount<br/>/meta/job.json"| Adapter
+
+    %% Task loading
+    Library -->|"loads tasks"| BuiltIn
+    Library -->|"loads custom tasks"| Unitxt
+
+    %% Outbound connections
+    Library -->|"sends prompts<br/>local-completions backend"| ModelEndpoint
+    Library -->|"downloads tokenizers<br/>& datasets"| HFHub
+    Adapter -->|"reports status<br/>& results"| EvalHub
+    OCIPublisher -->|"pushes artifacts<br/>via skopeo"| OCIRegistry
+    S3Downloader -->|"downloads cached<br/>models/datasets"| S3Storage
+    Adapter -->|"logs results<br/>& metrics"| MLflow
+
+    %% Styling
+    style Adapter fill:#4a90e2,stroke:#333,color:#fff
+    style Library fill:#4a90e2,stroke:#333,color:#fff
+    style OCIPublisher fill:#4a90e2,stroke:#333,color:#fff
+    style S3Downloader fill:#4a90e2,stroke:#333,color:#fff
+    style EvalHub fill:#7ed321,stroke:#333,color:#fff
+    style ModelEndpoint fill:#f5a623,stroke:#333,color:#fff
+    style HFHub fill:#999,stroke:#333,color:#fff
+    style OCIRegistry fill:#999,stroke:#333,color:#fff
+    style S3Storage fill:#999,stroke:#333,color:#fff
+    style MLflow fill:#999,stroke:#333,color:#fff
+    style BuiltIn fill:#e8e8e8,stroke:#333
+    style Unitxt fill:#e8e8e8,stroke:#333

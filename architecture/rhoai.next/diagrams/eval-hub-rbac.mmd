@@ -1,69 +1,94 @@
 graph TD
-    subgraph ServiceAccounts["Service Accounts"]
-        SA_EvalHub["eval-hub SA<br/>(eval-hub namespace)"]
-        SA_Job["&lt;instance&gt;-&lt;ns&gt;-job SA<br/>(job namespace)"]
+    subgraph Operator["TrustyAI Service Operator (Manages RBAC)"]
+        OpSA["Operator ServiceAccount<br/>trustyai-service-operator"]
     end
 
-    subgraph RoleBindings["Role Bindings (Managed by RHOAI Operator)"]
-        RB_EvalHub["eval-hub role binding<br/>(eval-hub namespace)"]
-        RB_Job["job role binding<br/>(job namespace)"]
-    end
+    subgraph EvalHubRBAC["EvalHub Runtime Permissions<br/>(Granted via Operator SA)"]
+        direction TB
 
-    subgraph Roles["Roles (Managed by RHOAI Operator)"]
-        Role_EvalHub["eval-hub role"]
-        Role_Job["job role"]
-    end
+        subgraph JobMgmt["Job Management"]
+            Jobs["batch/v1<br/>Jobs"]
+        end
 
-    subgraph APIResources_Batch["API Group: batch"]
-        Jobs["Jobs<br/>create, get, list, delete"]
-    end
-
-    subgraph APIResources_Core["API Group: core ('')"]
-        ConfigMaps["ConfigMaps<br/>create, get, list, delete, update"]
-        Secrets["Secrets<br/>get"]
-    end
-
-    subgraph APIResources_Auth["API Group: authentication.k8s.io"]
-        TokenReviews["TokenReviews<br/>create"]
-    end
-
-    subgraph APIResources_Authz["API Group: authorization.k8s.io"]
-        SAR["SubjectAccessReviews<br/>create"]
+        subgraph ConfigMgmt["Configuration Management"]
+            ConfigMaps["core/v1<br/>ConfigMaps"]
+            Secrets["core/v1<br/>Secrets"]
+        end
     end
 
     subgraph AuthFlow["Authentication & Authorization Flow"]
-        direction LR
-        Request["Incoming Request<br/>Bearer Token"] --> TR["TokenReview<br/>(AuthN)"]
-        TR --> SARCheck["SubjectAccessReview<br/>(AuthZ)"]
-        SARCheck --> Allow["Allow / Deny"]
+        direction TB
+
+        subgraph ExternalAuth["External Authentication"]
+            KRP["kube-rbac-proxy<br/>OAuth/Bearer validation"]
+        end
+
+        subgraph HeaderInjection["Header-Based Identity"]
+            XTenant["X-Tenant Header<br/>(maps to namespace)"]
+            XUser["X-User Header<br/>(authenticated user)"]
+        end
+
+        subgraph AppAuth["Application-Level Auth"]
+            EvalHubAPI["EvalHub API<br/>Header validation<br/>(cluster mode)"]
+        end
     end
 
-    %% Bindings
-    SA_EvalHub -->|"bound via"| RB_EvalHub
-    RB_EvalHub -->|"grants"| Role_EvalHub
-    SA_Job -->|"bound via"| RB_Job
-    RB_Job -->|"grants"| Role_Job
+    subgraph SidecarAuth["Sidecar Authentication"]
+        direction TB
 
-    %% Role to Resources
-    Role_EvalHub -->|"batch"| Jobs
-    Role_EvalHub -->|"core"| ConfigMaps
-    Role_EvalHub -->|"core"| Secrets
-    Role_EvalHub -->|"authentication.k8s.io"| TokenReviews
-    Role_EvalHub -->|"authorization.k8s.io"| SAR
+        SA_Token["K8s SA Token<br/>(projected, 5-min cache)"]
+        MLflow_Token["MLflow Bearer Token<br/>(file-based, 5-min cache)"]
+        OCI_Creds["Docker config.json<br/>(challenge-response)"]
+        Ref_Token["Ref Token Resolution<br/>(api-key:ref → secret lookup)"]
+    end
+
+    subgraph SecretResources["Managed Secrets"]
+        ModelAuth["model-auth (Opaque)<br/>Model endpoint API keys"]
+        MLflowSecret["mlflow-token (Opaque)<br/>MLflow bearer token"]
+        OCICreds["oci-credentials (dockerconfigjson)<br/>OCI registry auth"]
+        S3Creds["test-data-s3 (Opaque)<br/>AWS access key, secret, region, endpoint"]
+        TLSCert["TLS certs (kubernetes.io/tls)<br/>Server cert + key"]
+        ServiceCA["service-ca (ConfigMap)<br/>OpenShift service CA bundle<br/>Auto-rotated"]
+    end
+
+    %% RBAC flow
+    OpSA -->|"grants permissions to"| Jobs
+    OpSA -->|"grants permissions to"| ConfigMaps
+    OpSA -->|"grants permissions to"| Secrets
+
+    %% Auth flow
+    KRP -->|"validates identity"| XTenant
+    KRP -->|"validates identity"| XUser
+    XTenant -->|"required in cluster mode"| EvalHubAPI
+    XUser -->|"required in cluster mode"| EvalHubAPI
+
+    %% Sidecar auth
+    SA_Token -->|"authenticates to EvalHub API"| EvalHubAPI
+    MLflow_Token -->|"authenticates to MLflow"| MLflowSecret
+    OCI_Creds -->|"authenticates to OCI"| OCICreds
+    Ref_Token -->|"resolves from"| ModelAuth
+
+    %% Verbs
+    Jobs -.-|"create, get, delete,<br/>list, watch"| JobMgmt
+    ConfigMaps -.-|"create, get, update,<br/>delete"| ConfigMgmt
+    Secrets -.-|"get, list"| ConfigMgmt
 
     %% Styling
-    style SA_EvalHub fill:#4a90e2,stroke:#333,color:#fff
-    style SA_Job fill:#4a90e2,stroke:#333,color:#fff
-    style RB_EvalHub fill:#b8d4f0,stroke:#333
-    style RB_Job fill:#b8d4f0,stroke:#333
-    style Role_EvalHub fill:#f5a623,stroke:#333,color:#fff
-    style Role_Job fill:#f5a623,stroke:#333,color:#fff
-    style Jobs fill:#7ed321,stroke:#333
-    style ConfigMaps fill:#7ed321,stroke:#333
-    style Secrets fill:#ff6b6b,stroke:#333,color:#fff
-    style TokenReviews fill:#7ed321,stroke:#333
-    style SAR fill:#7ed321,stroke:#333
-    style Request fill:#f9f9f9,stroke:#999
-    style TR fill:#dbeafe,stroke:#3b82f6
-    style SARCheck fill:#dbeafe,stroke:#3b82f6
-    style Allow fill:#d5e8d4,stroke:#82b366
+    style OpSA fill:#4a90e2,stroke:#333,color:#fff
+    style KRP fill:#ffe6cc,stroke:#d79b00
+    style EvalHubAPI fill:#4a90e2,stroke:#333,color:#fff
+    style Jobs fill:#f5a623,stroke:#333,color:#fff
+    style ConfigMaps fill:#f5a623,stroke:#333,color:#fff
+    style Secrets fill:#f5a623,stroke:#333,color:#fff
+    style XTenant fill:#d5e8d4,stroke:#82b366
+    style XUser fill:#d5e8d4,stroke:#82b366
+    style ModelAuth fill:#fff2cc,stroke:#d6b656
+    style MLflowSecret fill:#fff2cc,stroke:#d6b656
+    style OCICreds fill:#fff2cc,stroke:#d6b656
+    style S3Creds fill:#fff2cc,stroke:#d6b656
+    style TLSCert fill:#fff2cc,stroke:#d6b656
+    style ServiceCA fill:#fff2cc,stroke:#d6b656
+    style SA_Token fill:#e1d5e7,stroke:#9673a6
+    style MLflow_Token fill:#e1d5e7,stroke:#9673a6
+    style OCI_Creds fill:#e1d5e7,stroke:#9673a6
+    style Ref_Token fill:#e1d5e7,stroke:#9673a6

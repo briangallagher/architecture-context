@@ -1,0 +1,25 @@
+{
+  "schema_version": "test-only",
+  "state": "synthesized",
+  "reuse_eligibility": {"available": true},
+  "requested": {
+    "harness": "fixture",
+    "model": "offline-fixture",
+    "settings": {}
+  },
+  "reported": {
+    "models": ["offline-fixture"],
+    "settings": [{}],
+    "auxiliary_models": ["offline-audit-helper"]
+  },
+  "accepted_response_identity": "response:test-only:001",
+  "responses": [
+    {
+      "response_identity": "response:test-only:001",
+      "requested_model_identity": "offline-fixture",
+      "reported_model": "offline-fixture",
+      "reported_settings": {},
+      "auxiliary_models": ["offline-audit-helper"]
+    }
+  ]
+}

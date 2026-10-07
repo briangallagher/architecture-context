@@ -1,0 +1,56 @@
+graph LR
+    DW["distributed-workloads<br/>Training Runtime Images<br/>+ E2E Test Suite"]
+
+    %% Internal RHOAI Platform Dependencies (CRD consumers)
+    DW -->|"images registered as<br/>ClusterTrainingRuntime"| Trainer["Kubeflow Trainer v2<br/>v2.1.0"]
+    DW -->|"workload admission<br/>via LocalQueue"| Kueue["Kueue<br/>v0.15.7"]
+    DW -->|"Ray cluster mgmt<br/>RayCluster/RayJob"| KubeRay["KubeRay<br/>v1.5.1"]
+
+    %% Base Image Dependencies
+    DW -->|"CUDA/ROCm base"| AIPCC["AIPCC Base Images<br/>cuda-13.0-el9.6"]
+    DW -->|"CPU workbench base"| UBI9["UBI9 Workbench Base"]
+
+    %% Key ML Framework Dependencies
+    DW -->|"distributed training"| PyTorch["PyTorch<br/>v2.10.0"]
+    DW -->|"model training"| Transformers["Transformers<br/>v4.57.6"]
+    DW -->|"optimization"| DeepSpeed["DeepSpeed<br/>v0.18.7"]
+    DW -->|"fine-tuning"| TRL["TRL<br/>v0.24.0"]
+
+    %% Runtime Infrastructure
+    DW -->|"MPI coordination"| OpenMPI["OpenMPI 4.1"]
+    DW -->|"NVIDIA GPU comm"| NCCL["NCCL<br/>v2.27.5"]
+
+    %% Platform Integration
+    DW -->|"cluster resources<br/>HTTPS/6443"| K8sAPI["Kubernetes API<br/>v0.34.2"]
+    DW -->|"workbench mode"| WorkbenchCtrl["OpenShift<br/>Workbench Controller"]
+
+    %% Observability
+    DW -.->|"metrics"| Prometheus["Prometheus Client<br/>v0.25.0"]
+    DW -.->|"tracing"| OTel["OpenTelemetry SDK<br/>v1.40.0"]
+
+    %% Security
+    DW -.->|"TLS/crypto"| Cryptography["cryptography<br/>v46.0.5"]
+
+    %% Example-only Dependencies (dashed)
+    DW -.->|"example: S3 storage"| MinIO["MinIO<br/>(example-scoped)"]
+    DW -.->|"example: shared vols"| NFS["NFS Server<br/>(example-scoped)"]
+
+    style DW fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style Trainer fill:#7ed321,stroke:#333,color:#fff
+    style Kueue fill:#7ed321,stroke:#333,color:#fff
+    style KubeRay fill:#7ed321,stroke:#333,color:#fff
+    style AIPCC fill:#7ed321,stroke:#333,color:#fff
+    style WorkbenchCtrl fill:#7ed321,stroke:#333,color:#fff
+    style UBI9 fill:#999,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style PyTorch fill:#e8e8e8,stroke:#333
+    style Transformers fill:#e8e8e8,stroke:#333
+    style DeepSpeed fill:#e8e8e8,stroke:#333
+    style TRL fill:#e8e8e8,stroke:#333
+    style OpenMPI fill:#e8e8e8,stroke:#333
+    style NCCL fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#dae8fc,stroke:#6c8ebf
+    style OTel fill:#dae8fc,stroke:#6c8ebf
+    style Cryptography fill:#dae8fc,stroke:#6c8ebf
+    style MinIO fill:#fff2cc,stroke:#d6b656
+    style NFS fill:#fff2cc,stroke:#d6b656

@@ -2,70 +2,92 @@ graph TB
     subgraph SparkOperator["Spark Operator"]
         direction TB
 
-        subgraph ControlPlane["Control Plane"]
-            Controller["spark-operator controller<br/>(Go Operator)<br/>controller-runtime"]
-            CertProvider["Certificate Provider<br/>(Self-signed / cert-manager)"]
+        subgraph WorkloadOperator["Workload Operator (Go / controller-runtime)"]
+            Controller["spark-operator controller<br/>Watches CRs, manages Spark<br/>lifecycle state machine"]
+            Webhook["spark-operator webhook<br/>Validates/defaults CRs,<br/>mutates Spark pods"]
         end
 
-        subgraph AdmissionControl["Admission Control Plane"]
-            Webhook["spark-operator webhook<br/>(Go Webhook Server)<br/>9443/TCP HTTPS"]
-        end
-
-        subgraph SchedulerAbstraction["Scheduler Registry (Pluggable)"]
-            Volcano["Volcano Scheduler"]
-            Yunikorn["Yunikorn Scheduler"]
-            KubeSched["kube-scheduler<br/>PodGroups"]
+        subgraph ModuleController["Platform Bridge"]
+            Module["spark-operator-module controller<br/>Watches SparkOperator CR,<br/>renders kustomize manifests<br/>via server-side apply"]
         end
     end
 
     %% CRDs
-    SparkAppCR["SparkApplication CR<br/>(v1beta2)"]
-    ScheduledCR["ScheduledSparkApplication CR<br/>(v1beta2)"]
-    SparkConnectCR["SparkConnect CR<br/>(v1alpha1)"]
+    SparkAppCR["SparkApplication CR<br/>(sparkoperator.k8s.io/v1beta2)"]
+    ScheduledCR["ScheduledSparkApplication CR<br/>(sparkoperator.k8s.io/v1beta2)"]
+    SparkConnectCR["SparkConnect CR<br/>(sparkoperator.k8s.io/v1alpha1)"]
+    SparkOperatorCR["SparkOperator CR<br/>(components.platform.opendatahub.io/v1alpha1)"]
 
-    %% User interaction
-    User["User / Data Scientist"] -->|creates| SparkAppCR
+    %% Users and platform
+    User["User / Data Scientist"]
+    Platform["rhods-operator /<br/>opendatahub-operator"]
+
+    %% Created resources
+    DriverPod["Driver Pod"]
+    ExecutorPods["Executor Pods"]
+    SparkService["Spark UI Service<br/>4040/TCP"]
+    SparkConnectSvc["SparkConnect Server<br/>15002/TCP gRPC"]
+    PDB["PodDisruptionBudget"]
+    Ingress["Ingress (optional)"]
+
+    %% External dependencies
+    K8sAPI["Kubernetes API Server"]
+    Prometheus["Prometheus<br/>8080/TCP metrics"]
+
+    %% User flows
+    User -->|creates| SparkAppCR
     User -->|creates| ScheduledCR
     User -->|creates| SparkConnectCR
+    Platform -->|creates| SparkOperatorCR
 
-    %% CR to Controller
+    %% CR watches
     SparkAppCR -->|watched by| Controller
     ScheduledCR -->|watched by| Controller
     SparkConnectCR -->|watched by| Controller
+    SparkOperatorCR -->|watched by| Module
+
+    %% Webhook intercepts
+    SparkAppCR -.->|validate + default| Webhook
+    ScheduledCR -.->|validate + default| Webhook
+    SparkConnectCR -.->|validate + default| Webhook
 
     %% Controller creates resources
-    Controller -->|spark-submit| SparkSubmit["spark-submit<br/>(subprocess)"]
-    SparkSubmit -->|creates| DriverPod["Driver Pod"]
-    SparkSubmit -->|creates| ExecutorPods["Executor Pods"]
+    Controller -->|creates| DriverPod
+    Controller -->|creates| SparkService
+    Controller -->|creates| SparkConnectSvc
+    Controller -->|creates| PDB
+    Controller -->|creates| Ingress
+    DriverPod -->|spawns| ExecutorPods
 
-    Controller -->|creates| UISvc["{app}-ui-svc<br/>Service"]
-    Controller -->|creates| UIIngress["{app}-ui-ingress<br/>Ingress"]
-    Controller -->|creates| MonitorCM["Monitoring ConfigMap<br/>(Prometheus)"]
+    %% Pod mutation
+    Webhook -.->|mutates pods<br/>volumes, env, sidecars,<br/>GPU, scheduling| DriverPod
+    Webhook -.->|mutates pods| ExecutorPods
 
-    %% Webhook mutation
-    K8sAPI["Kubernetes API Server"] -->|admission review| Webhook
-    Webhook -->|validates| SparkAppCR
-    Webhook -->|defaults| SparkAppCR
-    Webhook -->|mutates pods| DriverPod
-    Webhook -->|mutates pods| ExecutorPods
+    %% Module deploys workload operator
+    Module -->|server-side apply<br/>kustomize manifests| WorkloadOperator
 
-    %% Certificate management
-    CertProvider -->|provisions TLS| Webhook
+    %% API server interaction
+    Controller -->|HTTPS/443| K8sAPI
+    Module -->|HTTPS/443| K8sAPI
 
-    %% Scheduler integration
-    Controller -->|gang scheduling| SchedulerAbstraction
+    %% Metrics
+    Controller -.->|exposes| Prometheus
 
     %% Styling
     style Controller fill:#4a90e2,stroke:#333,color:#fff
     style Webhook fill:#4a90e2,stroke:#333,color:#fff
-    style CertProvider fill:#4a90e2,stroke:#333,color:#fff
-    style SparkAppCR fill:#f5a623,stroke:#333,color:#fff
-    style ScheduledCR fill:#f5a623,stroke:#333,color:#fff
-    style SparkConnectCR fill:#f5a623,stroke:#333,color:#fff
-    style DriverPod fill:#7ed321,stroke:#333,color:#fff
-    style ExecutorPods fill:#7ed321,stroke:#333,color:#fff
-    style SparkSubmit fill:#9b59b6,stroke:#333,color:#fff
+    style Module fill:#9b59b6,stroke:#333,color:#fff
+    style SparkAppCR fill:#f5a623,stroke:#333
+    style ScheduledCR fill:#f5a623,stroke:#333
+    style SparkConnectCR fill:#f5a623,stroke:#333
+    style SparkOperatorCR fill:#f5a623,stroke:#333
+    style DriverPod fill:#7ed321,stroke:#333
+    style ExecutorPods fill:#7ed321,stroke:#333
+    style SparkService fill:#7ed321,stroke:#333
+    style SparkConnectSvc fill:#7ed321,stroke:#333
+    style PDB fill:#7ed321,stroke:#333
+    style Ingress fill:#7ed321,stroke:#333
     style K8sAPI fill:#e8e8e8,stroke:#333
-    style Volcano fill:#95a5a6,stroke:#333,color:#fff
-    style Yunikorn fill:#95a5a6,stroke:#333,color:#fff
-    style KubeSched fill:#95a5a6,stroke:#333,color:#fff
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style User fill:#ddd,stroke:#333
+    style Platform fill:#ddd,stroke:#333

@@ -1,168 +1,155 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
         SA_CM["controller-manager<br/>(operator namespace)"]
-        SA_Instance["per-instance SA<br/>(workload namespaces)"]
-        SA_NonAdmin["non-admin users"]
-        SA_EvalHubJobs["evalhub job runners"]
+        SA_Proxy["{tas-name}-proxy<br/>(instance namespace)"]
     end
 
     subgraph ClusterRoleBindings["ClusterRole Bindings"]
-        CRB_Manager["manager-rolebinding"]
-        CRB_Proxy["proxy-rolebinding"]
-        CRB_AuthDelegator["auth-delegator CRB<br/>(per TAS/GORCH/NEMO/EvalHub)"]
-        CRB_NonAdmin["non-admin-lmeval-binding"]
-        CRB_EvalHubJobs["evalhub-jobs-writer-binding"]
+        CRB_TAS["tas-manager-rolebinding"]
+        CRB_Proxy["{tas-name}-{ns}-proxy-rolebinding"]
+        CRB_TLS["tls-profile-reader-binding"]
+        CRB_Module["module-manager-rolebinding"]
+        CRB_EvalHub["evalhub-manager-rolebinding"]
+        CRB_LMES["lmes-manager-rolebinding"]
+        CRB_GORCH["gorch-manager-rolebinding"]
+        CRB_Nemo["nemo-manager-rolebinding"]
+        CRB_EvalHubAuth["evalhub-auth-reviewer-binding"]
     end
 
-    subgraph ManagerRoles["ClusterRoles - Manager"]
-        CR_TAS["manager-role (TAS)"]
-        CR_LMES["manager-role (LMES)"]
-        CR_JOB_MGR["manager-role (JOB_MGR)"]
-        CR_GORCH["manager-role (GORCH)"]
-        CR_NEMO["manager-role (NEMO)"]
-        CR_EVALHUB["manager-role (EVALHUB)"]
+    subgraph RoleBindings["Role Bindings (namespace-scoped)"]
+        RB_Leader["leader-election-rolebinding<br/>(operator namespace)"]
+        RB_Tenant["evalhub-tenant-admin-binding<br/>(instance namespace)"]
     end
 
-    subgraph UtilityRoles["ClusterRoles - Utility"]
+    subgraph ClusterRoles["ClusterRoles"]
+        CR_TAS["tas-manager-role"]
         CR_Proxy["proxy-role"]
-        CR_Leader["leader-election-role<br/>(namespaced)"]
-        CR_NonAdmin["non-admin-lmeval-role"]
-        CR_EvalHubWriter["evalhub-jobs-writer"]
-        CR_EvalHubConfig["evalhub-job-config"]
+        CR_TLS["tls-profile-reader"]
+        CR_Module["module-manager-role"]
+        CR_EvalHub["evalhub-manager-role"]
+        CR_LMES["lmes-manager-role"]
+        CR_GORCH["gorch-manager-role"]
+        CR_Nemo["nemo-manager-role"]
     end
 
     subgraph TASResources["TAS Resources"]
-        TrustyAIServices["trustyai.opendatahub.io<br/>TrustyAIService<br/>+ status + finalizers"]
-        TAS_Deployments["apps<br/>Deployments<br/>+ status + finalizers"]
-        TAS_Core["core<br/>Services, Pods, ConfigMaps<br/>PVCs, Secrets, SAs, Events"]
-        TAS_KServe["serving.kserve.io<br/>InferenceServices<br/>+ finalizers"]
-        TAS_Istio["networking.istio.io<br/>DestinationRules<br/>VirtualServices"]
-        TAS_Routes["route.openshift.io<br/>Routes"]
-        TAS_Monitors["monitoring.coreos.com<br/>ServiceMonitors"]
-        TAS_RBAC["rbac.authorization.k8s.io<br/>ClusterRoleBindings"]
+        TAS_CRD["trustyai.opendatahub.io<br/>TrustyAIService<br/>get,list,watch,create,<br/>update,patch,delete"]
+        TAS_Apps["apps<br/>Deployments<br/>list,watch,get,create,<br/>update,patch,delete"]
+        TAS_Core["core<br/>Services, Pods, ConfigMaps,<br/>PVCs, Secrets, SAs, Events<br/>get,list,watch,create,<br/>update,patch,delete"]
+        TAS_Routes["route.openshift.io<br/>Routes<br/>list,watch,get,create,<br/>update,patch,delete"]
+        TAS_KServe["serving.kserve.io<br/>InferenceServices<br/>list,watch,get,update,<br/>patch,delete"]
+        TAS_Monitoring["monitoring.coreos.com<br/>ServiceMonitors<br/>list,watch,create"]
+        TAS_RBAC["rbac.authorization.k8s.io<br/>ClusterRoleBindings<br/>get,list,watch,create,<br/>update,delete"]
+        TAS_Istio["networking.istio.io<br/>DestinationRules,<br/>VirtualServices<br/>create,list,watch,get,<br/>update,patch,delete"]
     end
 
-    subgraph LMESResources["LMES Resources"]
-        LMEvalJobs["trustyai.opendatahub.io<br/>LMEvalJob<br/>+ status + finalizers"]
-        LMES_Pods["core<br/>Pods, Pods/exec"]
-        LMES_Config["core<br/>ConfigMaps, Secrets"]
-        LMES_PVCs["core<br/>PersistentVolumeClaims"]
-    end
-
-    subgraph KueueResources["Kueue Resources"]
-        Workloads["kueue.x-k8s.io<br/>Workloads<br/>+ status + finalizers"]
-        ResourceFlavors["kueue.x-k8s.io<br/>ResourceFlavors"]
-        WorkloadPriorities["kueue.x-k8s.io<br/>WorkloadPriorityClasses"]
-    end
-
-    subgraph GORCHResources["GORCH Resources"]
-        GuardrailsOrchestrators["trustyai.opendatahub.io<br/>GuardrailsOrchestrator<br/>+ status + finalizers"]
-        GORCH_KServe["serving.kserve.io<br/>InferenceServices<br/>ServingRuntimes"]
-    end
-
-    subgraph NEMOResources["NEMO Resources"]
-        NemoGuardrails["trustyai.opendatahub.io<br/>NemoGuardrails<br/>+ status + finalizers"]
+    subgraph ModuleResources["Module Resources"]
+        MOD_CRD["components.platform.opendatahub.io<br/>TrustyAIs<br/>get,list,watch,update,patch"]
     end
 
     subgraph EvalHubResources["EvalHub Resources"]
-        EvalHubs["trustyai.opendatahub.io<br/>EvalHub<br/>+ status + finalizers"]
-        EH_Namespaces["core<br/>Namespaces"]
-        EH_Jobs["batch<br/>Jobs"]
+        EH_CRD["trustyai.opendatahub.io<br/>EvalHubs<br/>get,list,watch,create,<br/>update,patch,delete"]
+    end
+
+    subgraph LMESResources["LMES Resources"]
+        LMES_CRD["trustyai.opendatahub.io<br/>LMEvalJobs<br/>get,list,watch,create,<br/>update,patch,delete"]
+        LMES_Pods["core<br/>Pods, Pods/exec, Pods/log<br/>get,list,watch,create,<br/>update,patch,delete"]
+    end
+
+    subgraph GORCHResources["GORCH Resources"]
+        GORCH_CRD["trustyai.opendatahub.io<br/>GuardrailsOrchestrators<br/>get,list,watch,create,<br/>update,patch,delete"]
+        GORCH_KServe["serving.kserve.io<br/>ServingRuntimes,<br/>InferenceServices<br/>list,watch,get"]
+    end
+
+    subgraph NemoResources["Nemo Resources"]
+        NEMO_CRD["trustyai.opendatahub.io<br/>NemoGuardrails<br/>get,list,watch,create,<br/>update,patch,delete"]
+        NEMO_Istio["networking.istio.io<br/>EnvoyFilters<br/>get,list,watch,create,<br/>update,patch,delete"]
+        NEMO_MCP["mcp.kuadrant.io<br/>MCPGatewayExtensions<br/>get,list,watch"]
+        NEMO_GW["gateway.networking.k8s.io<br/>Gateways<br/>get,list,watch"]
     end
 
     subgraph ProxyResources["Proxy Resources"]
-        SAR["authorization.k8s.io<br/>SubjectAccessReviews"]
+        PROXY_Auth["authentication.k8s.io<br/>TokenReviews<br/>create"]
+        PROXY_Authz["authorization.k8s.io<br/>SubjectAccessReviews<br/>create"]
     end
 
-    subgraph LeaderResources["Leader Election"]
-        Leases["coordination.k8s.io<br/>Leases"]
+    subgraph TLSResources["TLS Resources"]
+        TLS_API["config.openshift.io<br/>APIServers<br/>get"]
     end
 
-    %% SA → CRB → CR → Resources
-    SA_CM -->|bound via| CRB_Manager
-    SA_CM -->|bound via| CRB_Proxy
-    SA_Instance -->|bound via| CRB_AuthDelegator
-    SA_NonAdmin -->|bound via| CRB_NonAdmin
-    SA_EvalHubJobs -->|bound via| CRB_EvalHubJobs
+    %% SA → Binding → Role → Resources
+    SA_CM -->|bound via| CRB_TAS
+    SA_CM -->|bound via| CRB_TLS
+    SA_CM -->|bound via| CRB_Module
+    SA_CM -->|bound via| CRB_EvalHub
+    SA_CM -->|bound via| CRB_LMES
+    SA_CM -->|bound via| CRB_GORCH
+    SA_CM -->|bound via| CRB_Nemo
+    SA_CM -->|bound via| CRB_EvalHubAuth
+    SA_CM -->|bound via| RB_Leader
+    SA_Proxy -->|bound via| CRB_Proxy
 
-    CRB_Manager -->|grants| CR_TAS
-    CRB_Manager -->|grants| CR_LMES
-    CRB_Manager -->|grants| CR_JOB_MGR
-    CRB_Manager -->|grants| CR_GORCH
-    CRB_Manager -->|grants| CR_NEMO
-    CRB_Manager -->|grants| CR_EVALHUB
+    CRB_TAS -->|grants| CR_TAS
     CRB_Proxy -->|grants| CR_Proxy
-    CRB_AuthDelegator -->|grants| CR_Leader
-    CRB_NonAdmin -->|grants| CR_NonAdmin
-    CRB_EvalHubJobs -->|grants| CR_EvalHubWriter
+    CRB_TLS -->|grants| CR_TLS
+    CRB_Module -->|grants| CR_Module
+    CRB_EvalHub -->|grants| CR_EvalHub
+    CRB_LMES -->|grants| CR_LMES
+    CRB_GORCH -->|grants| CR_GORCH
+    CRB_Nemo -->|grants| CR_Nemo
 
-    %% TAS permissions
-    CR_TAS -->|"get,list,watch,create<br/>update,patch,delete"| TrustyAIServices
-    CR_TAS -->|"list,watch,get,create<br/>update,patch,delete"| TAS_Deployments
-    CR_TAS -->|"get,list,watch,create<br/>update,patch,delete"| TAS_Core
-    CR_TAS -->|"list,watch,get<br/>update,patch,delete"| TAS_KServe
-    CR_TAS -->|"create,list,watch<br/>get,update,patch,delete"| TAS_Istio
-    CR_TAS -->|"list,watch,get<br/>create,update,patch,delete"| TAS_Routes
-    CR_TAS -->|"list,watch,create"| TAS_Monitors
-    CR_TAS -->|"get,list,watch<br/>create,update,delete"| TAS_RBAC
+    CR_TAS -->|controls| TAS_CRD
+    CR_TAS -->|controls| TAS_Apps
+    CR_TAS -->|controls| TAS_Core
+    CR_TAS -->|controls| TAS_Routes
+    CR_TAS -->|controls| TAS_KServe
+    CR_TAS -->|controls| TAS_Monitoring
+    CR_TAS -->|controls| TAS_RBAC
+    CR_TAS -->|controls| TAS_Istio
 
-    %% LMES permissions
-    CR_LMES -->|"get,list,watch,create<br/>update,patch,delete"| LMEvalJobs
-    CR_LMES -->|"get,list,watch<br/>create,delete"| LMES_Pods
-    CR_LMES -->|"get,watch,list"| LMES_Config
-    CR_LMES -->|"list,get,watch,create<br/>update,patch,delete"| LMES_PVCs
-
-    %% JOB_MGR permissions
-    CR_JOB_MGR -->|"get,list,watch,create<br/>update,patch,delete"| Workloads
-    CR_JOB_MGR -->|"get,list,watch"| ResourceFlavors
-    CR_JOB_MGR -->|"get,list,watch"| WorkloadPriorities
-
-    %% GORCH permissions
-    CR_GORCH -->|"get,list,watch,create<br/>update,patch,delete"| GuardrailsOrchestrators
-    CR_GORCH -->|"list,watch,get"| GORCH_KServe
-
-    %% NEMO permissions
-    CR_NEMO -->|"get,list,watch,create<br/>update,patch,delete"| NemoGuardrails
-
-    %% EVALHUB permissions
-    CR_EVALHUB -->|"get,list,watch,create<br/>update,patch,delete"| EvalHubs
-    CR_EVALHUB -->|"get,list,watch"| EH_Namespaces
-    CR_EVALHUB -->|"get,list,watch,delete"| EH_Jobs
-
-    %% Proxy permissions
-    CR_Proxy -->|"create"| SAR
-
-    %% Leader election
-    CR_Leader -->|"get,create,update"| Leases
-
-    %% Non-admin
-    CR_NonAdmin -->|"get,list,watch,create<br/>update,patch,delete"| LMEvalJobs
-
-    %% EvalHub jobs writer
-    CR_EvalHubWriter -->|"get,list,watch,create<br/>update,patch"| LMES_Config
-    CR_EvalHubWriter -->|"get,list,watch,create<br/>update,patch,delete"| EH_Jobs
+    CR_Module -->|controls| MOD_CRD
+    CR_EvalHub -->|controls| EH_CRD
+    CR_LMES -->|controls| LMES_CRD
+    CR_LMES -->|controls| LMES_Pods
+    CR_GORCH -->|controls| GORCH_CRD
+    CR_GORCH -->|controls| GORCH_KServe
+    CR_Nemo -->|controls| NEMO_CRD
+    CR_Nemo -->|controls| NEMO_Istio
+    CR_Nemo -->|controls| NEMO_MCP
+    CR_Nemo -->|controls| NEMO_GW
+    CR_Proxy -->|controls| PROXY_Auth
+    CR_Proxy -->|controls| PROXY_Authz
+    CR_TLS -->|controls| TLS_API
 
     %% Styling
-    style SA_CM fill:#4a90e2,stroke:#333,color:#fff
-    style SA_Instance fill:#4a90e2,stroke:#333,color:#fff
-    style SA_NonAdmin fill:#4a90e2,stroke:#333,color:#fff
-    style SA_EvalHubJobs fill:#4a90e2,stroke:#333,color:#fff
-
-    style CR_TAS fill:#f5a623,stroke:#333,color:#333
-    style CR_LMES fill:#f5a623,stroke:#333,color:#333
-    style CR_JOB_MGR fill:#f5a623,stroke:#333,color:#333
-    style CR_GORCH fill:#f5a623,stroke:#333,color:#333
-    style CR_NEMO fill:#f5a623,stroke:#333,color:#333
-    style CR_EVALHUB fill:#f5a623,stroke:#333,color:#333
-    style CR_Proxy fill:#f5a623,stroke:#333,color:#333
-    style CR_Leader fill:#f5a623,stroke:#333,color:#333
-    style CR_NonAdmin fill:#f5a623,stroke:#333,color:#333
-    style CR_EvalHubWriter fill:#f5a623,stroke:#333,color:#333
-    style CR_EvalHubConfig fill:#f5a623,stroke:#333,color:#333
-
-    style TrustyAIServices fill:#7ed321,stroke:#333,color:#333
-    style LMEvalJobs fill:#7ed321,stroke:#333,color:#333
-    style GuardrailsOrchestrators fill:#7ed321,stroke:#333,color:#333
-    style NemoGuardrails fill:#7ed321,stroke:#333,color:#333
-    style EvalHubs fill:#7ed321,stroke:#333,color:#333
-    style Workloads fill:#7ed321,stroke:#333,color:#333
+    style SA_CM fill:#4a90e2,color:#fff
+    style SA_Proxy fill:#4a90e2,color:#fff
+    style CR_TAS fill:#f5a623
+    style CR_Proxy fill:#f5a623
+    style CR_TLS fill:#f5a623
+    style CR_Module fill:#f5a623
+    style CR_EvalHub fill:#f5a623
+    style CR_LMES fill:#f5a623
+    style CR_GORCH fill:#f5a623
+    style CR_Nemo fill:#f5a623
+    style TAS_CRD fill:#7ed321
+    style TAS_Apps fill:#7ed321
+    style TAS_Core fill:#7ed321
+    style TAS_Routes fill:#7ed321
+    style TAS_KServe fill:#7ed321
+    style TAS_Monitoring fill:#7ed321
+    style TAS_RBAC fill:#7ed321
+    style TAS_Istio fill:#7ed321
+    style MOD_CRD fill:#7ed321
+    style EH_CRD fill:#7ed321
+    style LMES_CRD fill:#7ed321
+    style LMES_Pods fill:#7ed321
+    style GORCH_CRD fill:#7ed321
+    style GORCH_KServe fill:#7ed321
+    style NEMO_CRD fill:#7ed321
+    style NEMO_Istio fill:#7ed321
+    style NEMO_MCP fill:#7ed321
+    style NEMO_GW fill:#7ed321
+    style PROXY_Auth fill:#7ed321
+    style PROXY_Authz fill:#7ed321
+    style TLS_API fill:#7ed321

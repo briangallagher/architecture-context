@@ -1,0 +1,65 @@
+sequenceDiagram
+    participant KFTO as Kubeflow Training Operator
+    participant ConfigMap as PyTorchJob ConfigMap
+    participant AccLaunch as accelerate_launch.py<br/>Container Entry Point
+    participant SFTTrainer as sft_trainer.py<br/>Core Engine
+    participant DataProc as Data Preprocessing<br/>Pipeline
+    participant HFHub as HuggingFace Hub<br/>443/TCP HTTPS
+    participant PVC as Training Data PVC
+    participant GPU as GPU (CUDA)
+    participant Workers as Other Worker Pods<br/>29500/TCP NCCL
+    participant OutputPVC as Output PVC
+    participant Tracker as Experiment Tracker<br/>(Aim/MLflow/ClearML)
+
+    Note over KFTO,AccLaunch: Flow 1: Model Fine-Tuning Job
+
+    KFTO->>AccLaunch: Create pod via PyTorchJob
+    ConfigMap->>AccLaunch: SFT_TRAINER_CONFIG_JSON_PATH<br/>(JSON config file)
+    Note right of AccLaunch: Or SFT_TRAINER_CONFIG_JSON_ENV_VAR<br/>(Base64 encoded, takes precedence)
+
+    AccLaunch->>AccLaunch: Parse config (JSON)<br/>Detect GPU count<br/>Configure FSDP defaults
+    AccLaunch->>SFTTrainer: Launch via accelerate<br/>(Python module import)
+
+    SFTTrainer->>HFHub: Download pre-trained model<br/>& tokenizer<br/>Auth: Bearer Token (HF_TOKEN)<br/>Encryption: TLS 1.2+
+    HFHub-->>SFTTrainer: Model weights + tokenizer
+
+    SFTTrainer->>DataProc: Initialize data pipeline
+    DataProc->>PVC: Read training data<br/>(file read, local mount)
+    PVC-->>DataProc: Raw training data
+
+    Note over DataProc: Apply DataHandler chain:<br/>map → filter → remove →<br/>select → rename<br/>(Jinja2 sandboxed templates)
+
+    DataProc-->>SFTTrainer: Processed & tokenized dataset
+
+    loop Training Loop (per step/epoch)
+        SFTTrainer->>GPU: Forward + backward pass<br/>(CUDA API)
+        GPU-->>SFTTrainer: Gradients
+
+        opt Multi-GPU FSDP
+            SFTTrainer->>Workers: Gradient sync<br/>Port: 29500/TCP<br/>Protocol: NCCL over TCP<br/>Encryption: Plaintext (intra-cluster)
+            Workers-->>SFTTrainer: Synchronized gradients
+        end
+
+        SFTTrainer->>SFTTrainer: Optimizer step
+
+        opt Trainer Controller Rules
+            Note over SFTTrainer: Evaluate rules via simpleeval<br/>(custom stop criteria,<br/>dynamic logging)
+        end
+
+        opt Experiment Tracking
+            SFTTrainer->>Tracker: Log metrics<br/>Protocol: HTTP/HTTPS<br/>Auth: Tracker-specific
+        end
+    end
+
+    SFTTrainer->>OutputPVC: Save model checkpoints<br/>& final model<br/>(safetensors format)
+    SFTTrainer->>AccLaunch: Training complete
+
+    Note over AccLaunch,OutputPVC: Flow 2: vLLM Adapter Post-Processing (Optional)
+
+    opt LoRA Adapter Post-Processing
+        AccLaunch->>OutputPVC: Read LoRA checkpoint<br/>(file read)
+        AccLaunch->>AccLaunch: post_process_vLLM_adapters()
+        AccLaunch->>OutputPVC: Write new_embeddings.safetensors<br/>(for vLLM inference)
+    end
+
+    AccLaunch->>KFTO: Exit (job complete)

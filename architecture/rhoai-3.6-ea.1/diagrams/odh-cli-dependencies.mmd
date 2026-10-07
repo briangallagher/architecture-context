@@ -1,0 +1,58 @@
+graph LR
+    CLI["odh-cli<br/>(rhai-cli)"]
+
+    %% Core Runtime Dependencies
+    CLI -->|CLI framework| Cobra["spf13/cobra 1.10"]
+    CLI -->|K8s client| ClientGo["k8s/client-go 0.35"]
+    CLI -->|operator framework| CtrlRuntime["controller-runtime 0.23"]
+    CLI -->|K8s API types| K8sAPI["k8s/api 0.35"]
+    CLI -->|K8s machinery| Apimachinery["k8s/apimachinery 0.35"]
+    CLI -->|CLI runtime| CLIRuntime["k8s/cli-runtime 0.35"]
+    CLI -->|CRD extensions| APIExtensions["k8s/apiextensions 0.35"]
+
+    %% Internal Platform Dependencies
+    CLI -->|health checks| ClusterHealth["odh-operator<br/>clusterhealth"]
+    CLI -->|failure analysis| FailureClassifier["odh-operator<br/>failureclassifier"]
+    CLI -->|MCP tool defs| MCPTools["odh-operator<br/>mcptools"]
+    CLI -->|OLM API + client| OLMAPI["operator-framework<br/>API 0.39 + OLM 0.40"]
+
+    %% Functional Dependencies
+    CLI -->|MCP protocol| MCPGo["mcp-go 0.55"]
+    CLI -->|JSON query| GoJQ["gojq 0.12"]
+    CLI -->|JSON schema| JSONSchema["jsonschema 0.14"]
+    CLI -->|table output| TableWriter["tablewriter 1.1"]
+    CLI -->|colored output| Color["fatih/color 1.18"]
+    CLI -->|YAML| YAML["sigs.k8s.io/yaml 1.6"]
+    CLI -->|semver| Semver["blang/semver 4.0"]
+
+    %% Runtime
+    CLI -->|build toolchain| Go["Go 1.26<br/>FIPS: strictfipsruntime"]
+
+    %% Integration Points (runtime)
+    K8sAPIServer["Kubernetes API<br/>6443/TCP"] -.->|HTTPS/WSS| CLI
+    TrustYAI["TrustYAI Service<br/>443/TCP"] -.->|HTTPS<br/>migration only| CLI
+    OLMRuntime["OLM<br/>(CSVs, Subscriptions)"] -.->|via K8s API| CLI
+
+    style CLI fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style Cobra fill:#999,stroke:#333
+    style ClientGo fill:#999,stroke:#333
+    style CtrlRuntime fill:#999,stroke:#333
+    style K8sAPI fill:#999,stroke:#333
+    style Apimachinery fill:#999,stroke:#333
+    style CLIRuntime fill:#999,stroke:#333
+    style APIExtensions fill:#999,stroke:#333
+    style ClusterHealth fill:#7ed321,stroke:#333
+    style FailureClassifier fill:#7ed321,stroke:#333
+    style MCPTools fill:#7ed321,stroke:#333
+    style OLMAPI fill:#999,stroke:#333
+    style MCPGo fill:#999,stroke:#333
+    style GoJQ fill:#999,stroke:#333
+    style JSONSchema fill:#999,stroke:#333
+    style TableWriter fill:#999,stroke:#333
+    style Color fill:#999,stroke:#333
+    style YAML fill:#999,stroke:#333
+    style Semver fill:#999,stroke:#333
+    style Go fill:#999,stroke:#333
+    style K8sAPIServer fill:#f5a623,stroke:#333
+    style TrustYAI fill:#f5a623,stroke:#333
+    style OLMRuntime fill:#f5a623,stroke:#333

@@ -1,0 +1,112 @@
+{
+  "component": "kserve",
+  "reads": [
+    {
+      "expected_signal": "CGO_ENABLED value, GOEXPERIMENT flags, static vs dynamic linking",
+      "gap_category": [
+        "fips_compliance"
+      ],
+      "line_range": "1-51",
+      "outcome": "resolved",
+      "path": "Dockerfile",
+      "question": "What build flags does the upstream Dockerfile use for Go compilation (CGO_ENABLED, GOEXPERIMENT, linking)?",
+      "sections": [
+        "Security",
+        "FIPS Compliance",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime, -tags strictfipsruntime",
+      "gap_category": [
+        "fips_compliance"
+      ],
+      "line_range": "1-34",
+      "outcome": "resolved",
+      "path": "Dockerfiles/Dockerfile.konflux.kserve-module-controller",
+      "question": "Does the Konflux Dockerfile for kserve-module-controller use FIPS-compliant build flags?",
+      "sections": [
+        "Security",
+        "FIPS Compliance",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "TokenReview, SubjectAccessReview, Bearer token extraction, middleware pattern",
+      "gap_category": [
+        "authentication"
+      ],
+      "line_range": "515-614",
+      "outcome": "resolved",
+      "path": "cmd/router/main.go",
+      "question": "How does the router binary authenticate and authorize inference requests?",
+      "sections": [
+        "Architectural Analysis",
+        "Data Flows",
+        "Purpose"
+      ]
+    },
+    {
+      "expected_signal": "Container spec, port mapping, upstream URL, TLS termination",
+      "gap_category": [
+        "integration_points",
+        "authentication"
+      ],
+      "line_range": "1-37",
+      "outcome": "resolved",
+      "path": "config/default/manager_auth_proxy_patch.yaml",
+      "question": "How is the kube-rbac-proxy sidecar configured for the controller manager?",
+      "sections": [
+        "Architectural Analysis",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "TLS version, cipher suite selection, OpenShift TLS profile integration",
+      "gap_category": [
+        "fips_compliance",
+        "authentication"
+      ],
+      "line_range": "1-159",
+      "outcome": "resolved",
+      "path": "pkg/tls/tls_odh.go",
+      "question": "How does the ODH/RHOAI distribution configure TLS and what cipher suites are used?",
+      "sections": [
+        "Security",
+        "FIPS Compliance",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "$patch: delete or replacement container specification",
+      "gap_category": [
+        "integration_points",
+        "internal_dependencies"
+      ],
+      "line_range": "1-11",
+      "outcome": "resolved",
+      "path": "config/overlays/odh/patches/remove-auth-proxy-patch.yaml",
+      "question": "Does the ODH overlay modify the kube-rbac-proxy sidecar configuration?",
+      "sections": [
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "config/default/manager_resources_patch.yaml",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    }
+  ],
+  "schema_version": 1
+}

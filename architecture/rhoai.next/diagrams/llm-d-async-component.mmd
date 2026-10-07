@@ -1,0 +1,90 @@
+graph TB
+    subgraph AP["Async Processor (llm-d-async)"]
+        direction TB
+
+        subgraph Core["Core Pipeline"]
+            Runner["Runner<br/>(pkg/server)"]
+            Pipeline["Pipeline<br/>(pipeline/)"]
+            MergePolicy["Merge Policy<br/>(mergepolicy/)"]
+        end
+
+        subgraph Workers["Worker Pool"]
+            AsyncWorker["Async Worker<br/>(asyncworker/)"]
+            HTTPClient["HTTP Inference Client"]
+            Transform["Request Transforms<br/>(transform/)"]
+            Cancellation["Cancellation Handler"]
+            AsyncWorker --> HTTPClient
+            AsyncWorker --> Transform
+            AsyncWorker --> Cancellation
+        end
+
+        subgraph FlowControl["Flow Control (flowcontrol/)"]
+            GateFactory["Gate Factory"]
+            PromGate["Prometheus Gates<br/>(saturation / budget)"]
+            RedisGate["Redis Gate<br/>(budget key)"]
+            QuotaGate["Redis Quota Gate<br/>(per-attribute)"]
+            LocalGate["Local Concurrency Gate"]
+            CompositeGate["Composite Gate<br/>(min budget)"]
+            TierGate["Tier-Priority<br/>Admission Gate"]
+            ScrapeGate["Endpoint Scrape Gate"]
+            GateFactory --> PromGate
+            GateFactory --> RedisGate
+            GateFactory --> QuotaGate
+            GateFactory --> LocalGate
+            GateFactory --> CompositeGate
+            GateFactory --> TierGate
+            GateFactory --> ScrapeGate
+        end
+
+        subgraph QueueBackends["Queue Backends"]
+            RedisPubSub["Redis Pub/Sub<br/>(pkg/redis)"]
+            RedisSortedSet["Redis Sorted Set<br/>(pkg/redis)"]
+            GCPPubSub["GCP Pub/Sub<br/>(pkg/pubsub)"]
+        end
+
+        subgraph SharedAPI["Shared Modules"]
+            API["api/ Module<br/>(zero deps)"]
+            Producer["producer/ Module<br/>(client library)"]
+        end
+
+        subgraph Health["Health & Observability"]
+            HealthEndpoint["/healthz :8081"]
+            ReadyEndpoint["/readyz :8081"]
+            MetricsEndpoint["/metrics :9090"]
+        end
+
+        Runner --> Pipeline
+        Pipeline --> MergePolicy
+        Pipeline --> AsyncWorker
+        Pipeline --> GateFactory
+        Runner --> QueueBackends
+    end
+
+    %% External Systems
+    ProducerClient["Producer Client"] -->|"ZADD / PUBLISH"| QueueBackends
+    QueueBackends -->|"ZPOPMIN / SUBSCRIBE"| Pipeline
+
+    Pipeline -->|"gate check"| FlowControl
+    AsyncWorker -->|"HTTP POST"| IGW["Inference Gateway<br/>(llm-d-router)"]
+
+    PromGate -->|"PromQL API"| Prometheus["Prometheus"]
+    RedisGate -->|"GET budget key"| Redis["Redis/Valkey"]
+    QuotaGate -->|"INCR/ZADD"| Redis
+    QueueBackends -->|"RESP protocol"| Redis
+
+    AsyncWorker -->|"OTLP gRPC :4317"| OTel["OpenTelemetry<br/>Collector"]
+
+    %% Styling
+    style AP fill:#e8f4f8,stroke:#2980b9,stroke-width:2px
+    style Core fill:#d5e8d4,stroke:#82b366
+    style Workers fill:#dae8fc,stroke:#6c8ebf
+    style FlowControl fill:#fff2cc,stroke:#d6b656
+    style QueueBackends fill:#f8cecc,stroke:#b85450
+    style SharedAPI fill:#e1d5e7,stroke:#9673a6
+    style Health fill:#d5e8d4,stroke:#82b366
+
+    style IGW fill:#4a90e2,stroke:#333,color:#fff
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style Redis fill:#e8e8e8,stroke:#333
+    style OTel fill:#e8e8e8,stroke:#333
+    style ProducerClient fill:#f5a623,stroke:#333

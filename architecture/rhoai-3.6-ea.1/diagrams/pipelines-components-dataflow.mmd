@@ -1,0 +1,61 @@
+sequenceDiagram
+    participant Operator as Operator / Pod Scheduler
+    participant Init as Init Container<br/>(init_managed_pipelines)
+    participant Volume as Shared Volume<br/>(/config/managed-pipelines)
+    participant KFPAPI as KFP API Server
+    participant Step as Pipeline Step Container<br/>(@dsl.component)
+    participant S3 as S3-Compatible Storage<br/>HTTPS/443
+    participant HF as HuggingFace Hub<br/>HTTPS/443
+    participant K8sAPI as Kubernetes API<br/>HTTPS/443
+    participant Ray as Ray Cluster<br/>(CodeFlare SDK)
+    participant KServe as KServe Runtime
+
+    rect rgb(230, 240, 255)
+        Note over Operator,KFPAPI: Init Container Flow (Pod Startup)
+        Operator->>Init: Start init container
+        Init->>Init: Check RELATED_IMAGE_* env vars
+        alt RELATED_IMAGE_* set (operator-managed)
+            Init->>Init: Recompile pipelines with<br/>substituted image references
+        end
+        Init->>Volume: Copy pre-compiled pipeline YAMLs<br/>to /config/managed-pipelines
+        Volume-->>KFPAPI: Mount shared volume
+        KFPAPI->>Volume: Read pipeline YAMLs
+        KFPAPI->>KFPAPI: Register managed pipelines
+    end
+
+    rect rgb(230, 255, 230)
+        Note over KFPAPI,KServe: Pipeline Execution Flow
+        KFPAPI->>Step: Launch data processing step
+        Step->>S3: Fetch dataset (boto3)<br/>Auth: AWS_SECRET_ACCESS_KEY
+        S3-->>Step: Dataset artifacts
+        Step->>HF: Download model/data<br/>Auth: HF_TOKEN
+        HF-->>Step: Model artifacts
+
+        opt Distributed Processing (parse-and-chunk)
+            Step->>K8sAPI: load_incluster_config()<br/>Auth: ServiceAccount token
+            K8sAPI-->>Step: Cluster config
+            Step->>Ray: Submit RayJob<br/>(CodeFlare SDK)
+            Ray-->>Step: Processed documents
+        end
+
+        Note over Step: Write intermediate artifacts<br/>to PVC-backed workspace
+
+        KFPAPI->>Step: Launch training step
+        Note over Step: Read artifacts from workspace PVC
+        Step->>Step: Train model<br/>(InstructLab / AutoGluon)
+        Note over Step: Write model artifacts to PVC
+
+        KFPAPI->>Step: Launch evaluation step
+        Step->>KServe: Evaluate via Eval Hub<br/>KServe inference
+        KServe-->>Step: Evaluation results
+
+        KFPAPI->>Step: Launch deployment step
+        Step->>K8sAPI: Register model in<br/>Kubeflow Model Registry<br/>Auth: ServiceAccount token
+        K8sAPI-->>Step: Registration confirmed
+    end
+
+    rect rgb(255, 240, 230)
+        Note over Step,K8sAPI: Credential Flow
+        Note over Step: Credentials injected as env vars:<br/>AWS_SECRET_ACCESS_KEY / S3_SECRET_KEY<br/>HF_TOKEN / LLM_API_KEY<br/>KUBERNETES_AUTH_TOKEN
+        Step->>K8sAPI: In-cluster access via<br/>load_incluster_config()<br/>ServiceAccount token
+    end

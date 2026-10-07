@@ -1,0 +1,140 @@
+{
+  "component": "model-registry-operator",
+  "reads": [
+    {
+      "expected_signal": "CGO_ENABLED, GOEXPERIMENT, build tags, base image selection",
+      "gap_category": [
+        "fips_compliance"
+      ],
+      "line_range": "1-41",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux",
+      "question": "What FIPS build flags and crypto configuration are used in the Konflux build?",
+      "sections": [
+        "Security/FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "kube-rbac-proxy container args, TLS cert mounts, port configuration, upstream proxy target",
+      "gap_category": [
+        "authentication",
+        "integration_points"
+      ],
+      "line_range": "1-348",
+      "outcome": "resolved",
+      "path": "internal/controller/config/templates/deployment.yaml.tmpl",
+      "question": "How is the kube-rbac-proxy sidecar configured and what authentication does it enforce on managed workloads?",
+      "scope_reason": "Full template needed to trace both rest-container and kube-rbac-proxy sidecar configuration, SSL mount patterns, and conditional kube-rbac-proxy inclusion",
+      "sections": [
+        "Authentication & Authorization",
+        "Architectural Analysis",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "Resource creation methods, OpenShift Route creation alongside HTTPRoutes",
+      "gap_category": [
+        "authentication",
+        "integration_points"
+      ],
+      "line_range": "1-80",
+      "outcome": "resolved",
+      "path": "internal/controller/modelregistry_oauth.go",
+      "question": "How are proxy-related resources (ClusterRoleBinding, Route, NetworkPolicy, kube-rbac-proxy config) created for model-registry instances?",
+      "sections": [
+        "Architectural Analysis",
+        "Authentication & Authorization"
+      ]
+    },
+    {
+      "expected_signal": "config.openshift.io/v1/Ingress resource read, domain extraction",
+      "gap_category": [
+        "internal_dependencies",
+        "integration_points"
+      ],
+      "line_range": "185-213",
+      "outcome": "resolved",
+      "path": "internal/controller/config/defaults.go",
+      "question": "How does the operator read the OpenShift cluster Ingress config for default domain?",
+      "sections": [
+        "Internal Platform Dependencies",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "TLS profile fetching, crypto/tls configuration, cipher suite selection",
+      "gap_category": [
+        "fips_compliance",
+        "authentication"
+      ],
+      "line_range": "70-130",
+      "outcome": "resolved",
+      "path": "internal/setup/setup.go",
+      "question": "How does the operator configure TLS for webhook and metrics servers, and does it read the cluster TLS security profile?",
+      "sections": [
+        "Security/FIPS Compliance",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "SubjectAccessReview resourceAttributes configuration",
+      "gap_category": [
+        "authentication"
+      ],
+      "line_range": "1-24",
+      "outcome": "resolved",
+      "path": "internal/controller/config/templates/kube-rbac-proxy/kube-rbac-proxy-config.yaml.tmpl",
+      "question": "What authorization policy does the kube-rbac-proxy enforce for managed workloads?",
+      "sections": [
+        "Authentication & Authorization",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "parentRefs Gateway reference, path prefix matching, URL rewriting, conditional port selection",
+      "gap_category": [
+        "integration_points"
+      ],
+      "line_range": "1-39",
+      "outcome": "resolved",
+      "path": "internal/controller/config/templates/gateway/gateway-httproute.yaml.tmpl",
+      "question": "How does the operator configure Gateway API HTTPRoute resources including path matching and backend port selection?",
+      "sections": [
+        "Integration Points",
+        "Data Flows",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "ClusterCapabilities struct fields, HasAuthAPI boolean, BYOIDC detection",
+      "gap_category": [
+        "internal_dependencies"
+      ],
+      "line_range": "1-50",
+      "outcome": "resolved",
+      "path": "internal/controller/util.go",
+      "question": "What cluster capabilities does the operator detect and how does the services.platform.opendatahub.io Auth API fit into capability detection?",
+      "sections": [
+        "Internal Platform Dependencies",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "internal/controller/modelcatalog_controller.go",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    }
+  ],
+  "schema_version": 1
+}

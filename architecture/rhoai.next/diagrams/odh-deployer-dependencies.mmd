@@ -1,58 +1,54 @@
 graph LR
-    ODHDeployer["odh-deployer<br/>(Init Container)"]
+    ODHDeployer["odh-deployer<br/>Init Container"]
 
     %% External Dependencies
-    ODHDeployer -->|"oc CLI<br/>(applies resources)"| OC["oc (OpenShift CLI)<br/>latest"]
-    ODHDeployer -->|"base image"| UBI["UBI8 minimal<br/>8.x"]
+    ODHDeployer -->|"CLI operations<br/>6443/TCP HTTPS"| OC["oc CLI<br/>(embedded)"]
+    ODHDeployer -->|"random/hash generation"| OpenSSL["openssl<br/>(embedded)"]
+    ODHDeployer -->|"component manifests"| Manifests["odh-manifests.tar.gz<br/>(bundled)"]
+    ODHDeployer -->|"target cluster<br/>6443/TCP HTTPS"| OpenShift["OpenShift 4.x Cluster"]
 
-    %% Internal Platform Dependencies (KfDef-based)
-    ODHDeployer -->|"creates KfDef CRs"| Operator["rhods-operator<br/>(opendatahub operator)"]
-    ODHDeployer -->|"KfDef + CRDs<br/>(OdhApplication, OdhDocument,<br/>OdhQuickStart, OdhDashboardConfig)"| Dashboard["odh-dashboard"]
-    ODHDeployer -->|"KfDef<br/>(rhods-nbc)"| NBC["odh-notebook-controller"]
-    ODHDeployer -->|"KfDef<br/>(rhods-model-mesh)"| ModelMesh["model-mesh"]
-    ODHDeployer -->|"KfDef<br/>(rhods-data-science-<br/>pipelines-operator)"| DSPO["data-science-pipelines-<br/>operator"]
-    ODHDeployer -->|"KfDef + Secret"| Anaconda["Anaconda CE"]
+    %% Internal RHOAI Dependencies
+    ODHDeployer -->|"creates KfDef CRs<br/>triggers reconciliation"| RHODSOp["rhods-operator"]
+    ODHDeployer -->|"creates Route/Service<br/>probe target"| Dashboard["odh-dashboard"]
+    ODHDeployer -->|"metrics scraping<br/>8080/TCP HTTP"| NBC["odh-notebook-controller"]
+    ODHDeployer -->|"metrics scraping<br/>8080/TCP HTTP"| ModelCtrl["odh-model-controller"]
+    ODHDeployer -->|"metrics scraping<br/>8080/TCP HTTP"| MMesh["modelmesh-controller"]
+    ODHDeployer -->|"metrics scraping<br/>8080/TCP HTTP"| DSPO["data-science-pipelines-operator"]
 
-    %% Monitoring Dependencies
-    ODHDeployer -->|"federation<br/>9091/TCP HTTPS"| OcpProm["OpenShift Prometheus<br/>(openshift-monitoring)"]
+    %% Deployment mode detection
+    ODHDeployer -.->|"checks existence for<br/>managed vs self-managed"| AddonCatalog["addon-managed-odh-catalog<br/>(CatalogSource)"]
 
-    %% Integration Points (other components integrating with deployer outputs)
-    OcpConsole["OpenShift Console"] -.->|"ConsoleLink CR"| ODHDeployer
-    SegmentIO["Segment.io"] -.->|"analytics key<br/>(ConfigMap + Secret)"| ODHDeployer
+    %% Monitoring integrations
+    ODHDeployer -->|"metrics federation<br/>9091/TCP HTTPS"| ClusterProm["Cluster Prometheus<br/>(openshift-monitoring)"]
+    ODHDeployer -->|"operator metrics<br/>8383/TCP HTTP"| RHODSMetrics["rhods-operator-metrics"]
 
-    %% External Services (managed service alerting)
-    ODHDeployer -->|"critical alerts<br/>443/TCP HTTPS"| PagerDuty["PagerDuty API"]
-    ODHDeployer -->|"notifications<br/>SMTP TLS"| SMTP["SMTP Server"]
-    ODHDeployer -->|"heartbeat<br/>443/TCP HTTPS"| DMS["Dead Man's Snitch"]
+    %% External services (managed mode)
+    ODHDeployer -.->|"critical alerts<br/>443/TCP HTTPS"| PD["PagerDuty API"]
+    ODHDeployer -.->|"heartbeat<br/>443/TCP HTTPS"| DMS["Dead Man's Snitch"]
+    ODHDeployer -.->|"notifications<br/>SMTP/STARTTLS"| SMTP["SMTP Server"]
 
-    %% Metrics scrape targets (from deployed monitoring)
-    Dashboard -.->|"metrics 8080/TCP"| ODHDeployer
-    NBC -.->|"metrics 8080/TCP"| ODHDeployer
-    ModelMesh -.->|"metrics 8080/TCP"| ODHDeployer
-    DSPO -.->|"metrics 8080/TCP"| ODHDeployer
-    Operator -.->|"metrics 8383/TCP"| ODHDeployer
-
-    %% Serving Runtimes
-    ODHDeployer -->|"ServingRuntime<br/>Templates"| OVMS["OpenVINO Model Server<br/>(CPU + GPU)"]
+    %% Reverse dependencies (what depends on odh-deployer)
+    Console["OpenShift Console"] -->|"ConsoleLink CR<br/>App Launcher"| ODHDeployer
 
     %% Styling
     style ODHDeployer fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
     style OC fill:#999,stroke:#333
-    style UBI fill:#999,stroke:#333
+    style OpenSSL fill:#999,stroke:#333
+    style Manifests fill:#999,stroke:#333
+    style OpenShift fill:#999,stroke:#333
 
-    style Operator fill:#7ed321,stroke:#333
+    style RHODSOp fill:#7ed321,stroke:#333
     style Dashboard fill:#7ed321,stroke:#333
     style NBC fill:#7ed321,stroke:#333
-    style ModelMesh fill:#7ed321,stroke:#333
+    style ModelCtrl fill:#7ed321,stroke:#333
+    style MMesh fill:#7ed321,stroke:#333
     style DSPO fill:#7ed321,stroke:#333
+    style AddonCatalog fill:#7ed321,stroke:#333
+    style ClusterProm fill:#7ed321,stroke:#333
+    style RHODSMetrics fill:#7ed321,stroke:#333
+    style Console fill:#7ed321,stroke:#333
 
-    style OcpProm fill:#e1d5e7,stroke:#9673a6
-    style OcpConsole fill:#e1d5e7,stroke:#9673a6
-
-    style PagerDuty fill:#f5a623,stroke:#333
-    style SMTP fill:#f5a623,stroke:#333
+    style PD fill:#f5a623,stroke:#333
     style DMS fill:#f5a623,stroke:#333
-    style SegmentIO fill:#f5a623,stroke:#333
-    style Anaconda fill:#e6522c,stroke:#333,color:#fff
-    style OVMS fill:#7ed321,stroke:#333
+    style SMTP fill:#f5a623,stroke:#333

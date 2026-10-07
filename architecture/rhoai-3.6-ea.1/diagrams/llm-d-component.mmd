@@ -1,0 +1,63 @@
+graph TB
+    subgraph "llm-d Platform"
+        subgraph "Model Server Layer"
+            DecodeDeploy["decode Deployment<br/>(REPLACE_MODEL_SERVER_IMAGE)"]
+            vLLMServer["vLLM OpenAI API Server<br/>python -m vllm.entrypoints.openai.api_server"]
+            DecodeDeploy --> vLLMServer
+        end
+
+        subgraph "Container Variants"
+            CPUImage["Dockerfile.cpu<br/>CPU Inference"]
+            ROCmImage["Dockerfile.rocm<br/>AMD ROCm Inference"]
+            XPUImage["Dockerfile.xpu<br/>Intel XPU Inference"]
+            RDMATools["Dockerfile.rdma-tools<br/>RDMA Utilities"]
+        end
+
+        subgraph "P2P KV Cache Subsystem (Optional)"
+            MXServer["ModelExpress Server<br/>gRPC 8001/TCP<br/>Istio mTLS STRICT"]
+            MXMetadata["MX Metadata<br/>gRPC 5555/TCP<br/>RDMA bypass"]
+            MXTensor["MX Worker gRPC<br/>gRPC 6555/TCP<br/>RDMA bypass"]
+        end
+    end
+
+    subgraph "Routing Layer (Required)"
+        EPP["EPP<br/>(Endpoint Picker Plugin)"]
+        EnvoyProxy["Envoy / Agent Gateway<br/>Sidecar Proxy"]
+        EPP -->|selects backend| EnvoyProxy
+    end
+
+    subgraph "Gateway API"
+        InferencePool["InferencePool CR"]
+        InferenceModel["InferenceModel CR"]
+    end
+
+    Client["External Client"] -->|Inference Request| EnvoyProxy
+    EnvoyProxy -->|HTTP 8000/TCP| vLLMServer
+    InferencePool -->|watched by| EPP
+    InferenceModel -->|defines routing| InferencePool
+
+    vLLMServer -->|registers metadata| MXServer
+    vLLMServer -->|P2P transfer| MXMetadata
+    vLLMServer -->|tensor transfer| MXTensor
+
+    vLLMServer -->|/health, /v1/models| HealthProbe["Health Probes<br/>HTTP GET"]
+
+    HFHub["HuggingFace Hub<br/>HTTPS 443/TCP"] -->|model download| vLLMServer
+    vLLMServer -->|OTLP gRPC 4317/TCP| OTelCollector["OpenTelemetry Collector"]
+
+    %% Styling
+    style DecodeDeploy fill:#4a90e2,stroke:#333,color:#fff
+    style vLLMServer fill:#4a90e2,stroke:#333,color:#fff
+    style EPP fill:#f5a623,stroke:#333,color:#fff
+    style EnvoyProxy fill:#f5a623,stroke:#333,color:#fff
+    style MXServer fill:#9b59b6,stroke:#333,color:#fff
+    style MXMetadata fill:#9b59b6,stroke:#333,color:#fff
+    style MXTensor fill:#9b59b6,stroke:#333,color:#fff
+    style InferencePool fill:#7ed321,stroke:#333
+    style InferenceModel fill:#7ed321,stroke:#333
+    style HFHub fill:#e8e8e8,stroke:#333
+    style OTelCollector fill:#e8e8e8,stroke:#333
+    style CPUImage fill:#ddd,stroke:#999
+    style ROCmImage fill:#ddd,stroke:#999
+    style XPUImage fill:#ddd,stroke:#999
+    style RDMATools fill:#ddd,stroke:#999

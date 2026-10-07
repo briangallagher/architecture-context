@@ -1,37 +1,38 @@
 sequenceDiagram
-    participant Client as ML Inference Client
-    participant OnlineSvc as feast-online Service<br/>6566/TCP or 6567/TCP (TLS)
-    participant FeatureServer as Feature Server Pod<br/>(Python + Go)
-    participant OnlineStore as Online Store Backend<br/>(Redis 6379 / PostgreSQL 5432 / DynamoDB 443)
-    participant RegistrySvc as feast-registry Service<br/>6570/TCP gRPC or 6571/TCP (TLS)
-    participant CronJob as Materialization CronJob
-    participant OfflineStore as Offline Store Backend<br/>(BigQuery / Snowflake 443)
-    participant Operator as feast-operator
-    participant RegistryREST as Registry REST API<br/>6572/TCP or 6573/TCP (TLS)
-    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant ML as ML Application
+    participant Svc as feast-{project} Service<br/>6566/TCP
+    participant FS as Feature Server<br/>FastAPI/Python 3.12
+    participant Reg as Registry Server<br/>8080/TCP
+    participant Online as Online Store<br/>(Redis 6379 / PG 5432)
+    participant Offline as Offline Store<br/>(BigQuery / Snowflake)
+    participant Op as Feast Operator<br/>Go Controller
+    participant K8s as Kubernetes API<br/>6443/TCP
+    participant OCP as OpenShift API<br/>6443/TCP
+    participant CronJob as CronJob Pod
 
-    Note over Client,OnlineStore: Flow 1: Online Feature Retrieval
-    Client->>OnlineSvc: POST /get-online-features<br/>Auth: OIDC/K8s token/None
-    OnlineSvc->>FeatureServer: Forward request
-    FeatureServer->>OnlineStore: Read features<br/>Backend-specific protocol + auth
-    OnlineStore-->>FeatureServer: Feature values
-    FeatureServer-->>OnlineSvc: Response
-    OnlineSvc-->>Client: JSON/gRPC Response
+    Note over ML,Online: Flow 1: Online Feature Retrieval
+    ML->>Svc: POST /get-online-features<br/>Auth: OIDC/K8s token<br/>TLS (when configured)
+    Svc->>FS: Forward request
+    FS->>FS: inject_user_details<br/>(validate token, check permissions)
+    FS->>Online: Query features<br/>TCP, TLS (optional)<br/>Auth: Password/Credentials
+    Online-->>FS: Feature values
+    FS-->>Svc: JSON/Protobuf response
+    Svc-->>ML: Feature response<br/>TLS (when configured)
 
-    Note over CronJob,OnlineStore: Flow 2: Feature Materialization (CronJob)
-    CronJob->>RegistrySvc: Fetch feature definitions<br/>gRPC, SA token auth
-    RegistrySvc-->>CronJob: Feature metadata
-    CronJob->>OfflineStore: Read historical features<br/>HTTPS/TLS, backend credentials
-    OfflineStore-->>CronJob: Feature data
-    CronJob->>OnlineStore: Write to online store<br/>Backend-specific, backend credentials
+    Note over CronJob,Online: Flow 2: Feature Materialization (CronJob)
+    CronJob->>K8s: kubectl exec feast-{project} pod<br/>HTTPS/6443, SA token
+    K8s->>FS: Execute materialization command
+    FS->>Offline: Read historical features<br/>HTTPS/443, TLS 1.2+<br/>Auth: Cloud IAM/Credentials
+    Offline-->>FS: Historical feature data
+    FS->>Online: Write to online store<br/>TCP, TLS (optional)<br/>Auth: Password/Credentials
+    Online-->>FS: Write confirmation
 
-    Note over Operator,K8sAPI: Flow 3: Operator Auto-Access RBAC Sync
-    Operator->>RegistryREST: GET /api/v1/permissions<br/>Bearer JWT (intra-communication)
-    RegistryREST-->>Operator: Permission policies
-    Operator->>K8sAPI: Create/update RBAC resources<br/>HTTPS/TLS, SA token
-    K8sAPI-->>Operator: Confirmation
-
-    Note over Operator,K8sAPI: Flow 4: Notebook Integration (ODH)
-    K8sAPI-->>Operator: Watch event: Notebook created<br/>(kubeflow.org/v1 with feast label)
-    Operator->>K8sAPI: Read FeatureStore ConfigMaps<br/>HTTPS/TLS, SA token
-    Operator->>K8sAPI: Create/update notebook ConfigMap<br/>with feature_store.yaml
+    Note over Op,OCP: Flow 3: Operator Reconciliation
+    Op->>K8s: Watch FeatureStore CRs<br/>HTTPS/6443, TLS 1.2+<br/>Auth: ServiceAccount token
+    K8s-->>Op: FeatureStore CR events
+    Op->>K8s: Create/Update Deployments,<br/>Services, ConfigMaps, RBAC,<br/>CronJobs, ServiceMonitors
+    Op->>Reg: GET /api/v1/permissions<br/>HTTP(S)/8080<br/>Auth: Bearer token (intra-comm JWT)
+    Reg-->>Op: Permission policies
+    Op->>K8s: Create Roles/RoleBindings<br/>(auto-access RBAC)
+    Op->>OCP: GET apiservers<br/>HTTPS/6443, TLS 1.2+<br/>Auth: ServiceAccount token
+    OCP-->>Op: TLS profile configuration

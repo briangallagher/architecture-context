@@ -1,110 +1,91 @@
 workspace {
     model {
-        user = person "AI Application Client" "Sends text generation and detection requests via REST API"
+        aiApp = person "AI Application Client" "Sends text generation and detection requests"
+        sre = person "SRE / Platform Engineer" "Monitors health and observability"
 
-        guardrailsOrch = softwareSystem "FMS Guardrails Orchestrator" "Rust-based REST API orchestrator coordinating AI text generation with content safety guardrails" {
-            guardrailsServer = container "Guardrails API Server" "Main REST API server handling generation and detection requests with optional TLS/mTLS" "Rust (axum)" {
-                v1Handlers = component "V1 Task Handlers" "Classification with text generation (unary and streaming)" "axum handlers"
-                v2Handlers = component "V2 Detection Handlers" "Content, chat, context, generated text detection" "axum handlers"
-                openaiHandlers = component "OpenAI Handlers" "Chat/text completions with guardrails (conditional)" "axum handlers"
-                orchestrator = component "Orchestration Engine" "Coordinates detection, chunking, and generation workflows" "Handle<Task> trait"
-            }
-            healthServer = container "Health Server" "Plaintext HTTP server for health and service info endpoints" "Rust (axum)" {
-                tags "Health"
-            }
-            genClient = container "Generation Client" "Unified gRPC client for TGIS and Caikit NLP backends with retry logic" "Rust (tonic)"
-            openaiClient = container "OpenAI Client" "HTTP client for OpenAI-compatible backends" "Rust (reqwest)"
-            chunkerClient = container "Chunker Client" "gRPC client for Caikit chunker service" "Rust (tonic)"
-            detectorClient = container "Detector Client" "HTTP client for content safety detector services" "Rust (reqwest)"
+        orchestrator = softwareSystem "FMS Guardrails Orchestrator" "Rust middleware that coordinates AI text generation with content safety guardrails" {
+            guardrailsServer = container "Guardrails Server" "REST API server serving guardrails and detection endpoints" "Rust (axum + tokio), Port 8033"
+            healthServer = container "Health Server" "Health and info endpoint server" "Rust (axum), Port 8034"
+            detectorClient = container "Detector Client" "HTTP client for content analysis services" "reqwest + rustls"
+            chunkerClient = container "Chunker Client" "gRPC client for text segmentation services" "tonic + ginepro"
+            generationClient = container "Generation Client" "gRPC client abstracting TGIS and Caikit NLP" "tonic + ginepro"
+            openaiClient = container "OpenAI Client" "HTTP client for OpenAI-compatible LLM endpoints" "reqwest + rustls"
+            detectionBatcher = container "Detection Batcher" "Orders and batches detection results for streaming" "Internal module"
         }
 
-        tgis = softwareSystem "TGIS" "Text Generation Inference Server - gRPC text generation backend" {
-            tags "Internal Platform"
-        }
-        caikitNlp = softwareSystem "Caikit NLP" "Alternative gRPC text generation backend" {
-            tags "Internal Platform"
-        }
-        caikitChunkers = softwareSystem "Caikit Chunkers" "gRPC text chunking/tokenization service" {
-            tags "Internal Platform"
-        }
-        detectors = softwareSystem "Detector Services" "Content safety detection services (HAP, PII, etc.)" {
-            tags "Internal Platform"
-        }
-        openaiServer = softwareSystem "OpenAI-compatible Server" "vLLM or similar chat/text completions backend" {
-            tags "Internal Platform"
-        }
-        otlpCollector = softwareSystem "OTLP Collector" "OpenTelemetry collector for traces and metrics" {
-            tags "Observability"
-        }
+        detectorServices = softwareSystem "Detector Services" "Content analysis services (HAP, toxicity, PII detection)" "Internal Platform"
+        chunkerServices = softwareSystem "Chunker Services (Caikit)" "Text segmentation and tokenization services" "Internal Platform"
+        tgis = softwareSystem "TGIS" "Text Generation Inference Server (fmaas protocol)" "Internal Platform"
+        caikitNlp = softwareSystem "Caikit NLP" "Text generation and tokenization (Caikit protocol)" "Internal Platform"
+        openaiLLM = softwareSystem "OpenAI-compatible LLM" "Chat and text completions (e.g., vLLM)" "External/Internal"
+        otlpCollector = softwareSystem "OTLP Collector" "OpenTelemetry trace and metric collection" "Infrastructure"
 
-        # User interactions
-        user -> guardrailsOrch "Sends generation/detection requests" "HTTP/HTTPS (8033/TCP)"
+        # External relationships
+        aiApp -> orchestrator "Sends generation and detection requests" "HTTP/HTTPS 8033/TCP"
+        sre -> orchestrator "Monitors health" "HTTP 8034/TCP"
 
         # Internal container relationships
-        guardrailsServer -> genClient "Delegates generation" "Internal"
-        guardrailsServer -> openaiClient "Delegates OpenAI generation" "Internal"
-        guardrailsServer -> chunkerClient "Delegates chunking" "Internal"
-        guardrailsServer -> detectorClient "Delegates detection" "Internal"
+        aiApp -> guardrailsServer "POST /api/v1/* /api/v2/*" "HTTP/HTTPS 8033/TCP, TLS optional"
+        sre -> healthServer "GET /health, /info" "HTTP 8034/TCP"
+        guardrailsServer -> detectorClient "Dispatches detection tasks"
+        guardrailsServer -> chunkerClient "Dispatches chunking tasks"
+        guardrailsServer -> generationClient "Dispatches generation tasks"
+        guardrailsServer -> openaiClient "Dispatches OpenAI-compatible tasks"
+        detectorClient -> detectionBatcher "Feeds detection results"
+        detectionBatcher -> guardrailsServer "Returns ordered results"
 
-        # Outbound dependencies
-        genClient -> tgis "Generate, GenerateStream, Tokenize, ModelInfo" "gRPC/HTTP2 (8033/TCP)"
-        genClient -> caikitNlp "TextGenerationTaskPredict, TokenizationTaskPredict" "gRPC/HTTP2 (8085/TCP)"
-        chunkerClient -> caikitChunkers "ChunkerTokenizationTaskPredict, BidiStreaming" "gRPC/HTTP2 (8085/TCP)"
-        detectorClient -> detectors "POST /api/v1/text/{contents,chat,context/doc,generation}" "HTTP/HTTPS (8080/TCP)"
-        openaiClient -> openaiServer "POST /v1/chat/completions, /v1/completions" "HTTP/HTTPS (8080/TCP)"
-        guardrailsOrch -> otlpCollector "Export traces and metrics" "gRPC (4317) or HTTP (4318)"
+        # Backend relationships
+        orchestrator -> detectorServices "Content detection requests" "HTTP/HTTPS 8080/TCP, TLS configurable"
+        orchestrator -> chunkerServices "Text tokenization and chunking" "gRPC 8085/TCP, TLS/mTLS"
+        orchestrator -> tgis "Text generation (fmaas)" "gRPC 8033/TCP, TLS/mTLS"
+        orchestrator -> caikitNlp "Text generation and tokenization" "gRPC 8085/TCP, TLS/mTLS"
+        orchestrator -> openaiLLM "Chat and text completions" "HTTP/HTTPS 8080/TCP, TLS configurable"
+        orchestrator -> otlpCollector "Exports traces and metrics" "gRPC 4317/TCP or HTTP 4318/TCP"
 
-        # Health checks
-        healthServer -> tgis "gRPC health check" "gRPC"
-        healthServer -> caikitNlp "gRPC health check" "gRPC"
-        healthServer -> caikitChunkers "gRPC health check" "gRPC"
-        healthServer -> detectors "HTTP health check" "HTTP (8081/TCP)"
+        detectorClient -> detectorServices "POST /api/v1/text/*" "HTTP/HTTPS 8080/TCP"
+        chunkerClient -> chunkerServices "ChunkerTokenizationTaskPredict" "gRPC 8085/TCP"
+        generationClient -> tgis "Generate, GenerateStream" "gRPC 8033/TCP"
+        generationClient -> caikitNlp "TextGenerationTaskPredict" "gRPC 8085/TCP"
+        openaiClient -> openaiLLM "POST /v1/chat/completions" "HTTP/HTTPS 8080/TCP"
     }
 
     views {
-        systemContext guardrailsOrch "SystemContext" {
+        systemContext orchestrator "SystemContext" {
             include *
             autoLayout
+            description "FMS Guardrails Orchestrator in the RHOAI ecosystem"
         }
 
-        container guardrailsOrch "Containers" {
+        container orchestrator "Containers" {
             include *
             autoLayout
-        }
-
-        component guardrailsServer "Components" {
-            include *
-            autoLayout
+            description "Internal structure of the FMS Guardrails Orchestrator"
         }
 
         styles {
             element "Software System" {
-                background #4a90e2
+                background #438DD5
                 color #ffffff
             }
             element "Internal Platform" {
                 background #7ed321
                 color #ffffff
             }
-            element "Observability" {
+            element "External/Internal" {
+                background #f5a623
+                color #ffffff
+            }
+            element "Infrastructure" {
                 background #999999
                 color #ffffff
             }
             element "Person" {
-                background #08427b
-                color #ffffff
                 shape person
+                background #08427B
+                color #ffffff
             }
             element "Container" {
-                background #438dd5
-                color #ffffff
-            }
-            element "Component" {
-                background #85bbf0
-                color #000000
-            }
-            element "Health" {
-                background #7ed321
+                background #438DD5
                 color #ffffff
             }
         }

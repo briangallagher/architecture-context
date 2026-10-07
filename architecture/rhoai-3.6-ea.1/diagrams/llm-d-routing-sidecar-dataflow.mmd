@@ -1,0 +1,39 @@
+sequenceDiagram
+    participant Client as External Client
+    participant Route as OpenShift Route<br/>HTTPS/TLS
+    participant Service as K8s Service<br/>8080/TCP ClusterIP
+    participant Sidecar as Routing Sidecar<br/>8000/TCP TLS 1.2+
+    participant vLLM as vLLM Decoder<br/>localhost:8001
+    participant Prefiller as Remote Prefiller<br/>dynamic port
+    participant K8sAPI as Kubernetes API<br/>6443/HTTPS
+
+    Note over Client,vLLM: Decode Path (default - no P/D headers)
+    Client->>Route: POST /v1/chat/completions<br/>HTTPS
+    Route->>Service: Forward<br/>TCP 8080
+    Service->>Sidecar: Forward<br/>TCP 8000 (TLS 1.2+)
+    Sidecar->>Sidecar: No x-prefiller-url header<br/>Use catch-all / proxy
+    Sidecar->>vLLM: Forward request<br/>HTTP localhost:8001
+    vLLM-->>Sidecar: Inference response
+    Sidecar-->>Service: Response
+    Service-->>Route: Response
+    Route-->>Client: JSON Response
+
+    Note over Client,Prefiller: Prefill Path (P/D disaggregation)
+    Client->>Route: POST /v1/chat/completions<br/>x-prefiller-url: prefiller-host:port
+    Route->>Service: Forward<br/>TCP 8080
+    Service->>Sidecar: Forward<br/>TCP 8000 (TLS 1.2+)
+    Sidecar->>Sidecar: Detect x-prefiller-url header<br/>Connector: nixlv2
+    alt SSRF Protection Enabled
+        Sidecar->>Sidecar: Validate target against<br/>InferencePool allowlist
+    end
+    Sidecar->>Sidecar: Lookup/create proxy handler<br/>LRU cache (cap: 16)
+    Sidecar->>Prefiller: Proxy prefill request<br/>HTTP/HTTPS (optional TLS 1.2+)<br/>max_completion_tokens=1
+    Prefiller-->>Sidecar: Prefill response
+    Sidecar-->>Service: Response
+    Service-->>Route: Response
+    Route-->>Client: JSON Response
+
+    Note over Sidecar,K8sAPI: SSRF Protection Control Plane (optional)
+    Sidecar->>K8sAPI: Watch InferencePool CRs<br/>inference.networking.x-k8s.io/v1alpha2<br/>ServiceAccount auth
+    K8sAPI-->>Sidecar: InferencePool + Pod events
+    Sidecar->>Sidecar: Update allowed host:port set<br/>via informer callbacks

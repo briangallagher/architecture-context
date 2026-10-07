@@ -1,43 +1,47 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Client["Client / Platform Ingress"]
+        Client["REST Client<br/>Inference Consumer"]
     end
 
-    subgraph PodBoundary["POD BOUNDARY (ModelMesh Serving Pod)"]
+    subgraph PlatformAuth["PLATFORM AUTH LAYER"]
+        direction TB
+        AuthProxy["kube-rbac-proxy / oauth-proxy<br/>(external to rest-proxy)<br/>Enforces AuthN/AuthZ"]
+    end
+
+    subgraph Pod["MODELMESH SERVING POD (Pod-Local Network)"]
         direction TB
 
-        subgraph SidecarContainer["Sidecar: rest-proxy"]
-            RestProxy["rest-proxy<br/>(gRPC-Gateway)<br/>Go 1.23.6<br/>FIPS: strictfipsruntime"]
-            HTTPEndpoints["HTTP Endpoints:<br/>GET /v2/models/{name}<br/>GET /v2/models/{name}/versions/{ver}<br/>POST /v2/models/{name}/infer<br/>POST /v2/models/{name}/versions/{ver}/infer"]
-
-            RestProxy --- HTTPEndpoints
+        subgraph Sidecar["rest-proxy Sidecar Container"]
+            RESTServer["REST Server<br/>0.0.0.0:8008/TCP<br/>HTTP or HTTPS<br/>Optional TLS (MM_TLS_KEY_CERT_PATH)<br/>No MinVersion set (default TLS 1.2)<br/>FIPS: strictfipsruntime"]
+            GRPCClient["gRPC Client<br/>Optional TLS (REST_PROXY_USE_TLS)<br/>InsecureSkipVerify: configurable"]
+            RESTServer --> GRPCClient
         end
 
-        subgraph InferenceContainer["Container: gRPC Inference Server"]
-            GRPCSrv["GRPCInferenceService<br/>RPCs: ModelInfer, ModelMetadata,<br/>ModelReady, ServerLive, ServerReady"]
+        subgraph MMServing["ModelMesh Serving Container"]
+            GRPCInference["gRPC Inference Service<br/>8033/TCP gRPC<br/>KServe V2 Predict Protocol"]
         end
 
-        RestProxy -->|"gRPC/8033<br/>localhost<br/>TLS optional<br/>(REST_PROXY_USE_TLS)<br/>Verify: configurable<br/>(REST_PROXY_SKIP_VERIFY)<br/>Auth: None<br/>Max msg: 16 MiB"| GRPCSrv
+        GRPCClient -->|"gRPC/8033<br/>localhost<br/>Optional TLS<br/>No Auth"| GRPCInference
     end
 
-    subgraph ConfigLayer["CONFIGURATION"]
-        ConfigMap["model-serving-config<br/>ConfigMap<br/>restProxy.image"]
-        TLSCert["TLS Certificate<br/>(MM_TLS_KEY_CERT_PATH)<br/>Provisioned by:<br/>ModelMesh / cert-manager"]
+    subgraph Secrets["SECRETS"]
+        TLSSecret["TLS Cert/Key<br/>kubernetes.io/tls<br/>Provisioned by MM operator"]
     end
 
     %% Flows
-    Client -->|"HTTP or HTTPS/8008<br/>TLS optional<br/>Auth: None<br/>(delegated to platform)"| RestProxy
-    ConfigMap -.->|"configures<br/>sidecar image"| SidecarContainer
-    TLSCert -.->|"mounted as<br/>file path"| SidecarContainer
+    Client -->|"HTTP(S)/8008<br/>Optional TLS<br/>No proxy-level auth"| AuthProxy
+    AuthProxy -->|"Authenticated request"| RESTServer
+    TLSSecret -.->|"mounted volume<br/>shared in pod"| RESTServer
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef authLayer fill:#ffcccc,stroke:#cc0000,stroke-width:2px
     classDef sidecar fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef inference fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef config fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef warning fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef mmserving fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef secrets fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 
     class Client external
-    class RestProxy,HTTPEndpoints sidecar
-    class GRPCSrv inference
-    class ConfigMap,TLSCert config
+    class AuthProxy authLayer
+    class RESTServer,GRPCClient sidecar
+    class GRPCInference mmserving
+    class TLSSecret secrets

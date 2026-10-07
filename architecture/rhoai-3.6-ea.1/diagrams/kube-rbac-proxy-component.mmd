@@ -1,0 +1,53 @@
+graph TB
+    subgraph "kube-rbac-proxy Sidecar"
+        direction TB
+        CLI["Cobra CLI<br/>cmd/kube-rbac-proxy"]
+        TLS["TLS Termination<br/>crypto/tls<br/>Min TLS 1.2<br/>RequestClientCert"]
+        AuthN["WithAuthentication<br/>OIDC / TokenReview"]
+        AuthZ["WithAuthorization<br/>Union Authorizer"]
+        Proxy["httputil.ReverseProxy<br/>Upstream Forwarder"]
+        Health["/healthz Endpoint<br/>Liveness Probe"]
+
+        CLI --> TLS
+        TLS --> AuthN
+        AuthN --> AuthZ
+        AuthZ --> Proxy
+
+        subgraph "Authorization Chain"
+            direction LR
+            MetricsAuth["Hardcoded Metrics<br/>Authorizer"]
+            StaticAuth["Static File<br/>Authorizer"]
+            SARAuth["SubjectAccessReview<br/>Authorizer"]
+            MetricsAuth --> StaticAuth
+            StaticAuth --> SARAuth
+        end
+
+        AuthZ --- MetricsAuth
+    end
+
+    Client[External Client] -->|HTTPS/8443<br/>Bearer Token| TLS
+    Proxy -->|HTTP/localhost<br/>Forwarded Request| Upstream["Upstream Service<br/>(co-located pod)"]
+    AuthN -->|TokenReview| K8sAPI["Kubernetes API<br/>6443/HTTPS"]
+    SARAuth -->|SubjectAccessReview| K8sAPI
+    CLI --> Health
+
+    subgraph "Ignore Paths (Bypass)"
+        IgnorePaths["Configured URL patterns<br/>skip auth chain"]
+    end
+
+    TLS -.->|matching paths| IgnorePaths
+    IgnorePaths -.->|direct forward| Proxy
+
+    style CLI fill:#4a90e2,color:#fff
+    style TLS fill:#4a90e2,color:#fff
+    style AuthN fill:#4a90e2,color:#fff
+    style AuthZ fill:#4a90e2,color:#fff
+    style Proxy fill:#4a90e2,color:#fff
+    style Health fill:#4a90e2,color:#fff
+    style MetricsAuth fill:#7ed321,color:#fff
+    style StaticAuth fill:#7ed321,color:#fff
+    style SARAuth fill:#7ed321,color:#fff
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style Upstream fill:#f5a623,color:#fff
+    style Client fill:#f9f9f9,stroke:#999
+    style IgnorePaths fill:#fff2cc,stroke:#d6b656

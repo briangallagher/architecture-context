@@ -1,89 +1,99 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA["kubeflow-trainer-controller-manager<br/>(namespace: opendatahub)"]
+        SA["kubeflow-trainer-controller-manager"]
     end
 
     subgraph ClusterRoleBindings["ClusterRole Bindings"]
-        CRB["kubeflow-trainer-controller-manager<br/>(ClusterRoleBinding)"]
+        CRB["kubeflow-trainer-controller-manager<br/>(cluster-scoped)"]
     end
 
-    subgraph ControllerClusterRole["ClusterRole: kubeflow-trainer-controller-manager"]
+    subgraph ControllerRole["ClusterRole: kubeflow-trainer-controller-manager"]
         direction TB
-        CR_Main["Controller Manager Role"]
+
+        subgraph TrainerAPIs["trainer.kubeflow.org"]
+            TrainJobs["trainjobs<br/>get, list, watch, update, patch"]
+            TrainJobStatus["trainjobs/status<br/>get, update, patch"]
+            TrainJobFinalizers["trainjobs/finalizers<br/>get, update, patch"]
+            TrainingRuntimes["trainingruntimes<br/>get, list, watch, update, patch"]
+            RuntimeFinalizers["*runtimes/finalizers<br/>get, update, patch"]
+            ClusterRuntimes["clustertrainingruntimes<br/>get, list, watch, update, patch"]
+        end
+
+        subgraph JobSetAPIs["jobset.x-k8s.io"]
+            JobSets["jobsets<br/>create, get, list, watch, update, patch"]
+        end
+
+        subgraph SchedulingAPIs["scheduling.volcano.sh / scheduling.x-k8s.io"]
+            PodGroups["podgroups<br/>create, get, list, watch, update, patch"]
+        end
+
+        subgraph CoreAPIs["Core API ('')"]
+            ConfigMaps["configmaps<br/>create, get, list, watch, update, patch"]
+            Secrets["secrets<br/>create, get, list, watch, update, patch"]
+            Events["events<br/>create, watch, update, patch"]
+            LimitRanges["limitranges<br/>get, list, watch"]
+            Pods["pods (RHOAI only)<br/>get, list"]
+        end
+
+        subgraph NetworkAPIs["networking.k8s.io (RHOAI only)"]
+            NetPolicies["networkpolicies<br/>get, list, watch, create, update, patch"]
+        end
+
+        subgraph AdminAPIs["admissionregistration.k8s.io"]
+            WebhookConfigs["validatingwebhookconfigurations<br/>get, list, update, watch"]
+        end
+
+        subgraph OpenShiftAPIs["config.openshift.io"]
+            APIServers["apiservers<br/>get"]
+        end
+
+        subgraph NodeAPIs["node.k8s.io"]
+            RuntimeClasses["runtimeclasses<br/>get, list, watch"]
+        end
+
+        subgraph CoordAPIs["coordination.k8s.io"]
+            Leases["leases<br/>create, get, list, update"]
+        end
     end
 
-    subgraph CoreResources["Core API Resources ('')"]
-        direction TB
-        ConfigMaps["configmaps<br/>create, get, list,<br/>patch, update, watch"]
-        Secrets["secrets<br/>create, get, list,<br/>patch, update, watch"]
-        Events["events<br/>create, patch,<br/>update, watch"]
-        LimitRanges["limitranges<br/>get, list, watch"]
-        Pods["pods (RHOAI)<br/>get, list"]
+    subgraph AggregatedRoles["Aggregated ClusterRoles"]
+        Admin["training-admin<br/>Full CRUD on all trainer resources"]
+        Edit["training-edit<br/>CRUD trainjobs, read runtimes"]
+        View["training-view<br/>Read-only all trainer resources"]
     end
 
-    subgraph TrainerResources["trainer.kubeflow.org"]
-        direction TB
-        TrainJobs["trainjobs<br/>get, list, patch,<br/>update, watch"]
-        TrainingRuntimes["trainingruntimes<br/>get, list, patch,<br/>update, watch"]
-        ClusterTrainingRuntimes["clustertrainingruntimes<br/>get, list, patch,<br/>update, watch"]
-        Finalizers["*/finalizers<br/>trainjobs/status<br/>get, patch, update"]
-    end
+    SA -->|bound via| CRB
+    CRB -->|grants| ControllerRole
 
-    subgraph WorkloadResources["Workload API Resources"]
-        direction TB
-        JobSets["jobset.x-k8s.io<br/>jobsets<br/>create, get, list,<br/>patch, update, watch"]
-        PodGroupsSched["scheduling.x-k8s.io<br/>podgroups<br/>create, get, list,<br/>patch, update, watch"]
-        PodGroupsVolcano["scheduling.volcano.sh<br/>podgroups<br/>create, get, list,<br/>patch, update, watch"]
-    end
+    %% Aggregated role targets
+    Admin -->|"create, delete, get, list,<br/>patch, update, watch"| TrainJobs
+    Admin -->|"create, delete, get, list,<br/>patch, update, watch"| TrainingRuntimes
+    Admin -->|"create, delete, get, list,<br/>patch, update, watch"| ClusterRuntimes
+    Edit -->|"create, delete, get, list,<br/>patch, update, watch"| TrainJobs
+    Edit -->|"get, list, watch"| TrainingRuntimes
+    View -->|"get, list, watch"| TrainJobs
 
-    subgraph InfraResources["Infrastructure Resources"]
-        direction TB
-        Webhooks["admissionregistration.k8s.io<br/>validatingwebhookconfigurations<br/>get, list, update, watch"]
-        Leases["coordination.k8s.io<br/>leases<br/>create, get, list, update"]
-        RuntimeClasses["node.k8s.io<br/>runtimeclasses<br/>get, list, watch"]
-        NetworkPolicies["networking.k8s.io (RHOAI)<br/>networkpolicies<br/>get, list, watch,<br/>create, update, patch"]
-    end
-
-    %% Controller SA bindings
-    SA -->|"bound via"| CRB
-    CRB -->|"grants"| CR_Main
-
-    CR_Main -->|"core API"| CoreResources
-    CR_Main -->|"trainer CRDs"| TrainerResources
-    CR_Main -->|"workload mgmt"| WorkloadResources
-    CR_Main -->|"infrastructure"| InfraResources
-
-    %% Aggregate Roles
-    subgraph AggregateRoles["Aggregate ClusterRoles (user-facing)"]
-        direction TB
-        TrainingAdmin["training-admin<br/>trainjobs, trainingruntimes,<br/>clustertrainingruntimes<br/>FULL CRUD"]
-        TrainingEdit["training-edit<br/>trainjobs: CRUD<br/>runtimes: read-only"]
-        TrainingView["training-view<br/>all trainer CRDs:<br/>read-only"]
-    end
-
-    TrainingAdmin -.->|"aggregates"| TrainingEdit
-    TrainingEdit -.->|"aggregates"| TrainingView
-
-    %% Styling
-    style SA fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
-    style CRB fill:#9b59b6,stroke:#333,color:#fff
-    style CR_Main fill:#f5a623,stroke:#333,stroke-width:2px
-    style ConfigMaps fill:#7ed321,stroke:#333
-    style Secrets fill:#7ed321,stroke:#333
-    style Events fill:#7ed321,stroke:#333
-    style LimitRanges fill:#7ed321,stroke:#333
-    style Pods fill:#e8a838,stroke:#333
-    style TrainJobs fill:#7ed321,stroke:#333
-    style TrainingRuntimes fill:#7ed321,stroke:#333
-    style ClusterTrainingRuntimes fill:#7ed321,stroke:#333
-    style Finalizers fill:#7ed321,stroke:#333
-    style JobSets fill:#7ed321,stroke:#333
-    style PodGroupsSched fill:#7ed321,stroke:#333
-    style PodGroupsVolcano fill:#7ed321,stroke:#333
-    style Webhooks fill:#7ed321,stroke:#333
-    style Leases fill:#7ed321,stroke:#333
-    style RuntimeClasses fill:#7ed321,stroke:#333
-    style NetworkPolicies fill:#e8a838,stroke:#333
-    style TrainingAdmin fill:#e74c3c,stroke:#333,color:#fff
-    style TrainingEdit fill:#e67e22,stroke:#333,color:#fff
-    style TrainingView fill:#3498db,stroke:#333,color:#fff
+    %% Styles
+    style SA fill:#4a90e2,color:#fff
+    style CRB fill:#6cb4ee,color:#fff
+    style TrainJobs fill:#7ed321
+    style TrainJobStatus fill:#7ed321
+    style TrainJobFinalizers fill:#7ed321
+    style TrainingRuntimes fill:#7ed321
+    style RuntimeFinalizers fill:#7ed321
+    style ClusterRuntimes fill:#7ed321
+    style JobSets fill:#f5a623
+    style PodGroups fill:#f5a623
+    style ConfigMaps fill:#ddd
+    style Secrets fill:#ddd
+    style Events fill:#ddd
+    style LimitRanges fill:#ddd
+    style Pods fill:#e88b3a
+    style NetPolicies fill:#e88b3a
+    style WebhookConfigs fill:#ddd
+    style APIServers fill:#6c8ebf,color:#fff
+    style RuntimeClasses fill:#ddd
+    style Leases fill:#ddd
+    style Admin fill:#d5e8d4,stroke:#82b366
+    style Edit fill:#d5e8d4,stroke:#82b366
+    style View fill:#d5e8d4,stroke:#82b366

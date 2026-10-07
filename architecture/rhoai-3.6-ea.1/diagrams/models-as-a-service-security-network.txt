@@ -1,0 +1,142 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [External Client]                                                       │
+│         │                                                                │
+│         │ Paths: /v1/models, /v1/subscriptions,                         │
+│         │        /v1/api-keys/*, /maas-api/*                            │
+│         │ Protocol: HTTPS                                                │
+│         │ Auth: API Key (Bearer sk-oai-*) |                             │
+│         │       Kubernetes TokenReview |                                  │
+│         │       OIDC JWT (optional)                                      │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Gateway API)                                                  │
+│                                                                          │
+│  [Gateway API - data-science-gateway]                                    │
+│  - Namespace: openshift-ingress                                          │
+│  - Resource: HTTPRoute maas-api-route                                    │
+│  - Paths: /v1/models, /v1/subscriptions, /v1/api-keys, /maas-api/*     │
+│  - Excluded: /v1/tenants (internal only)                                │
+│         │                                                                │
+│         │ Kuadrant/Authorino AuthPolicy evaluation                      │
+│         ▼                                                                │
+│  [Kuadrant/Authorino AuthPolicy]                                         │
+│  - AuthN Methods:                                                        │
+│    1. API Key: Bearer sk-oai-* pattern → callback to                    │
+│       maas-api /internal/v1/api-keys/validate                           │
+│    2. Kubernetes TokenReview (cluster audience)                          │
+│    3. OIDC JWT validation (optional, when provider configured)          │
+│  - AuthZ: OPA Rego policies                                             │
+│    - Subscription validity                                               │
+│    - Per-model group membership                                          │
+│    - Tenant isolation                                                    │
+│    - OIDC client binding                                                 │
+│  - Injects Headers:                                                      │
+│    X-MaaS-Username, X-MaaS-Group, X-MaaS-Subscription                  │
+│         │                                                                │
+│         │ Port: 8443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS (FIPS-compliant via strictfipsruntime)        │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  APPLICATION (Trusted - Cluster Internal)                               │
+│                                                                          │
+│  [maas-api]                                                              │
+│  - Namespace: opendatahub                                                │
+│  - ServiceAccount: maas-api                                              │
+│  - Service: maas-api (ClusterIP)                                         │
+│  - Ports:                                                                │
+│    - 8080/TCP (http - internal API)                                      │
+│    - 8443/TCP (https - Gateway backend)                                  │
+│    - 9090/TCP (metrics - Prometheus)                                     │
+│  - Internal Auth: TenantAuthMiddleware                                   │
+│    - TokenReview for bearer tokens                                       │
+│    - SubjectAccessReview for system:authenticated                       │
+│  - FIPS: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime, UBI 9          │
+│         │                                                                │
+│         │                                                                │
+│  [maas-controller (manager)]                                             │
+│  - Namespace: opendatahub                                                │
+│  - Ports:                                                                │
+│    - 8081/TCP (healthz, readyz)                                          │
+│  - Validating Webhooks (HTTPS/TLS):                                      │
+│    - AITenant, MaaSAuthPolicy, MaaSModelRef, MaaSSubscription           │
+│    - Failure Policy: Fail                                                │
+│  - FIPS: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime, UBI 9          │
+│         │                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EGRESS CONNECTIONS                                                      │
+│                                                                          │
+│  maas-api ──► [Kubernetes API - kube-apiserver]                         │
+│         │     Port: 6443/TCP                                             │
+│         │     Protocol: HTTPS/WSS                                        │
+│         │     Encryption: TLS 1.2+                                       │
+│         │     Auth: ServiceAccount token (in-cluster)                    │
+│         │                                                                │
+│  maas-api ──► [PostgreSQL Database]                                     │
+│         │     Protocol: PostgreSQL (pgx)                                 │
+│         │     Auth: Credentials from Secret maas-db-config              │
+│         │     Encryption: TLS (via strictfipsruntime)                   │
+│         │                                                                │
+│  maas-api ──► [OpenTelemetry Collector]                                 │
+│         │     Protocol: OTLP/gRPC                                        │
+│         │     Encryption: Configured at runtime                          │
+│         │                                                                │
+│  maas-controller ──► [Kubernetes API - kube-apiserver]                  │
+│               Port: 6443/TCP                                             │
+│               Protocol: HTTPS/WSS                                        │
+│               Encryption: TLS 1.2+                                       │
+│               Auth: ServiceAccount token (in-cluster)                    │
+│                                                                          │
+│  maas-controller ──► [Kuadrant AuthPolicy]                              │
+│               Creates: AuthPolicy resources                              │
+│               Creates: TokenRateLimitPolicy resources                    │
+│                                                                          │
+│  maas-controller ──► [Gateway API HTTPRoutes]                           │
+│               Creates/Updates: HTTPRoute resources                       │
+│                                                                          │
+│  maas-controller ─ ─► [KServe LLMInferenceService]                     │
+│               Conditional watch (dynamic registration)                   │
+│               Reads model serving state                                  │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+
+ClusterRole: maas-api
+  - core: secrets (get), namespaces (create, get, list, watch),
+    serviceaccounts (create, delete, get, list, watch),
+    serviceaccounts/token (create), endpoints/pods/services (get, list, watch)
+  - authentication.k8s.io: tokenreviews (create)
+  - authorization.k8s.io: subjectaccessreviews (create)
+  - maas.opendatahub.io: maasauthpolicies, maasmodelrefs,
+    maassubscriptions (get, list, watch)
+  - gateway.networking.k8s.io: httproutes (get, list, watch), gateways (get)
+  - config.openshift.io: apiservers (get, list, watch)
+
+ClusterRole: maas-api-supplemental
+  - core: secrets (get)
+  - authorization.k8s.io: subjectaccessreviews (create)
+  - maas.opendatahub.io: maasmodelrefs, maassubscriptions (get, list, watch)
+  - config.openshift.io: apiservers (get, list, watch)
+  - gateway.networking.k8s.io: gateways (get)
+
+Role Bindings:
+  - maas-api → SA maas-api (namespace: opendatahub)
+  - maas-api-supplemental → SA maas-api (namespace: opendatahub)
+
+Secrets:
+  - {maa-s-d-b-secret-name} (Opaque) - DB credentials, provisioned by controller
+
+Authentication Mechanisms:
+  - Gateway Level: API Key (sk-oai-*), Kubernetes TokenReview, OIDC JWT
+  - Internal: TenantAuthMiddleware (TokenReview + SubjectAccessReview)
+  - Controller: ServiceAccount token (in-cluster)
+  - Webhooks: Kubernetes admission (TLS)
+
+FIPS Compliance:
+  - Build: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime
+  - Linking: Dynamic (CGO) against system OpenSSL
+  - Base image: UBI 9 (OpenSSL included)
+  - Risk: None detected; strictfipsruntime panics on non-FIPS crypto

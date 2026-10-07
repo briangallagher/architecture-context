@@ -1,0 +1,71 @@
+graph LR
+    DSPO["Data Science Pipelines<br/>Operator (DSPO)"]
+
+    %% Runtime Framework
+    DSPO -->|"operator framework"| ControllerRuntime["controller-runtime<br/>0.23.3"]
+    DSPO -->|"template rendering"| Manifestival["manifestival<br/>0.7.2"]
+
+    %% Kubernetes / OpenShift
+    DSPO -->|"cluster resources<br/>6443/HTTPS"| K8sAPI["Kubernetes API<br/>k8s.io v0.35.3"]
+    DSPO -->|"TLS profile"| OpenShiftAPI["OpenShift API<br/>config.openshift.io"]
+    DSPO -->|"image streams"| ImageStreams["OpenShift<br/>Image Streams"]
+
+    %% Internal RHOAI Dependencies
+    DSPO -->|"CRD Watch<br/>(read-only)"| MLflow["MLflow<br/>mlflow.opendatahub.io"]
+    DSPO -->|"CRD CRUD"| KServe["KServe<br/>InferenceService"]
+    DSPO -->|"CRD CRUD"| KubeflowNB["Kubeflow Notebooks<br/>kubeflow.org"]
+    DSPO -->|"CRD CRUD"| PromOperator["prometheus-operator<br/>ServiceMonitors"]
+    DSPO -->|"CRD CRUD"| CodeFlare["CodeFlare<br/>AppWrappers"]
+
+    %% Managed Components (deployed by DSPO)
+    DSPO -->|"deploys & manages"| Argo["Argo Workflows<br/>(9 CRD types)"]
+    DSPO -->|"deploys & manages"| PipelineAPI["Pipeline API Server<br/>pipelines.kubeflow.org"]
+
+    %% Cross-Component CRUD
+    DSPO -->|"CRD CRUD"| Seldon["Seldon<br/>SeldonDeployments"]
+    DSPO -->|"CRD CRUD"| Ray["Ray<br/>RayClusters/Jobs/Services"]
+
+    %% Go Library Dependencies
+    DSPO -->|"Go library"| MLflowOperatorAPI["mlflow-operator<br/>API types"]
+    DSPO -->|"Go library"| MinIO["minio-go v7<br/>S3 client"]
+    DSPO -->|"Go library"| ContainerReg["go-containerregistry<br/>Image inspection"]
+
+    %% Monitoring
+    DSPO -.->|"metrics<br/>8080/HTTP"| Prometheus["Prometheus"]
+
+    %% Integration Partners (consume DSPO resources)
+    Dashboard["ODH / RHOAI<br/>Dashboard"] -.->|"manages DSPA via UI"| DSPO
+
+    %% Styling
+    style DSPO fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+
+    %% Internal RHOAI
+    style MLflow fill:#7ed321,stroke:#333,color:#fff
+    style KServe fill:#7ed321,stroke:#333,color:#fff
+    style KubeflowNB fill:#7ed321,stroke:#333,color:#fff
+    style PromOperator fill:#7ed321,stroke:#333,color:#fff
+    style CodeFlare fill:#7ed321,stroke:#333,color:#fff
+    style Dashboard fill:#7ed321,stroke:#333,color:#fff
+
+    %% Managed by DSPO
+    style Argo fill:#4a90e2,stroke:#333,color:#fff
+    style PipelineAPI fill:#4a90e2,stroke:#333,color:#fff
+
+    %% External dependencies
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style OpenShiftAPI fill:#e8e8e8,stroke:#333
+    style ImageStreams fill:#e8e8e8,stroke:#333
+    style ControllerRuntime fill:#e8e8e8,stroke:#333
+    style Manifestival fill:#e8e8e8,stroke:#333
+
+    %% Cross-component
+    style Seldon fill:#f5a623,stroke:#333,color:#fff
+    style Ray fill:#f5a623,stroke:#333,color:#fff
+
+    %% Libraries
+    style MLflowOperatorAPI fill:#ddd,stroke:#333
+    style MinIO fill:#ddd,stroke:#333
+    style ContainerReg fill:#ddd,stroke:#333
+
+    %% Monitoring
+    style Prometheus fill:#fff2cc,stroke:#d6b656

@@ -1,0 +1,40 @@
+sequenceDiagram
+    participant vLLM as vLLM Engine<br/>ZMQ Publisher
+    participant ZMQ as ZMQ Subscriber<br/>tcp://:5557
+    participant Workers as Worker Pool<br/>(4 workers)
+    participant Redis as Redis/Valkey<br/>KV Block Index
+    participant Online as Online Service<br/>8080/TCP HTTP
+    participant EPP as llm-d EPP<br/>(Routing Layer)
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant PodRecon as PodReconciler<br/>(controller-runtime)
+    participant Tokenizer as UDS Tokenizer<br/>gRPC over UDS
+    participant ColocSvc as Co-located Service
+    participant OTel as OpenTelemetry<br/>Collector
+
+    Note over vLLM,Redis: Flow 1: KV Cache Event Ingestion
+
+    vLLM->>ZMQ: Publish KV event (store/delete/clear)<br/>topic: kv@
+    ZMQ->>Workers: Dispatch event
+    Workers->>Redis: Update KV block index<br/>(prefix hash → pod ID + block metadata)
+    Redis-->>Workers: ACK
+
+    Note over EPP,Redis: Flow 2: Prefix Scoring Request
+
+    EPP->>Online: POST /score_completions<br/>or /score_chat_completions<br/>HTTP/8080, No Auth
+    Online->>Redis: Query prefix match scores<br/>for all indexed pods
+    Redis-->>Online: Per-pod block match data
+    Online-->>EPP: JSON response with<br/>ranked pod scores
+
+    Note over K8sAPI,Redis: Flow 3: Pod Lifecycle Tracking
+
+    K8sAPI-->>PodRecon: Watch event: Pod added/removed<br/>HTTPS/6443, ServiceAccount auth
+    PodRecon->>Redis: Update pod availability<br/>in KV cache index
+
+    Note over ColocSvc,Tokenizer: Flow 4: Tokenization (Local Only)
+
+    ColocSvc->>Tokenizer: gRPC: Tokenize / RenderChatCompletion<br/>UDS: /tmp/tokenizer/tokenizer-uds.socket<br/>Auth: filesystem perms (0700)
+    Tokenizer-->>ColocSvc: Tokenized result
+
+    Note over Online,OTel: Flow 5: Observability Export
+
+    Online->>OTel: Export traces<br/>OTLP/gRPC

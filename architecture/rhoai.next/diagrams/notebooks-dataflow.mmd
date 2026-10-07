@@ -1,64 +1,56 @@
 sequenceDiagram
-    participant Dev as Developer
-    participant Konflux as Konflux Build System
-    participant Cachi2 as cachi2 Prefetch
-    participant Registry as Container Registry<br/>(registry.redhat.io / quay.io)
-    participant Operator as rhods-operator
-    participant Dashboard as ODH Dashboard
-    participant User as Data Scientist
-    participant Gateway as Platform Gateway<br/>(Envoy) 443/TCP
-    participant KRBP as kube-rbac-proxy<br/>8443/TCP HTTPS
-    participant Jupyter as JupyterLab<br/>8888/TCP HTTP
-    participant Nginx as nginx (Code-Server)<br/>80/TCP HTTP
-    participant CS as code-server<br/>8787/TCP HTTP
-    participant Httpd as httpd CGI<br/>8080/TCP HTTP
-    participant DSPA as Data Science Pipelines<br/>443/TCP HTTPS
-    participant Runtime as Runtime Image<br/>(Pipeline Pod)
-    participant Culler as Notebook Controller<br/>Culler
+    autonumber
 
-    Note over Dev,Registry: Flow 1: Workbench Image Build (Konflux)
-    Dev->>Konflux: Push code changes
-    Konflux->>Cachi2: Prefetch dependencies<br/>(RPMs, pip, npm, generic)<br/>HTTPS/443
-    Cachi2-->>Konflux: Cached artifacts<br/>(file mount)
-    Konflux->>Konflux: Build Dockerfile.konflux.*<br/>(hermetic, network-isolated)
-    Konflux->>Registry: Push container images<br/>HTTPS/443 TLS 1.2+
+    participant User as User / Data Scientist
+    participant Dashboard as ODH Dashboard<br/>443/TCP HTTPS
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant Controller as Notebook Controller<br/>Watch mTLS
+    participant Registry as Container Registry<br/>443/TCP HTTPS
+    participant KRBP as kube-rbac-proxy<br/>8443/TCP TLS
+    participant JupyterLab as JupyterLab<br/>8888/TCP HTTP
+    participant DSPA as DSPA Endpoint<br/>443/TCP HTTPS
+    participant S3 as S3 Object Storage<br/>443/TCP HTTPS
 
-    Note over Operator,Dashboard: ImageStream Deployment
-    Operator->>Operator: Deploy ImageStream manifests<br/>from manifests/rhoai/base/
-    Dashboard->>Operator: Read ImageStream annotations<br/>(via Kubernetes API)
+    rect rgb(232, 244, 253)
+        Note over User,JupyterLab: Flow 1: Workbench Pod Startup
+        User->>Dashboard: Select workbench image<br/>HTTPS / OpenShift OAuth
+        Dashboard->>K8sAPI: Create Notebook CR<br/>HTTPS / Service Account
+        K8sAPI->>Controller: Watch event<br/>mTLS / Service Account
+        Controller->>Registry: Pull workbench image<br/>HTTPS / Image pull secret
+        Controller->>Controller: Inject kube-rbac-proxy sidecar,<br/>CA bundles, DSPA secret
+        Note over Controller: Creates Pod with<br/>workbench container +<br/>kube-rbac-proxy sidecar
+        User->>KRBP: Access workbench<br/>HTTPS / Bearer Token
+        KRBP->>JupyterLab: Forward request<br/>HTTP (pod-internal, no auth)
+        JupyterLab-->>KRBP: JupyterLab UI
+        KRBP-->>User: HTTPS response
+    end
 
-    Note over User,CS: Flow 2: Workbench Launch (Jupyter)
-    User->>Dashboard: Select workbench flavor
-    Dashboard->>Operator: Create Notebook CR
-    User->>Gateway: Access workbench<br/>HTTPS/443 TLS 1.2+<br/>OAuth/OIDC
-    Gateway->>KRBP: Forward request<br/>HTTPS/8443 TLS 1.2+<br/>OAuth Token
-    KRBP->>Jupyter: Proxy to JupyterLab<br/>HTTP/8888 (localhost)<br/>No auth (trusted sidecar)
-    Jupyter-->>KRBP: JupyterLab response
-    KRBP-->>Gateway: HTTPS response
-    Gateway-->>User: Workbench UI
+    rect rgb(225, 190, 231)
+        Note over User,S3: Flow 2: Elyra Pipeline Execution
+        participant RuntimePod as Runtime Pod<br/>(Pipeline Image)
+        User->>DSPA: Submit pipeline via Elyra UI<br/>HTTPS / Bearer Token
+        DSPA->>Registry: Pull runtime image<br/>HTTPS / Image pull secret
+        Note over DSPA,RuntimePod: Creates pipeline pod with<br/>runtime image
+        RuntimePod->>S3: Read/write data artifacts<br/>HTTPS / Access Key or IAM
+        RuntimePod->>RuntimePod: Execute bootstrapper.py<br/>(pipeline node logic)
+        RuntimePod-->>DSPA: Pipeline step complete
+    end
 
-    Note over User,CS: Flow 2b: Workbench Launch (Code-Server)
-    User->>Gateway: Access Code-Server workbench<br/>HTTPS/443 TLS 1.2+
-    Gateway->>KRBP: Forward request<br/>HTTPS/8443 TLS 1.2+
-    KRBP->>Nginx: Proxy to nginx<br/>HTTP/80 (localhost)
-    Nginx->>CS: Forward to code-server<br/>HTTP/8787 (localhost)
-    CS-->>Nginx: VS Code response
-    Nginx-->>KRBP: Response
-    KRBP-->>Gateway: HTTPS response
-    Gateway-->>User: Code-Server UI
+    rect rgb(255, 243, 224)
+        Note over Controller,JupyterLab: Flow 3: Code-Server Activity Tracking (Idle Culling)
+        participant Nginx as nginx<br/>80/TCP HTTP
+        participant HTTPD as httpd CGI<br/>8080/TCP HTTP
+        participant CGI as access.cgi<br/>(bash script)
+        participant CS as code-server<br/>8888/TCP HTTP
 
-    Note over Jupyter,Runtime: Flow 3: Elyra Pipeline Submission
-    User->>Jupyter: Design pipeline in Elyra
-    Jupyter->>DSPA: Submit pipeline run<br/>HTTPS/443 TLS 1.2+<br/>ServiceAccount Token
-    DSPA->>Runtime: Launch pipeline pod<br/>with runtime image
-    Runtime->>Runtime: Execute pipeline step
-    Runtime-->>DSPA: Step result
-
-    Note over Culler,Httpd: Flow 4: Idle Culling (Code-Server)
-    Culler->>KRBP: Poll /api/kernels/<br/>HTTPS/8443 TLS 1.2+<br/>ServiceAccount Token
-    KRBP->>Nginx: Forward to nginx<br/>HTTP/80
-    Nginx->>Nginx: Check access log<br/>(JSON format)
-    Culler->>Httpd: Poll CGI endpoint<br/>HTTP/8080
-    Httpd->>CS: access.cgi checks<br/>/codeserver/healthz<br/>HTTP/8888
-    CS-->>Httpd: Heartbeat response
-    Httpd-->>Culler: Jupyter-compatible<br/>kernel format response
+        Controller->>KRBP: Poll /api/kernels/<br/>HTTPS / Bearer Token
+        KRBP->>Nginx: Forward request<br/>HTTP (pod-internal)
+        Nginx->>HTTPD: Proxy to CGI gateway<br/>HTTP (pod-internal)
+        HTTPD->>CGI: Execute CGI script
+        CGI->>CS: Check code-server healthz<br/>HTTP (localhost)
+        CS-->>CGI: Heartbeat response
+        CGI-->>HTTPD: JSON activity status
+        HTTPD-->>Nginx: CGI response
+        Nginx-->>KRBP: Activity status
+        KRBP-->>Controller: /api/kernels/ response
+    end

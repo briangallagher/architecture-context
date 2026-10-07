@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "component": "feast",
+  "reads": [
+    {
+      "path": "infra/feast-operator/api/v1alpha1/featurestore_types.go",
+      "line_range": "600-720",
+      "gap_category": ["authentication", "fips_compliance"],
+      "question": "How is authentication configured in the FeatureStore CRD and what TLS options are available?",
+      "expected_signal": "AuthzConfig struct with Kubernetes RBAC or OIDC fields; TLS configuration with Secret references",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Authentication & Authorization", "FIPS Compliance"]
+    },
+    {
+      "path": "Dockerfiles/Dockerfile.feast-operator.konflux",
+      "line_range": "1-39",
+      "gap_category": ["fips_compliance"],
+      "question": "Does the feast-operator Konflux build use FIPS-compliant build flags (CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime)?",
+      "expected_signal": "GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, dynamic linking, UBI base image",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    },
+    {
+      "path": "sdk/python/feast/permissions/security_manager.py",
+      "line_range": "1-80",
+      "gap_category": ["authentication"],
+      "question": "How does the Python SDK enforce authentication and authorization at runtime?",
+      "expected_signal": "SecurityManager class with permission enforcement, user context, and policy evaluation",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Authentication & Authorization"]
+    },
+    {
+      "path": "sdk/python/feast/permissions/auth/auth_manager.py",
+      "line_range": "1-69",
+      "gap_category": ["authentication"],
+      "question": "What authentication manager implementations exist and what is the fallback when auth is not configured?",
+      "expected_signal": "AuthManager ABC with token parser/extractor; AllowAll implementation for no-auth mode",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Authentication & Authorization"]
+    },
+    {
+      "path": "sdk/python/feast/permissions/server/utils.py",
+      "line_range": "1-80",
+      "gap_category": ["authentication"],
+      "question": "What authentication modes are supported for Python Feast servers and how are they initialized?",
+      "expected_signal": "AuthManagerType enum (NONE, OIDC, KUBERNETES); init_security_manager function",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Authentication & Authorization"]
+    },
+    {
+      "path": "Dockerfiles/Dockerfile.feature-server.konflux",
+      "line_range": "1-55",
+      "gap_category": ["fips_compliance"],
+      "question": "Does the Python feature server Konflux build include any FIPS-specific configuration?",
+      "expected_signal": "FIPS mode flags, OpenSSL configuration, or explicit FIPS provider selection",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    }
+  ]
+}

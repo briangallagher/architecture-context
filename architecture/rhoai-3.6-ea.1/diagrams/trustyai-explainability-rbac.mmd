@@ -1,0 +1,61 @@
+graph TD
+    subgraph "Service Account"
+        SA["trustyai-serviceaccount"]
+    end
+
+    subgraph "ClusterRole Binding"
+        CRB["trustyai-clusterrolebinding<br/>(Cluster-scoped)"]
+    end
+
+    subgraph "ClusterRole Permissions"
+        CR["trustyai-role<br/>(ClusterRole)"]
+    end
+
+    subgraph "API Resources"
+        ConfigMaps["core (v1)<br/>ConfigMaps"]
+    end
+
+    subgraph "Permitted Verbs"
+        Create["create"]
+        Delete["delete"]
+        Get["get"]
+        List["list"]
+        Patch["patch"]
+        Update["update"]
+        Watch["watch"]
+    end
+
+    subgraph "Usage Context"
+        InitUsage["Init Container<br/>oc apply ConfigMap<br/>(model-serving-config)"]
+        RuntimeUsage["Runtime Service<br/>Configuration management"]
+    end
+
+    SA -->|"bound via"| CRB
+    CRB -->|"grants"| CR
+    CR -->|"API Group: core"| ConfigMaps
+
+    ConfigMaps --- Create
+    ConfigMaps --- Delete
+    ConfigMaps --- Get
+    ConfigMaps --- List
+    ConfigMaps --- Patch
+    ConfigMaps --- Update
+    ConfigMaps --- Watch
+
+    SA -.->|"uses permissions for"| InitUsage
+    SA -.->|"uses permissions for"| RuntimeUsage
+
+    %% Styling
+    style SA fill:#4a90e2,color:#fff
+    style CRB fill:#6c757d,color:#fff
+    style CR fill:#f5a623,color:#fff
+    style ConfigMaps fill:#7ed321,color:#fff
+    style Create fill:#d5e8d4,stroke:#82b366
+    style Delete fill:#f8cecc,stroke:#b85450
+    style Get fill:#d5e8d4,stroke:#82b366
+    style List fill:#d5e8d4,stroke:#82b366
+    style Patch fill:#fff2cc,stroke:#d6b656
+    style Update fill:#fff2cc,stroke:#d6b656
+    style Watch fill:#d5e8d4,stroke:#82b366
+    style InitUsage fill:#dae8fc,stroke:#6c8ebf
+    style RuntimeUsage fill:#dae8fc,stroke:#6c8ebf

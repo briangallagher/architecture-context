@@ -1,0 +1,84 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  USER WORKSTATION (Trusted)                                             │
+│                                                                          │
+│  [User / SRE]                                                            │
+│  - Runs: oc adm must-gather --image=<must-gather-image>                 │
+│  - Receives: collected diagnostic data archive                           │
+│         │                                                                │
+│         │ oc adm must-gather framework                                   │
+│         │ (launches ephemeral pod, copies results back)                  │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER (Kubernetes/OpenShift)                                          │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐     │
+│  │  must-gather Pod (Ephemeral, read-only)                         │     │
+│  │  - Namespace: openshift-must-gather-* (temporary)               │     │
+│  │  - ServiceAccount: provisioned by must-gather framework         │     │
+│  │  - Privileges: cluster-reader                                   │     │
+│  │  - Image: ose-must-gather-rhel9 based                           │     │
+│  │  - Binaries: oc, kubectl, helm (from ose-cli-rhel9)            │     │
+│  │  - No persistent state, no network services exposed             │     │
+│  │  - No writes to cluster (read-only operations)                  │     │
+│  │         │                                                        │     │
+│  │         │ Port: 443/TCP                                          │     │
+│  │         │ Protocol: HTTPS (REST API)                             │     │
+│  │         │ Encryption: TLS                                        │     │
+│  │         │ Auth: ServiceAccount token (cluster-reader)            │     │
+│  │         │ Direction: Outbound only (pod → API server)            │     │
+│  │         ▼                                                        │     │
+│  │  [Kubernetes API Server]                                         │     │
+│  │  - API calls: GET (namespaces, pods, services, CRDs, CRs)      │     │
+│  │  - oc adm inspect (OpenShift) / kubectl_inspect (vanilla K8s)   │     │
+│  │  - Pod log retrieval                                             │     │
+│  │  - Helm release data (via helm CLI)                              │     │
+│  │                                                                  │     │
+│  │  Resources Accessed (read-only):                                 │     │
+│  │  - DSCInitialization, DataScienceCluster CRs                    │     │
+│  │  - ClusterServiceVersions (Subscriptions)                       │     │
+│  │  - Component namespace resources (pods, services, configmaps)   │     │
+│  │  - Pod logs across RHOAI namespaces                              │     │
+│  │  - Gateway API resources, Istio resources                       │     │
+│  │  - Helm release values and manifests                             │     │
+│  └─────────────────────────────────────────────────────────────────┘     │
+│                                                                          │
+│  Output:                                                                 │
+│  - Written to: /must-gather (pod-local filesystem)                       │
+│  - Copied to user workstation by must-gather framework                   │
+│  - No data sent to external services                                     │
+└─────────────────────────────────────────────────────────────────────────┘
+
+NETWORK SUMMARY:
+- No listening ports or services exposed by must-gather
+- Single outbound connection: pod → Kubernetes API server (443/TCP HTTPS)
+- No external egress (no data exfiltration risk)
+- No ingress routes, no load balancers
+
+RBAC Summary:
+- ServiceAccount: provisioned by oc adm must-gather framework
+- Privileges: cluster-reader (read-only access to all cluster resources)
+- No ClusterRoles or RoleBindings defined by must-gather itself
+- RBAC is entirely delegated to the must-gather framework
+
+Authentication & Authorization:
+- Endpoint: Kubernetes API
+- Auth Mechanism: ServiceAccount token
+- Enforcement Point: Kubernetes RBAC
+- Policy: cluster-reader (provisioned by oc adm must-gather framework)
+
+Secrets:
+- No secrets defined or managed by must-gather
+- ServiceAccount token is auto-mounted by Kubernetes
+
+FIPS Compliance:
+- No application-level cryptographic operations
+- All TLS handled by oc/kubectl/helm binaries from ose-cli-rhel9
+- Base image: ose-must-gather-rhel9 (UBI-based, FIPS-capable)
+- Inherits host system crypto policies
+
+Cross-Distribution Support:
+- OpenShift: uses oc adm inspect (native)
+- AKS/EKS/CoreWeave: uses kubectl_inspect fallback
+  - Auto-discovers API resources per namespace
+  - Collects pod logs in parallel
+  - Same container image works across all distributions

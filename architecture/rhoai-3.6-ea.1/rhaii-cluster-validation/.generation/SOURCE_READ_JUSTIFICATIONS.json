@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "component": "rhaii-cluster-validation",
+  "reads": [
+    {
+      "path": "cmd/agent/main.go",
+      "line_range": "1-60",
+      "gap_category": ["authentication", "http_endpoints", "services", "integration_points"],
+      "question": "What entrypoints and subcommands does the CLI expose? Are there HTTP servers or services?",
+      "expected_signal": "CLI command registration, server setup, HTTP/gRPC listeners",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "cmd/agent/tcplat.go",
+      "line_range": "1-219",
+      "gap_category": ["http_endpoints", "services"],
+      "question": "Does the TCP latency server expose HTTP endpoints or Kubernetes Services?",
+      "expected_signal": "HTTP listener, handler registration, or Service manifest",
+      "outcome": "resolved",
+      "sections": ["Data Flows", "Architectural Analysis"]
+    },
+    {
+      "path": "Dockerfile.konflux",
+      "line_range": "1-39",
+      "gap_category": ["fips_compliance"],
+      "question": "What build flags are used for FIPS compliance? Is CGO enabled? Is strictfipsruntime set?",
+      "expected_signal": "CGO_ENABLED, GOEXPERIMENT=strictfipsruntime, dynamic linking",
+      "outcome": "resolved",
+      "sections": ["Security"]
+    },
+    {
+      "path": "deploy/rbac.yaml",
+      "line_range": "1-32",
+      "gap_category": ["authentication", "services", "integration_points"],
+      "question": "What RBAC resources and Kubernetes Services are deployed? How is authentication configured?",
+      "expected_signal": "Service definitions, RBAC rules, ServiceAccount configuration",
+      "outcome": "resolved",
+      "sections": ["Security", "Data Flows", "Architectural Analysis"]
+    },
+    {
+      "path": "pkg/controller/controller.go",
+      "line_range": "1-40",
+      "gap_category": ["fips_compliance", "authentication"],
+      "question": "What crypto libraries are imported? How is the Kubernetes client configured?",
+      "expected_signal": "crypto/tls imports, client-go configuration, custom TLS settings",
+      "outcome": "resolved",
+      "sections": ["Security"]
+    },
+    {
+      "path": "pkg/controller/controller.go",
+      "line_range": "300-330",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "How are ConfigMaps created and what Kubernetes resources does the controller manage?",
+      "expected_signal": "ConfigMap CRUD operations, resource creation patterns",
+      "outcome": "resolved",
+      "sections": ["Data Flows", "Integration Points"]
+    },
+    {
+      "path": "pkg/controller/controller.go",
+      "line_range": "395-434",
+      "gap_category": ["authentication"],
+      "question": "How is the kubeconfig credential chain loaded and used for authentication?",
+      "expected_signal": "clientcmd loading rules, kubeconfig path, client construction",
+      "outcome": "resolved",
+      "sections": ["Security", "Architectural Analysis"]
+    },
+    {
+      "path": "pkg/controller/controller.go",
+      "line_range": "935-965",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "What Kubernetes resources does the controller create from the deploy manifest?",
+      "expected_signal": "Resource creation by kind (ServiceAccount, ClusterRole, ClusterRoleBinding)",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Data Flows"]
+    },
+    {
+      "path": "pkg/controller/controller.go",
+      "line_range": "2530-2560",
+      "gap_category": ["authentication", "integration_points"],
+      "question": "How is the OpenShift SCC binding created and what privileges does it grant?",
+      "expected_signal": "SCC ClusterRoleBinding creation, privileged access configuration",
+      "outcome": "resolved",
+      "sections": ["Security", "Architectural Analysis"]
+    },
+    {
+      "path": "pkg/checks/crd/crd.go",
+      "line_range": "1-80",
+      "gap_category": ["internal_dependencies", "integration_points"],
+      "question": "What CRDs does the tool validate and are they runtime dependencies or validation targets?",
+      "expected_signal": "CRD names, validation logic, dependency vs. check distinction",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Purpose"]
+    },
+    {
+      "path": "pkg/config/platforms/ocp.yaml",
+      "line_range": "1-60",
+      "gap_category": ["internal_dependencies", "integration_points"],
+      "question": "What platform-specific CRDs and operators are configured as validation targets?",
+      "expected_signal": "CRD names, operator namespaces, platform configuration",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Purpose"]
+    },
+    {
+      "path": "go.mod",
+      "line_range": "1-60",
+      "gap_category": ["fips_compliance"],
+      "question": "Are there non-FIPS crypto library dependencies?",
+      "expected_signal": "crypto library imports, non-stdlib crypto packages",
+      "outcome": "resolved",
+      "sections": ["Security"]
+    },
+    {
+      "path": "pkg/jobrunner/helpers.go",
+      "line_range": "1-40",
+      "gap_category": ["fips_compliance"],
+      "question": "What crypto usage exists in the job runner package?",
+      "expected_signal": "crypto imports, hashing, TLS configuration",
+      "outcome": "resolved",
+      "sections": ["Security"]
+    }
+  ]
+}

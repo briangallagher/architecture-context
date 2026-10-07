@@ -1,94 +1,90 @@
 workspace {
     model {
-        datascientist = person "Data Scientist" "Deploys and queries LLM models for inference"
-        application = person "Application / Service" "Consumes LLM inference API programmatically"
+        dataScientist = person "Data Scientist" "Deploys and queries LLM models for inference"
+        mlEngineer = person "ML Engineer" "Configures model serving infrastructure"
 
-        vllmcpu = softwareSystem "vllm-cpu" "CPU-only LLM inference server with OpenAI/Anthropic-compatible API, deployed as KServe runtime" {
-            openaiServer = container "OpenAI API Server" "FastAPI application serving OpenAI-compatible REST API (chat completions, completions, embeddings, responses, messages)" "Python (FastAPI + uvicorn)" "Web Server"
-            grpcServer = container "gRPC Server" "Alternative high-performance inference entrypoint using protobuf" "Python (grpcio)" "gRPC Service"
-            asyncEngine = container "V1 Async Engine (AsyncLLM)" "Core LLM engine managing model loading, scheduling, token generation, and memory management" "Python" "Engine"
-            cpuKernels = container "CPU Kernels" "Architecture-specific optimized C++ extensions for attention and tensor operations (x86_64, ppc64le, s390x)" "C++ (CMake)" "Native Library"
-            prometheusInstrumentator = container "Prometheus Instrumentator" "Exposes inference metrics via /metrics endpoint" "Python (prometheus_client)" "Metrics"
-            otelTracing = container "OpenTelemetry Tracing" "Distributed tracing via OTLP exporter" "Python (opentelemetry-sdk)" "Tracing"
+        vllmCpu = softwareSystem "vllm-cpu" "CPU-optimized LLM inference and serving engine with OpenAI-compatible API" {
+            apiServer = container "OpenAI API Server" "OpenAI-compatible REST API for chat completions, completions, embeddings" "Python FastAPI/Uvicorn" "Service"
+            grpcServer = container "gRPC Server" "Protobuf-based inference via Generate service with streaming support" "Python grpc.aio" "Service"
+            rustFrontend = container "Rust Frontend" "High-performance tokenization, chat rendering, tool parsing via PyO3" "Rust PyO3" "Library"
+            engineCore = container "V1 Engine Core" "Decoupled scheduling engine with ZMQ IPC, KV cache management, continuous batching" "Python" "Engine"
+            modelExecutor = container "Model Executor" "Model loading (15+ format plugins), weight management, CPU inference execution" "Python/PyTorch" "Engine"
+            cpuPlatform = container "CPU Platform" "NUMA-aware memory, OpenMP threading, arch-specific dtype support (x86_64/ppc64le/s390x)" "Python" "Platform"
+            cli = container "CLI" "Command-line interface for serving, benchmarking, and batch processing" "Python" "CLI"
         }
 
-        kserve = softwareSystem "KServe" "Manages InferenceService lifecycle, creates Routes, handles scaling" "Internal RHOAI"
-        huggingfaceHub = softwareSystem "Hugging Face Hub" "Model weights and tokenizer hosting (huggingface.co)" "External"
-        s3Storage = softwareSystem "S3-compatible Storage" "Alternative model artifact storage" "External"
-        prometheus = softwareSystem "Prometheus" "Metrics collection and monitoring" "Internal Platform"
-        otelCollector = softwareSystem "OpenTelemetry Collector" "Distributed tracing collection" "Internal Platform"
-        mcpServers = softwareSystem "MCP Tool Servers" "Model Context Protocol servers for tool use / function calling" "External"
+        kserve = softwareSystem "KServe" "Kubernetes model serving platform; deploys vllm-cpu as InferenceService runtime" "External Platform"
+        huggingface = softwareSystem "HuggingFace Hub" "Model weight and tokenizer repository" "External Service"
+        s3 = softwareSystem "S3-compatible Storage" "Remote model artifact storage via tensorizer" "External Service"
+        prometheus = softwareSystem "Prometheus" "Metrics collection system" "External Platform"
+        otelCollector = softwareSystem "OpenTelemetry Collector" "Distributed trace collection (not on s390x)" "External Platform"
+        modelScope = softwareSystem "ModelScope" "Alternative model download source (CN)" "External Service"
 
-        # External relationships
-        datascientist -> vllmcpu "Sends inference requests via REST API" "HTTPS/HTTP 8000"
-        application -> vllmcpu "Sends inference requests via REST or gRPC" "HTTP 8000 / gRPC 50051"
-        kserve -> vllmcpu "Deploys and manages as InferenceService runtime container"
+        # User interactions
+        dataScientist -> vllmCpu "Sends inference requests via OpenAI-compatible API" "HTTPS/8000"
+        mlEngineer -> kserve "Deploys InferenceService CR referencing vllm-cpu image"
 
-        # Internal relationships
-        openaiServer -> asyncEngine "Forwards inference requests" "in-process Python call"
-        grpcServer -> asyncEngine "Forwards inference requests" "in-process Python call"
-        asyncEngine -> cpuKernels "Executes tensor operations" "Python/C++ FFI"
+        # Internal container relationships
+        apiServer -> rustFrontend "Tokenization, chat rendering" "PyO3 FFI"
+        apiServer -> engineCore "Sends processed requests" "ZMQ IPC"
+        grpcServer -> engineCore "Sends processed requests" "ZMQ IPC"
+        engineCore -> modelExecutor "Schedules inference batches" "Function call"
+        modelExecutor -> cpuPlatform "NUMA allocation, dtype selection" "Function call"
+        cli -> apiServer "Starts serving" "Process launch"
 
-        # Egress relationships
-        asyncEngine -> huggingfaceHub "Downloads model weights and tokenizer at startup" "HTTPS/443 TLS 1.2+ Bearer HF_TOKEN"
-        asyncEngine -> s3Storage "Downloads model weights (alternative source)" "HTTPS/443 TLS 1.2+ AWS IAM"
-        otelTracing -> otelCollector "Exports distributed traces" "HTTPS/gRPC TLS 1.2+"
-        asyncEngine -> mcpServers "Executes MCP tools for function calling" "HTTP/HTTPS configurable"
-
-        # Monitoring relationships
-        prometheus -> prometheusInstrumentator "Scrapes /metrics endpoint" "HTTP/8000"
+        # External system interactions
+        kserve -> vllmCpu "Routes inference traffic to pod" "HTTP/8000"
+        vllmCpu -> huggingface "Downloads model weights and configs at startup" "HTTPS/443"
+        vllmCpu -> s3 "Loads model artifacts via tensorizer" "HTTPS/443"
+        vllmCpu -> modelScope "Alternative model downloads" "HTTPS/443"
+        prometheus -> vllmCpu "Scrapes metrics from FastAPI instrumentator" "HTTP/8000"
+        vllmCpu -> otelCollector "Exports distributed traces via OTLP" "gRPC"
     }
 
     views {
-        systemContext vllmcpu "SystemContext" {
+        systemContext vllmCpu "SystemContext" {
             include *
             autoLayout
-            description "System context diagram showing vllm-cpu in the RHOAI ecosystem"
         }
 
-        container vllmcpu "Containers" {
+        container vllmCpu "Containers" {
             include *
             autoLayout
-            description "Container diagram showing internal components of vllm-cpu"
         }
 
         styles {
-            element "Software System" {
-                background #438dd5
-                color #ffffff
-            }
-            element "External" {
+            element "External Platform" {
                 background #999999
                 color #ffffff
             }
-            element "Internal RHOAI" {
+            element "External Service" {
+                background #f5a623
+                color #ffffff
+            }
+            element "Service" {
+                background #4a90e2
+                color #ffffff
+            }
+            element "Engine" {
                 background #7ed321
                 color #ffffff
             }
-            element "Internal Platform" {
+            element "Library" {
+                background #e06c37
+                color #ffffff
+            }
+            element "Platform" {
+                background #9b59b6
+                color #ffffff
+            }
+            element "CLI" {
                 background #4a90e2
                 color #ffffff
             }
             element "Person" {
-                shape person
+                shape Person
                 background #08427b
                 color #ffffff
-            }
-            element "Container" {
-                background #438dd5
-                color #ffffff
-            }
-            element "Web Server" {
-                shape hexagon
-            }
-            element "gRPC Service" {
-                shape hexagon
-            }
-            element "Engine" {
-                shape component
-            }
-            element "Native Library" {
-                shape component
             }
         }
     }

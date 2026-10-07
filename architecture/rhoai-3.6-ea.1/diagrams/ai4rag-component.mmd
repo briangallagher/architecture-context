@@ -1,0 +1,89 @@
+graph TB
+    subgraph "ai4rag Python Library"
+        direction TB
+
+        subgraph "Data Ingestion Layer"
+            S3Client["S3 Client<br/>(boto3)"]
+            TextExtraction["Text Extraction<br/>(Docling)"]
+            S3Client -->|"raw documents"| TextExtraction
+        end
+
+        subgraph "Chunking Layer"
+            DoclingChunker["Docling Hierarchical<br/>Chunker"]
+            LangChainChunker["LangChain Recursive<br/>Chunker"]
+            TextExtraction -->|"structured text"| DoclingChunker
+            TextExtraction -->|"structured text"| LangChainChunker
+        end
+
+        subgraph "Embedding & Indexing Layer"
+            EmbeddingClient["OpenAI Embedding<br/>Client"]
+            DoclingChunker -->|"chunks"| EmbeddingClient
+            LangChainChunker -->|"chunks"| EmbeddingClient
+        end
+
+        subgraph "Vector Store Layer"
+            MilvusBackend["Milvus Backend<br/>(gRPC + TLS)"]
+            PGVectorBackend["PGVector Backend<br/>(PostgreSQL)"]
+            ChromaBackend["Chroma Backend<br/>(HTTP)"]
+            EmbeddingClient -->|"vectors"| MilvusBackend
+            EmbeddingClient -->|"vectors"| PGVectorBackend
+            EmbeddingClient -->|"vectors"| ChromaBackend
+        end
+
+        subgraph "RAG Query Layer"
+            Retriever["Retriever"]
+            PromptBuilder["Prompt Builder"]
+            LLMClient["OpenAI LLM Client<br/>(Chat Completions)"]
+            MilvusBackend -->|"relevant chunks"| Retriever
+            PGVectorBackend -->|"relevant chunks"| Retriever
+            ChromaBackend -->|"relevant chunks"| Retriever
+            Retriever -->|"context"| PromptBuilder
+            PromptBuilder -->|"prompt"| LLMClient
+        end
+
+        subgraph "Evaluation Layer"
+            Evaluator["Evaluation Metrics<br/>(faithfulness, correctness)"]
+            LLMClient -->|"answers"| Evaluator
+        end
+
+        subgraph "Optimization Layer"
+            GAMOptimizer["GAM Optimizer<br/>(Hyperparameter Search)"]
+            GAMOptimizer -->|"configurations"| DoclingChunker
+            GAMOptimizer -->|"configurations"| LangChainChunker
+            Evaluator -->|"scores"| GAMOptimizer
+        end
+
+        subgraph "Pipeline Integration"
+            KFPHandler["KFP Event Handler<br/>(status & results)"]
+            GAMOptimizer -->|"pattern results"| KFPHandler
+        end
+    end
+
+    %% External Dependencies
+    S3Storage["S3-Compatible Storage<br/>(AWS/MinIO)"]
+    MaaSEndpoint["MaaS Endpoint<br/>(vLLM / OpenAI-compatible)"]
+    DSPipelines["Data Science Pipelines<br/>(Kubeflow)"]
+
+    S3Storage -->|"HTTPS/TLS<br/>AWS credentials"| S3Client
+    MaaSEndpoint -->|"HTTPS/TLS<br/>OpenAI API"| EmbeddingClient
+    MaaSEndpoint -->|"HTTPS/TLS<br/>OpenAI API"| LLMClient
+    KFPHandler -->|"KFP SDK"| DSPipelines
+
+    %% Styling
+    style GAMOptimizer fill:#4a90e2,stroke:#333,color:#fff
+    style KFPHandler fill:#4a90e2,stroke:#333,color:#fff
+    style S3Client fill:#4a90e2,stroke:#333,color:#fff
+    style EmbeddingClient fill:#4a90e2,stroke:#333,color:#fff
+    style LLMClient fill:#4a90e2,stroke:#333,color:#fff
+    style Retriever fill:#4a90e2,stroke:#333,color:#fff
+    style TextExtraction fill:#4a90e2,stroke:#333,color:#fff
+    style DoclingChunker fill:#4a90e2,stroke:#333,color:#fff
+    style LangChainChunker fill:#4a90e2,stroke:#333,color:#fff
+    style PromptBuilder fill:#4a90e2,stroke:#333,color:#fff
+    style Evaluator fill:#4a90e2,stroke:#333,color:#fff
+    style MilvusBackend fill:#7ed321,stroke:#333,color:#fff
+    style PGVectorBackend fill:#7ed321,stroke:#333,color:#fff
+    style ChromaBackend fill:#7ed321,stroke:#333,color:#fff
+    style S3Storage fill:#e8e8e8,stroke:#333
+    style MaaSEndpoint fill:#e8e8e8,stroke:#333
+    style DSPipelines fill:#e8e8e8,stroke:#333

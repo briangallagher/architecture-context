@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "workbenches-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "workbenches-operator-tls-profile-driven-001",
+      "claim": "The operator integrates with the OpenShift cluster-wide TLS security profile and restarts on profile changes, ensuring crypto posture tracks cluster policy without manual intervention.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/tlsconfig/tlsconfig.go:107-154"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:120-127, 223-228"
+        }
+      ],
+      "reasoning": "The Bootstrap function fetches the APIServer TLS profile and adherence policy at startup, and registerTLSProfileWatcher cancels the manager context on profile changes, triggering a pod restart. This ensures the operator always uses the cluster-administered TLS settings without operator-level configuration.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "workbenches-operator-webhook-fail-policy-002",
+      "claim": "Both mutating admission webhooks use Fail policy on notebooks, meaning notebook creation and updates are blocked if the webhook service is unavailable.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/webhooks"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:158-163, 199-210"
+        }
+      ],
+      "reasoning": "The Fail policy is the correct security posture for hardware-profile and connection mutation, but it creates an availability dependency: if the webhook service (port 9443) is down or the TLS certificate expires, all notebook CREATE/UPDATE operations in the cluster are rejected. The conditional webhook enablement at cmd/main.go:158 partially mitigates this by disabling webhooks when no TLS provider is available.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "workbenches-operator-orchestrator-decoupling-003",
+      "claim": "The operator achieves platform awareness through orchestrator-projected CR fields rather than direct API dependencies, decoupling it from GatewayConfig and MLflow operator lifecycles.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "config/crd/bases/components.platform.opendatahub.io_workbenches.yaml:55-90"
+        }
+      ],
+      "reasoning": "The gatewayDomain, mlflowEnabled, and platform fields are documented as orchestrator-projected in the CRD spec descriptions. This means the workbenches-operator never needs to watch or query the GatewayConfig CR or MLflow operator status directly; the DSC/DSCI reconciler acts as a mediator, reducing coupling and simplifying the operator's watch scope.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    }
+  ]
+}

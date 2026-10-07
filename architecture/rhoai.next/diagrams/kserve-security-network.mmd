@@ -3,119 +3,98 @@ graph TB
         Client["External Client"]
     end
 
-    subgraph Ingress["INGRESS LAYER"]
-        Gateway["Gateway / Istio Gateway<br/>443/TCP → 8080 or 8443/TCP<br/>TLS 1.2+ (SIMPLE)<br/>Auth: None / OAuth / Kuadrant AuthPolicy"]
+    subgraph Ingress["INGRESS (Platform Gateway)"]
+        Gateway["Platform Gateway<br/>443/TCP → 8080/TCP<br/>TLS 1.2+<br/>HTTPRoute / VirtualService"]
     end
 
-    subgraph ControlPlane["CONTROL PLANE (kserve namespace)"]
+    subgraph ControllerPlane["CONTROLLER PLANE (Operator Namespace: opendatahub)"]
         direction TB
-
-        KServeCtrl["kserve-controller-manager<br/>SA: kserve-controller-manager<br/>Webhook: 9443/TCP (TLS, cert-manager)<br/>Metrics: 8080/TCP (kube-rbac-proxy)<br/>Health: 8081/TCP (HTTP)<br/>FIPS: strictfipsruntime"]
-
-        LLMISVCCtrl["llmisvc-controller-manager<br/>SA: llmisvc-controller-manager<br/>Webhook: 9443/TCP (TLS, cert-manager)<br/>Metrics: 8443/TCP (HTTPS, kube-rbac-proxy)<br/>Health: 8081/TCP (HTTP)<br/>FIPS: strictfipsruntime"]
-
-        LocalModelCtrl["localmodel-controller<br/>No external ports<br/>FIPS: CGO_ENABLED=0 ⚠"]
+        ModuleCtrl["kserve-module-controller<br/>8080/TCP metrics, 8081/TCP health<br/>SA: kserve-module-controller"]
+        KServeCtrl["kserve-controller-manager<br/>8080/TCP metrics, 9443/TCP webhooks<br/>SA: kserve-controller-manager"]
+        LLMISVCCtrl["llmisvc-controller-manager<br/>8080/TCP metrics, 9443/TCP webhooks<br/>SA: kserve-controller-manager"]
+        LocalModelCtrl["localmodel-controller<br/>9443/TCP webhooks<br/>SA: kserve-controller-manager"]
     end
 
-    subgraph DataPlane["DATA PLANE (user namespaces)"]
+    subgraph WebhookServices["WEBHOOK SERVICES"]
+        WebhookSvc["kserve-webhook-server-service<br/>ClusterIP 443/TCP → 9443/TCP<br/>TLS (cert-manager / service-ca)<br/>24 webhooks (5M + 15V + 4C)"]
+        LLMWebhookSvc["llmisvc-webhook-server-service<br/>ClusterIP 443/TCP → 9443/TCP<br/>TLS (serving cert)"]
+    end
+
+    subgraph ISVCPath["InferenceService Path (user-namespace)"]
         direction TB
-
-        subgraph ISVCPod["InferenceService Pod"]
-            StorageInit["storage-initializer<br/>(init container, Python 3.11)"]
-            Predictor["Predictor Container<br/>8080/TCP HTTP"]
-            AuthProxy["oauth-proxy / kube-rbac-proxy<br/>8443/TCP HTTPS (optional)"]
-            AgentSidecar["Agent Sidecar<br/>9081/TCP logging<br/>9082/TCP batching"]
-        end
-
-        subgraph LLMPod["LLMInferenceService Workload Pod"]
-            LLMWorkload["LLM Serving Container<br/>8000/TCP HTTPS<br/>TLS: self-signed or service-ca"]
-        end
-
-        subgraph SchedulerPod["Scheduler EPP Pod"]
-            EPP["Scheduler EPP<br/>9002/TCP gRPC (TLS, self-signed)<br/>9003/TCP gRPC health (TLS)<br/>5557/TCP ZMQ<br/>8000/TCP HTTPS metrics"]
-        end
-
-        RouterPod["InferenceGraph Router<br/>8080/TCP HTTP"]
-
-        NodeAgent["localmodelnode-agent<br/>(DaemonSet, per node)<br/>No external ports<br/>FIPS: CGO_ENABLED=0 ⚠"]
+        AuthProxy["kube-rbac-proxy<br/>8443/TCP HTTPS<br/>SubjectAccessReview"]
+        Predictor["Predictor Container<br/>8080/TCP HTTP<br/>SA: per-InferenceService"]
+        AgentSidecar["kserve-agent Sidecar<br/>9081/TCP proxy<br/>9083/TCP logger"]
+        StorageInit["storage-initializer<br/>(init container, no listener)"]
     end
 
-    subgraph PlatformServices["PLATFORM SERVICES (Internal)"]
-        K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: SA Token"]
-        KnativeServing["Knative Serving<br/>(serverless mode)"]
-        Istio["Istio Service Mesh<br/>VirtualService / DestinationRule<br/>⚠ InsecureSkipVerify=true"]
-        CertManager["cert-manager<br/>Webhook TLS certs<br/>Auto-rotate"]
-        Prometheus["Prometheus<br/>HTTPS / TLS<br/>Auth: Bearer Token<br/>⚠ PodMonitor InsecureSkipVerify"]
-        RHOAIGateway["RHOAI Gateway<br/>(data-science-gateway)"]
-        Kuadrant["Kuadrant<br/>AuthPolicy for LLMInferenceService"]
-        ServiceCA["OpenShift service-ca<br/>CA signing key"]
+    subgraph LLMISVCPath["LLMInferenceService Path (user-namespace)"]
+        direction TB
+        EPP["Scheduler/EPP<br/>gRPC + metrics + zmq<br/>SA: {name}-epp-sa<br/>mTLS (Istio)"]
+        vLLM["vLLM Workload Pod<br/>8000/TCP HTTP/HTTPS<br/>Optional self-signed TLS"]
     end
 
-    subgraph ExternalServices["EXTERNAL SERVICES (Egress)"]
-        S3["AWS S3<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: IAM credentials"]
-        GCS["Google Cloud Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: GCS SA JSON"]
-        Azure["Azure Blob Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: Azure identity"]
-        HuggingFace["HuggingFace Hub<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: HF token (optional)"]
-        OCI["OCI Registries<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: Registry creds"]
+    subgraph IGPath["InferenceGraph Path"]
+        Router["kserve-router<br/>8080/TCP HTTP/HTTPS<br/>Optional Bearer + TokenReview"]
+        StepSvcs["Inference Step Services<br/>Dynamic ports<br/>HTTP (in-mesh)"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        S3["S3 / GCS / Azure<br/>443/TCP HTTPS TLS 1.2+<br/>AWS IAM / GCP SA / Azure creds"]
+        HuggingFace["HuggingFace Hub<br/>443/TCP HTTPS TLS 1.2+<br/>HF Token"]
+        Registries["Container Registries<br/>443/TCP HTTPS TLS 1.2+<br/>Registry credentials"]
+        K8sAPI["Kubernetes API<br/>443/TCP HTTPS TLS 1.2+<br/>ServiceAccount token"]
+        Prometheus["Prometheus<br/>9090/TCP HTTP<br/>No auth"]
     end
 
     %% External → Ingress
-    Client -->|"HTTPS/443<br/>TLS 1.2+"| Gateway
+    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| Gateway
 
-    %% Ingress → Data Plane
-    Gateway -->|"HTTP/8080 or HTTPS/8443<br/>None or kube-rbac-proxy"| Predictor
-    Gateway -->|"HTTP/8080 or HTTPS/8443<br/>Kuadrant AuthPolicy"| LLMWorkload
-    Gateway -->|"HTTPRoute → InferencePool"| EPP
+    %% InferenceService flow
+    Gateway -->|"HTTP/8443<br/>TLS"| AuthProxy
+    AuthProxy -->|"HTTPS/443<br/>SAR check"| K8sAPI
+    AuthProxy -->|"HTTP/8080<br/>localhost"| Predictor
 
-    %% Scheduler → Workload
-    EPP -->|"HTTPS/8000<br/>TLS (self-signed/svc-ca)"| LLMWorkload
+    %% LLMInferenceService flow
+    Gateway -->|"gRPC<br/>mTLS STRICT<br/>Service Identity"| EPP
+    EPP -->|"HTTP(S)/8000<br/>Optional TLS"| vLLM
+    Gateway -->|"HTTP(S)/8000<br/>Direct after EPP selection"| vLLM
 
-    %% Router → InferenceServices
-    RouterPod -->|"HTTP/8080"| Predictor
+    %% InferenceGraph flow
+    Client -->|"HTTP(S)/8080<br/>Optional Bearer"| Router
+    Router -->|"HTTPS/443<br/>TokenReview"| K8sAPI
+    Router -->|"HTTP/dynamic<br/>in-mesh"| StepSvcs
 
-    %% Control Plane → K8s API
-    KServeCtrl -->|"HTTPS/6443<br/>SA Token"| K8sAPI
-    LLMISVCCtrl -->|"HTTPS/6443<br/>SA Token"| K8sAPI
-    LocalModelCtrl -->|"HTTPS/6443<br/>SA Token"| K8sAPI
+    %% Controller → K8s API
+    KServeCtrl -->|"HTTPS/443<br/>SA token"| K8sAPI
+    LLMISVCCtrl -->|"HTTPS/443<br/>SA token"| K8sAPI
+    LocalModelCtrl -->|"HTTPS/443<br/>SA token"| K8sAPI
+    ModuleCtrl -->|"HTTPS/443<br/>SA token"| K8sAPI
 
-    %% Control Plane → Platform
-    KServeCtrl -.->|"CRD mgmt"| KnativeServing
-    KServeCtrl -.->|"VirtualService"| Istio
-    LLMISVCCtrl -.->|"DestinationRule"| Istio
-    LLMISVCCtrl -.->|"HTTPRoute parent"| RHOAIGateway
-    LLMISVCCtrl -.->|"AuthPolicy check"| Kuadrant
-    LLMISVCCtrl -.->|"CA signing key"| ServiceCA
+    %% Storage egress
+    StorageInit -->|"HTTPS/443<br/>TLS 1.2+<br/>Storage creds"| S3
+    StorageInit -->|"HTTPS/443<br/>HF Token"| HuggingFace
+    StorageInit -->|"HTTPS/443<br/>Registry creds"| Registries
 
-    %% Data Plane → External Storage
-    StorageInit -->|"HTTPS/443<br/>TLS 1.2+<br/>IAM creds"| S3
-    StorageInit -->|"HTTPS/443<br/>TLS 1.2+<br/>SA JSON"| GCS
-    StorageInit -->|"HTTPS/443<br/>TLS 1.2+<br/>Azure ID"| Azure
-    StorageInit -->|"HTTPS/443<br/>TLS 1.2+<br/>HF token"| HuggingFace
-    StorageInit -->|"HTTPS/443<br/>TLS 1.2+<br/>Registry creds"| OCI
+    %% Monitoring egress
+    LLMISVCCtrl -.->|"HTTP/9090<br/>KEDA queries"| Prometheus
 
-    %% Monitoring
-    Prometheus -.->|"Scrape metrics<br/>Bearer Token"| KServeCtrl
-    Prometheus -.->|"Scrape metrics<br/>Bearer Token"| LLMISVCCtrl
-    Prometheus -.->|"Scrape metrics<br/>⚠ InsecureSkipVerify"| LLMWorkload
-
-    %% Cert manager
-    CertManager -.->|"Provision TLS certs"| KServeCtrl
-    CertManager -.->|"Provision TLS certs"| LLMISVCCtrl
+    %% Agent egress
+    AgentSidecar -.->|"HTTPS<br/>Optional TLS"| ExternalLog["Log Sink Endpoints"]
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
     classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
-    classDef controlplane fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef dataplane fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef platform fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef controller fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef webhook fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef servicemesh fill:#d5e8d4,stroke:#82b366,stroke-width:2px
     classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef warning fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef authcomponent fill:#f8cecc,stroke:#b85450,stroke-width:2px
 
     class Client external
     class Gateway ingress
-    class KServeCtrl,LLMISVCCtrl controlplane
-    class LocalModelCtrl warning
-    class Predictor,AuthProxy,AgentSidecar,StorageInit,LLMWorkload,EPP,RouterPod dataplane
-    class NodeAgent warning
-    class K8sAPI,KnativeServing,Istio,CertManager,Prometheus,RHOAIGateway,Kuadrant,ServiceCA platform
-    class S3,GCS,Azure,HuggingFace,OCI externalservice
+    class ModuleCtrl,KServeCtrl,LLMISVCCtrl,LocalModelCtrl controller
+    class WebhookSvc,LLMWebhookSvc webhook
+    class AuthProxy authcomponent
+    class Predictor,AgentSidecar,StorageInit,EPP,vLLM,Router,StepSvcs servicemesh
+    class S3,HuggingFace,Registries,K8sAPI,Prometheus,ExternalLog externalservice

@@ -1,0 +1,153 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [External Client / Data Scientist]                                      │
+│         │                                                                │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS (Istio Gateway)                                │
+│         │ Auth: Bearer JWT (Authorization header)                        │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Istio VirtualServices)                                        │
+│                                                                          │
+│  [VirtualService: model-registry]                                        │
+│  - Path: /api/model_registry/*                                          │
+│  - Hosts: *                                                              │
+│  - Protocol: HTTP                                                        │
+│                                                                          │
+│  [VirtualService: model-catalog]                                         │
+│  - Hosts: *                                                              │
+│  - Protocol: HTTP                                                        │
+│                                                                          │
+│  [VirtualService: model-registry-ui]                                     │
+│  - Path: /model-registry/*                                              │
+│  - Hosts: *                                                              │
+│  - Protocol: HTTP                                                        │
+│         │                                                                │
+│         │ Enforcement: Istio AuthorizationPolicy                         │
+│         │ Encryption: mTLS (service mesh)                                │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ISTIO AUTHORIZATION POLICIES                                            │
+│                                                                          │
+│  [AuthorizationPolicy: model-registry-server]                            │
+│  - Selector: component=model-registry-server                             │
+│  - Action: ALLOW                                                         │
+│  - Allowed Namespaces: kubeflow                                          │
+│  - Allowed Principals:                                                   │
+│    cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account │
+│  - Blocks: request.headers[kubeflow-userid]                              │
+│  - Requires: request.headers[authorization]                              │
+│                                                                          │
+│  [AuthorizationPolicy: model-registry-ui]                                │
+│  - Selector: app=model-registry-ui                                       │
+│  - Action: ALLOW                                                         │
+│  - Allowed Principals:                                                   │
+│    cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account │
+│         │                                                                │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  APPLICATION LAYER                                                       │
+│                                                                          │
+│  [Hub Proxy - model-registry binary]                                     │
+│  - Namespace: {deployment-namespace}                                     │
+│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                  │
+│  - TLS: Min TLS 1.2, configurable cipher suites                        │
+│  - Rejects insecure ciphers at config time                              │
+│  - Ports:                                                                │
+│    - :8081/TCP (health/readiness probes, NO auth)                       │
+│         │                                                                │
+│         │ GORM ORM                                                       │
+│         │ Protocol: TCP                                                  │
+│         │ Encryption: TLS (configurable)                                 │
+│         ▼                                                                │
+│  [BFF Server - :4000]                                                    │
+│  - Auth: --auth-method (internal | user_token)                          │
+│  - Internal: ServiceAccount token                                        │
+│  - User: Bearer token (Authorization header)                             │
+│  - Custom CA bundles: --bundle-paths                                    │
+│  - Performs SubjectAccessReview + SelfSubjectAccessReview                │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS/WSS                                            │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token                                     │
+│         ▼                                                                │
+│  [Controller Operator]                                                   │
+│  - Leader Election: a7d60e25.kubeflow.org                               │
+│  - SA: controller-controller-manager                                     │
+│  - Conditional: INFERENCE_SERVICE_CONTROLLER=managed                    │
+│  - Ports:                                                                │
+│    - :8443/TCP (metrics, TLS, TokenReview + SAR authn/authz)            │
+│    - :8081/TCP (health/readiness probes, NO auth)                       │
+│         │                                                                │
+│         │ Protocol: HTTPS                                                │
+│         │ Auth: ServiceAccount token                                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INTERNAL DEPENDENCIES                                                   │
+│                                                                          │
+│  [Kubernetes API - :6443/TCP]                                            │
+│  - Protocol: HTTPS/WSS                                                   │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: ServiceAccount token (in-cluster)                               │
+│  - Used by: Controller (CRD watches, leader election, RBAC)            │
+│  - Used by: BFF (SubjectAccessReview, ConfigMap, Secret)                │
+│                                                                          │
+│  [KServe InferenceService CRs]                                           │
+│  - Interaction: Controller watch (conditional)                           │
+│  - Protocol: Kubernetes API (HTTPS)                                      │
+│  - Encryption: TLS                                                       │
+│  - Auth: ServiceAccount RBAC                                             │
+│                                                                          │
+│  [PostgreSQL / MySQL - Backing Database]                                 │
+│  - Protocol: TCP                                                         │
+│  - Encryption: TLS (configurable)                                        │
+│  - Auth: Database credentials                                            │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                       │
+│                                                                          │
+│  [S3-Compatible Storage]                                                 │
+│  - Purpose: Model artifact upload (async-upload job)                    │
+│  - Protocol: HTTPS                                                       │
+│  - Port: 443/TCP                                                         │
+│  - Auth: AWS_SECRET_ACCESS_KEY (environment variable)                   │
+│  - Client: boto3 (Python)                                                │
+│  - Signing: rh-model-signing + sigstore                                 │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+
+ClusterRole: controller-model-registry-manager-role
+  - SA: controller-controller-manager
+  - API Groups: (core), serving.kserve.io
+  - Resources: services (get, list, watch)
+                inferenceservices (get, list, patch, update, watch)
+                inferenceservices/finalizers (create, delete, get, list, patch, update, watch)
+
+ClusterRole: controller-metrics-auth-role
+  - SA: controller-controller-manager
+  - API Groups: authentication.k8s.io, authorization.k8s.io
+  - Resources: tokenreviews (create)
+                subjectaccessreviews (create)
+
+Role: controller-leader-election-role (Namespace: kubeflow)
+  - SA: controller-controller-manager
+  - Resources: configmaps (create, delete, get, list, patch, update, watch)
+                leases (create, delete, get, list, patch, update, watch)
+                events (create, patch)
+
+Istio AuthorizationPolicies:
+  - model-registry-server: ALLOW for kubeflow namespace + ingressgateway SA
+    Requires: authorization header; Blocks: kubeflow-userid header
+  - model-registry-ui: ALLOW for ingressgateway SA principal
+
+Secrets:
+  - AWS_SECRET_ACCESS_KEY (environment variable) - S3 credentials for async-upload job
+  - controller-runtime self-signed TLS certificate - metrics endpoint :8443
+
+FIPS Compliance:
+  - Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, -tags strictfipsruntime
+  - TLS: Min TLS 1.2, configurable cipher suites, insecure cipher rejection
+  - Crypto: Go stdlib crypto/tls (FIPS via OpenSSL); Python: cryptography + pyopenssl

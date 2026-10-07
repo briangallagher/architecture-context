@@ -1,84 +1,69 @@
 graph TB
-    subgraph External["EXTERNAL (Untrusted)"]
-        User["User / Client"]
-    end
-
-    subgraph AppBoundary["LLAMA STACK SERVER (Application Boundary)"]
+    subgraph JobPod["KUBERNETES JOB POD (Trusted)"]
         direction TB
-        LLSServer["Llama Stack Distribution<br/>8321/TCP HTTP<br/>SA: llamastack-garak-distribution-sa<br/>NS: tai-garak-lls"]
-        Provider["trustyai-garak Provider<br/>(Python library, no exposed ports)<br/>Image: odh-trustyai-garak-lls-provider-dsp"]
-        LLSServer -->|"Local Python API<br/>(in-process)"| Provider
+
+        subgraph PodInternal["Pod-Local (Loopback)"]
+            Adapter["GarakAdapter<br/>SA: eval-hub provisioned<br/>Image: aipcc/cpu:3.5.0"]
+            Sidecar["eval-hub Sidecar<br/>8080/TCP HTTP<br/>Plaintext (loopback)"]
+        end
+
+        ConfigMap["ConfigMap Mount<br/>/etc/eval-job/spec.json"]
+        ModelAuth["model-auth Secret<br/>/mnt/model-auth/<br/>API keys (volume)"]
+        DataConn["Data Connection Secret<br/>AWS_* env vars"]
     end
 
-    subgraph EvalHubPath["EVAL-HUB PATH (Alternative Entry)"]
-        direction TB
-        EvalHub["Eval-Hub Service"]
-        AdapterPod["GarakAdapter Job Pod<br/>Image: odh-trustyai-garak-lls-provider-dsp<br/>Vol: /mnt/model-auth (optional)"]
-        Sidecar["Eval-Hub Sidecar<br/>local HTTP, no encryption"]
-        EvalHub -->|"ConfigMap mount<br/>(JobSpec)"| AdapterPod
-        AdapterPod -->|"HTTP (local)<br/>No auth"| Sidecar
+    subgraph ClusterInternal["CLUSTER INTERNAL"]
+        K8sAPI["Kubernetes API<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>SA Token"]
+        KFPAPI["KFP API Server<br/>443/TCP or 8080/TCP<br/>HTTPS or HTTP (sidecar)<br/>SA Token / sidecar proxy"]
     end
 
-    subgraph KFPZone["KUBEFLOW PIPELINES (Internal)"]
-        KFPAPI["KFP API Server<br/>443/TCP HTTPS<br/>TLS"]
-        KFPPod["KFP Pipeline Pods<br/>Image: odh-trustyai-garak-lls-provider-dsp<br/>Secrets as env vars<br/>/mnt/model-auth (optional)"]
-        KFPAPI -->|"Schedules"| KFPPod
+    subgraph ExternalLLMs["EXTERNAL LLM ENDPOINTS"]
+        TargetLLM["Target LLM<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token (api-key)"]
+        JudgeLLM["Judge LLM<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token (JUDGE_API_KEY)"]
+        AttackerLLM["Attacker LLM<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token (ATTACKER_API_KEY)"]
+        EvaluatorLLM["Evaluator LLM<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token (EVALUATOR_API_KEY)"]
+        SDGLLM["SDG LLM<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token (SDG_API_KEY)"]
     end
 
-    subgraph ModelInference["TARGET MODEL INFERENCE (Egress)"]
-        vLLM["vLLM / Model Serving<br/>443 or 8080/TCP<br/>HTTPS/HTTP<br/>API Key auth"]
-        SDGModel["SDG Model Endpoint<br/>443 or 8080/TCP<br/>API Key (SDG_API_KEY)"]
-        JudgeModels["Judge/Attacker/Evaluator<br/>443 or 8080/TCP<br/>Per-role API Keys<br/>from /mnt/model-auth"]
+    subgraph ExternalStorage["EXTERNAL STORAGE & REGISTRIES"]
+        S3["S3-compatible Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>AWS IAM (AK+SK)"]
+        OCI["OCI Registry<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token"]
+        MLflow["MLflow Tracking<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token / mTLS"]
+        HFHub["HuggingFace Hub<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token (optional)"]
     end
 
-    subgraph StorageServices["STORAGE & ARTIFACT SERVICES (Egress)"]
-        S3["S3-Compatible Storage<br/>443/TCP HTTPS TLS<br/>AWS IAM Credentials"]
-        OCI["OCI Registry<br/>443/TCP HTTPS TLS<br/>OCI auth"]
-        MLflow["MLflow Tracking<br/>HTTP/HTTPS<br/>Configurable auth"]
-    end
+    %% Pod-internal flows
+    Adapter -->|"HTTP/8080<br/>Plaintext (loopback)<br/>No auth"| Sidecar
+    ConfigMap -.->|"file mount"| Adapter
+    ModelAuth -.->|"volume mount"| Adapter
+    DataConn -.->|"env vars"| Adapter
 
-    subgraph ClusterInternal["KUBERNETES CLUSTER SERVICES"]
-        FilesAPI["Llama Stack Files API<br/>8321/TCP HTTP<br/>No auth (in-cluster)"]
-        ConfigMap["trustyai-service-operator-config<br/>ConfigMap<br/>Key: garak-provider-image"]
-        PostgreSQL["PostgreSQL<br/>5432/TCP<br/>Indirect (via LLS Distribution)"]
-    end
+    %% Cluster internal flows
+    Adapter -->|"HTTPS/443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+    Adapter -->|"HTTPS/443 or HTTP/8080<br/>TLS 1.2+ or sidecar<br/>SA Token"| KFPAPI
 
-    %% External flows
-    User -->|"HTTP/8321<br/>Configurable TLS<br/>Llama Stack auth"| LLSServer
+    %% External LLM flows
+    Adapter -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| TargetLLM
+    Adapter -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| JudgeLLM
+    Adapter -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| AttackerLLM
+    Adapter -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| EvaluatorLLM
+    Adapter -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| SDGLLM
 
-    %% Provider to KFP
-    Provider -->|"HTTPS/443<br/>TLS<br/>Bearer Token (SA)"| KFPAPI
-    AdapterPod -->|"HTTPS/443<br/>TLS<br/>SA Token"| KFPAPI
-
-    %% To target models
-    Provider -->|"HTTPS/443<br/>API Key"| vLLM
-    KFPPod -->|"HTTPS/443<br/>API Key (Secret)"| vLLM
-    KFPPod -->|"HTTPS/443<br/>API Key"| SDGModel
-    KFPPod -->|"HTTPS/443<br/>Per-role API Key"| JudgeModels
-
-    %% To storage
-    KFPPod -->|"HTTPS/443<br/>TLS<br/>AWS IAM"| S3
-    AdapterPod -->|"HTTPS/443<br/>TLS<br/>AWS IAM"| S3
-    AdapterPod -->|"HTTPS/443<br/>TLS<br/>OCI auth"| OCI
-    AdapterPod -->|"HTTP/HTTPS<br/>Configurable"| MLflow
-
-    %% Cluster internal
-    KFPPod -->|"HTTP/8321<br/>No auth"| FilesAPI
-    Provider -->|"K8s API<br/>ConfigMap read"| ConfigMap
+    %% External storage flows
+    Adapter -->|"HTTPS/443<br/>TLS 1.2+<br/>AWS IAM"| S3
+    Adapter -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| OCI
+    Adapter -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| MLflow
+    Adapter -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| HFHub
 
     %% Styling
-    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
-    classDef appboundary fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef evalhub fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef kfp fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
-    classDef model fill:#f8cecc,stroke:#b85450,stroke-width:2px
-    classDef storage fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef cluster fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef podinternal fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef secret fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef clusterint fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef externalllm fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef externalsvc fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
 
-    class User external
-    class LLSServer,Provider appboundary
-    class EvalHub,AdapterPod,Sidecar evalhub
-    class KFPAPI,KFPPod kfp
-    class vLLM,SDGModel,JudgeModels model
-    class S3,OCI,MLflow storage
-    class FilesAPI,ConfigMap,PostgreSQL cluster
+    class Adapter,Sidecar podinternal
+    class ConfigMap,ModelAuth,DataConn secret
+    class K8sAPI,KFPAPI clusterint
+    class TargetLLM,JudgeLLM,AttackerLLM,EvaluatorLLM,SDGLLM externalllm
+    class S3,OCI,MLflow,HFHub externalsvc

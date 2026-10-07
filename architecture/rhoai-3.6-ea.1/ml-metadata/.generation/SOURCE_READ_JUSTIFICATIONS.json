@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "component": "ml-metadata",
+  "reads": [
+    {
+      "path": "ml_metadata/tools/docker_server/Dockerfile.konflux",
+      "line_range": "1-69",
+      "gap_category": ["grpc_services", "authentication", "fips_compliance", "integration_points"],
+      "question": "What port and protocol does the server expose, what auth is configured, what base images and build dependencies are used for FIPS, and what database client libraries are included?",
+      "expected_signal": "ENTRYPOINT with grpc_port, SSL/auth flags, openssl-devel, base image, libmysqlclient",
+      "outcome": "resolved",
+      "sections": ["gRPC Services", "Authentication & Authorization", "FIPS Compliance", "Integration Points", "Purpose", "Architectural Analysis"]
+    },
+    {
+      "path": "ml_metadata/proto/metadata_store.proto",
+      "line_range": "607-874",
+      "gap_category": ["grpc_services", "authentication", "integration_points", "fips_compliance"],
+      "question": "What database backends are supported, what SSL/TLS configuration exists for gRPC server and database connections, and what is the MetadataStoreServerConfig structure?",
+      "expected_signal": "ConnectionConfig oneof with MySQL/SQLite/PostgreSQL, SSLConfig for server and database, MetadataStoreServerConfig",
+      "outcome": "resolved",
+      "sections": ["gRPC Services", "Authentication & Authorization", "Integration Points", "FIPS Compliance", "Architectural Analysis"]
+    },
+    {
+      "path": "ml_metadata/proto/metadata_store_service.proto",
+      "line_range": "1142-1546",
+      "gap_category": ["grpc_services", "http_endpoints"],
+      "question": "What gRPC service and RPCs does ml-metadata expose, and are there any HTTP endpoints?",
+      "expected_signal": "service MetadataStoreService with rpc definitions",
+      "outcome": "resolved",
+      "sections": ["gRPC Services", "Purpose", "Data Flows", "Architectural Analysis"]
+    },
+    {
+      "path": "ml_metadata/proto/metadata_source.proto",
+      "line_range": "39-51",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "What metadata source types (database backends) are supported?",
+      "expected_signal": "MetadataSourceType enum with database backend types",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Internal Platform Dependencies"]
+    },
+    {
+      "path": "ml_metadata/tools/docker_server/Dockerfile.redhat",
+      "line_range": "1-66",
+      "gap_category": ["fips_compliance", "grpc_services"],
+      "question": "Does the Red Hat Dockerfile differ in FIPS configuration, auth, or port from the Konflux variant?",
+      "expected_signal": "Differences in build flags, base images, or entrypoint configuration",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Architectural Analysis"]
+    }
+  ]
+}

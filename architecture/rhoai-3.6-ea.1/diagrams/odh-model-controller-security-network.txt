@@ -1,0 +1,141 @@
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                       │
+│                                                                              │
+│  [Client / User]                                                             │
+│         │                                                                    │
+│         │ Port: 8443/TCP                                                     │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS 1.2+ (OpenShift TLS Profile / Mozilla Intermediate)│
+│         │ Auth: Bearer Token (Authorization header)                          │
+│         ▼                                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL - model-serving-api Deployment                            │
+│                                                                              │
+│  [model-serving-api Service]                                                 │
+│  - Port: 443/TCP (external) → 8443/TCP (target)                            │
+│  - Port: 8080/TCP (metrics) → 8080/TCP (target)                            │
+│  - Type: ClusterIP (internal only)                                           │
+│  - TLS: OpenShift service-ca provisioned certificate                         │
+│  - Secret: model-serving-api-tls (kubernetes.io/tls)                        │
+│                                                                              │
+│  Endpoints:                                                                  │
+│  - /api/v1/gateways      (HTTPS/8443, Bearer Token, Auth Middleware)        │
+│  - /api/v1/samples/llm-d (HTTPS/8443, No Auth, static YAML templates)      │
+│  - /healthz              (HTTPS/8443, No Auth, liveness probe)              │
+│  - /readyz               (HTTPS/8443, No Auth, readiness probe)             │
+│  - /metrics              (HTTPS/8080, No Auth, promhttp.Handler)            │
+│         │                                                                    │
+│         │ Port: 6443/TCP                                                     │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS 1.2+                                               │
+│         │ Auth: ServiceAccount token (model-serving-api SA)                  │
+│         ▼                                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL - Kubernetes API Server                                    │
+│                                                                              │
+│  [kube-apiserver]                                                            │
+│  - Port: 6443/TCP                                                            │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: ServiceAccount tokens, TokenReview, SubjectAccessReview             │
+│         │                                                                    │
+│         │ Port: 9443/TCP                                                     │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS                                                    │
+│         │ Auth: Kubernetes admission (ValidatingWebhookConfiguration)        │
+│         ▼                                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL - odh-model-controller Deployment                         │
+│                                                                              │
+│  [odh-model-controller-webhook-service]                                      │
+│  - Port: 443/TCP (external) → 9443/TCP (target)                            │
+│  - Type: ClusterIP (internal only)                                           │
+│  - TLS: OpenShift service-ca provisioned certificate                         │
+│  - Secret: odh-model-controller-webhook-cert (kubernetes.io/tls)            │
+│                                                                              │
+│  Admission Webhooks (port 9443, FailurePolicy=Fail):                        │
+│  - /mutate--v1-pod                           (Mutating, CREATE)              │
+│  - /mutate-serving-kserve-io-v1alpha1-inferencegraph  (Mutating, CREATE)    │
+│  - /mutate-serving-kserve-io-v1alpha1-llminferenceservice (Mutating, C/U)   │
+│  - /mutate-serving-kserve-io-v1alpha2-llminferenceservice (Mutating, C/U)   │
+│  - /mutate-serving-kserve-io-v1beta1-inferenceservice     (Mutating, C/U)   │
+│  - /validate-nim-opendatahub-io-v1-account               (Validating, C/U)  │
+│  - /validate-serving-kserve-io-v1alpha1-inferencegraph   (Validating, C/U)  │
+│  - /validate-serving-kserve-io-v1beta1-inferenceservice  (Validating, C/U)  │
+│                                                                              │
+│  [odh-model-controller-metrics-service]                                      │
+│  - Port: 8443/TCP → 8443/TCP (target)                                      │
+│  - Type: ClusterIP (internal only)                                           │
+│  - Auth: TokenReview + SubjectAccessReview                                   │
+│  - Secret: odh-model-controller-metrics-tls (kubernetes.io/tls)             │
+│                                                                              │
+│  Controllers (10 reconcilers):                                               │
+│  - InferenceServiceReconciler (watches 13+ resource types)                   │
+│  - GatewayReconciler (Gateway API, AuthPolicies, EnvoyFilters)              │
+│  - LLMInferenceServiceReconciler                                             │
+│  - InferenceGraphReconciler                                                  │
+│  - ServingRuntimeReconciler                                                  │
+│  - AccountReconciler (NIM)                                                   │
+│  - ConfigMapReconciler, SecretReconciler, PodReconciler                     │
+│  - APIServer/ProfileWatcher (TLS profile)                                    │
+│         │                                                                    │
+│         │ Port: 6443/TCP                                                     │
+│         │ Protocol: HTTPS/WSS                                                │
+│         │ Encryption: TLS 1.2+                                               │
+│         │ Auth: ServiceAccount token (odh-model-controller SA)               │
+│         ▼                                                                    │
+│  [Kubernetes API] (resource CRUD, watch streams)                             │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES (Optional)                                                │
+│                                                                              │
+│  [OpenTelemetry Collector]                                                   │
+│  - Protocol: OTLP/gRPC                                                       │
+│  - Encryption: Configured by runtime                                         │
+│  - Purpose: Trace export from model-serving-api                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- ClusterRole: odh-model-controller-role
+  - 30+ API group/resource combinations with full CRUD
+  - Key resources: inferenceservices, llminferenceservices, inferencegraphs,
+    servingruntimes, accounts (nim.opendatahub.io), routes, networkpolicies,
+    authpolicies, envoyfilters, triggerauthentications, clusterrolebindings
+  - Read-only: datascienceclusters, dscinitializations, apiservers, authentications
+
+- ClusterRole: model-serving-api
+  - gateway.networking.k8s.io/gateways: list
+  - core/namespaces: get
+
+- ClusterRole: proxy-role
+  - authentication.k8s.io/tokenreviews: create
+  - authorization.k8s.io/subjectaccessreviews: create
+
+- ClusterRole: metrics-auth-role
+  - authentication.k8s.io/tokenreviews: create
+  - authorization.k8s.io/subjectaccessreviews: create
+
+- Role: leader-election-role (namespaced)
+  - configmaps, leases: full CRUD
+  - events: create, patch
+
+TLS Configuration:
+- Source: OpenShift apiservers.config.openshift.io/cluster TLS profile
+- Fallback: Mozilla Intermediate (TLS 1.2, ECDHE+AES-GCM/ChaCha20)
+- FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
+- All cipher suites FIPS 140-2/140-3 approved via OpenSSL backend
+- ProfileWatcher restarts operator on TLS profile change
+
+Secrets:
+- model-serving-api-tls (kubernetes.io/tls) - service-ca operator, auto-rotate
+- odh-model-controller-metrics-tls (kubernetes.io/tls) - service-ca operator, auto-rotate
+- odh-model-controller-webhook-cert (kubernetes.io/tls) - service-ca operator, auto-rotate
+
+Service Accounts:
+- odh-model-controller (operator Deployment)
+  - Bound to: odh-model-controller-role (ClusterRole), proxy-role, leader-election-role
+- model-serving-api (API server Deployment)
+  - Bound to: model-serving-api (ClusterRole)
+- controller-manager
+  - Bound to: metrics-auth-role (ClusterRole)

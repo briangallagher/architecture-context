@@ -1,68 +1,48 @@
 graph TB
-    subgraph "FMS Guardrails Orchestrator"
+    subgraph Orchestrator["FMS Guardrails Orchestrator (Rust/axum+tokio)"]
         direction TB
-        subgraph MainServer["Guardrails API Server (8033/TCP)"]
-            Router[Axum Router]
-            V1Handler["V1 Handlers<br/>/api/v1/task/*"]
-            V2Handler["V2 Handlers<br/>/api/v2/text/*"]
-            OpenAIHandler["OpenAI Handlers<br/>/api/v2/chat/completions-detection<br/>/api/v2/text/completions-detection"]
-            TLSLayer["TLS/mTLS Layer<br/>(rustls + ring)"]
-            Router --> V1Handler
-            Router --> V2Handler
-            Router --> OpenAIHandler
-            TLSLayer --> Router
-        end
+        GuardrailsServer["Guardrails Server<br/>Port 8033/TCP<br/>HTTP/HTTPS"]
+        HealthServer["Health Server<br/>Port 8034/TCP<br/>HTTP"]
+        DetectorClient["Detector Client<br/>HTTP Client"]
+        ChunkerClient["Chunker Client<br/>gRPC Client"]
+        GenerationClient["Generation Client<br/>gRPC Client"]
+        OpenAIClient["OpenAI Client<br/>HTTP Client"]
+        DetectionBatcher["Detection Batcher<br/>Orders & batches results"]
 
-        subgraph HealthServer["Health Server (8034/TCP, plaintext)"]
-            HealthEndpoint["/health"]
-            InfoEndpoint["/info"]
-        end
-
-        subgraph Orchestration["Orchestration Engine"]
-            TaskHandler["Task Handlers<br/>(Handle&lt;Task&gt; trait)"]
-            ClassTask["ClassificationWithGenTask"]
-            StreamClassTask["StreamingClassificationTask"]
-            ChatDetTask["ChatCompletionsDetectionTask"]
-            ContentDetTask["ContentDetectionTask"]
-            TaskHandler --> ClassTask
-            TaskHandler --> StreamClassTask
-            TaskHandler --> ChatDetTask
-            TaskHandler --> ContentDetTask
-        end
-
-        subgraph Clients["Client Layer"]
-            GenClient["GenerationClient<br/>(TgisClient | NlpClient)"]
-            OpenAIClient["OpenAiClient<br/>(HTTP)"]
-            ChunkerClient["ChunkerClient<br/>(gRPC)"]
-            DetectorClient["DetectorClient<br/>(HTTP)"]
-        end
-
-        V1Handler --> TaskHandler
-        V2Handler --> TaskHandler
-        OpenAIHandler --> TaskHandler
-        TaskHandler --> GenClient
-        TaskHandler --> OpenAIClient
-        TaskHandler --> ChunkerClient
-        TaskHandler --> DetectorClient
-        InfoEndpoint --> Clients
+        GuardrailsServer -->|dispatches tasks| DetectorClient
+        GuardrailsServer -->|dispatches tasks| ChunkerClient
+        GuardrailsServer -->|dispatches tasks| GenerationClient
+        GuardrailsServer -->|dispatches tasks| OpenAIClient
+        DetectorClient -->|feeds results| DetectionBatcher
+        DetectionBatcher -->|ordered results| GuardrailsServer
     end
 
-    Client[External Client] -->|HTTP/HTTPS| TLSLayer
-    Client -->|HTTP| HealthEndpoint
+    Client[External Client] -->|POST /api/v1/* /api/v2/*<br/>8033/TCP HTTP/HTTPS| GuardrailsServer
+    HealthProbe[Health Probe] -->|GET /health /info<br/>8034/TCP HTTP| HealthServer
 
-    GenClient -->|gRPC/HTTP2| TGIS["TGIS Server<br/>8033/TCP"]
-    GenClient -->|gRPC/HTTP2| CaikitNLP["Caikit NLP<br/>8085/TCP"]
-    OpenAIClient -->|HTTP/HTTPS| vLLM["OpenAI-compatible Server<br/>(e.g., vLLM) 8080/TCP"]
-    ChunkerClient -->|gRPC/HTTP2| Chunkers["Caikit Chunkers<br/>8085/TCP"]
-    DetectorClient -->|HTTP/HTTPS| Detectors["Detector Services<br/>8080/TCP"]
+    DetectorClient -->|POST /api/v1/text/*<br/>8080/TCP HTTP/HTTPS<br/>TLS configurable| DetectorServices["Detector Services<br/>(HAP, Toxicity, PII)"]
 
-    style MainServer fill:#4a90e2,stroke:#333,color:#fff
-    style HealthServer fill:#7ed321,stroke:#333,color:#fff
-    style Orchestration fill:#f5a623,stroke:#333,color:#000
-    style Clients fill:#9b59b6,stroke:#333,color:#fff
-    style Client fill:#e8e8e8,stroke:#333
-    style TGIS fill:#e8e8e8,stroke:#333
-    style CaikitNLP fill:#e8e8e8,stroke:#333
-    style vLLM fill:#e8e8e8,stroke:#333
-    style Chunkers fill:#e8e8e8,stroke:#333
-    style Detectors fill:#e8e8e8,stroke:#333
+    ChunkerClient -->|gRPC ChunkersService<br/>8085/TCP<br/>TLS/mTLS configurable| ChunkerServices["Chunker Services<br/>(Caikit Runtime)"]
+
+    GenerationClient -->|gRPC GenerationService<br/>8033/TCP gRPC<br/>TLS/mTLS configurable| TGIS["TGIS<br/>(Text Generation)"]
+    GenerationClient -->|gRPC NlpService<br/>8085/TCP gRPC<br/>TLS/mTLS configurable| CaikitNLP["Caikit NLP"]
+
+    OpenAIClient -->|POST /v1/chat/completions<br/>8080/TCP HTTP/HTTPS<br/>TLS configurable| OpenAILLM["OpenAI-compatible LLM<br/>(e.g., vLLM)"]
+
+    Orchestrator -.->|OTLP export<br/>4317/TCP gRPC or 4318/TCP HTTP| OTLPCollector["OTLP Collector"]
+
+    style GuardrailsServer fill:#4a90e2,stroke:#333,color:#fff
+    style HealthServer fill:#4a90e2,stroke:#333,color:#fff
+    style DetectorClient fill:#5ba0d2,stroke:#333,color:#fff
+    style ChunkerClient fill:#5ba0d2,stroke:#333,color:#fff
+    style GenerationClient fill:#5ba0d2,stroke:#333,color:#fff
+    style OpenAIClient fill:#5ba0d2,stroke:#333,color:#fff
+    style DetectionBatcher fill:#5ba0d2,stroke:#333,color:#fff
+    style DetectorServices fill:#7ed321,stroke:#333
+    style ChunkerServices fill:#7ed321,stroke:#333
+    style TGIS fill:#7ed321,stroke:#333
+    style CaikitNLP fill:#7ed321,stroke:#333
+    style OpenAILLM fill:#f5a623,stroke:#333
+    style OTLPCollector fill:#999,stroke:#333,color:#fff
+    style Client fill:#f9f9f9,stroke:#999
+    style HealthProbe fill:#f9f9f9,stroke:#999

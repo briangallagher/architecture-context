@@ -14,7 +14,14 @@ overlays/                             # Architecture updates between regeneratio
   NNNN-short-description.md
 architecture/
   rhoai-{version}/                  # One directory per analyzed version
+    INDEX.md                        # Deterministic inventory and topic navigation
     {component}.md                  # Component architecture document (structured markdown)
+    {component}/
+      analyzer.json                 # accepted deterministic input
+      synthesis.json                # original model-response envelope
+      document.json                 # authoritative accepted facts and provenance
+      diagrams/                     # optional structured-component derivatives
+        metadata.json               # document/generator identity and availability
     PLATFORM.md                     # Aggregated platform-level architecture document
     diagrams/
       {component}-component.mmd    # Mermaid component diagram
@@ -44,6 +51,19 @@ As of March 2026, versions range from `rhoai-2.6` through `rhoai-3.4`. The lates
 
 ## Component Architecture Files (`{component}.md`)
 
+Versions can mix two explicit formats. A legacy component has only the flat
+Markdown and optional legacy analyzer JSON. A published structured component
+also has `{component}/{analyzer,synthesis,document}.json`; its `document.json` is
+the authority and the flat Markdown is a validated derivative. If those nested
+files exist but are inconsistent, do not fall back to legacy Markdown. Missing
+or stale Markdown can be rerendered locally from the accepted document with the
+arch-analyzer renderer and no model call. `arch-query` can answer typed queries
+from a valid JSON-only authority, but repository linting and release packaging
+require the complete four-file snapshot, including Markdown. The Python producer
+and reuse path recomputes model-response identity and eligibility; Go query and
+packaging consumers verify the published cross-artifact bindings but do not
+independently recompute those producer properties.
+
 Each component `.md` file follows a standardized structure with these sections. Every section uses markdown tables for machine-readable structured data:
 
 | Section | Contents |
@@ -69,6 +89,25 @@ Each component `.md` file follows a standardized structure with these sections. 
 - **To find what a component depends on**: read the `Dependencies` tables (both external and internal RHOAI).
 - **To find secrets a component uses or creates**: read the `Security > Secrets` table.
 
+## Version Navigation Index (`INDEX.md`)
+
+Newly indexed version directories contain an `INDEX.md` generated from local,
+structured artifacts. Start there to find canonical component aliases, available
+and pending component documents, topic headings, analyzer and coverage metadata,
+and release-applicable overlays.
+
+The index is a navigation document. Topic links point to headings that exist,
+but do not prove that a component has a capability or relationship. Inventory
+presence and `shipped` metadata are shown separately from integration status.
+Current, planned, and not-integrated labels require structured version-scoped
+metadata; absent evidence remains `unknown`. Planned status comes only from
+platform configuration or structured active overlay frontmatter. Follow the
+linked component document, `PLATFORM.md`, analyzer metadata, or overlay before
+using a substantive claim.
+
+Legacy version directories may not contain an index. In that case, use the
+component map and the individual Markdown files directly.
+
 ## Platform Architecture File (`PLATFORM.md`)
 
 Each version directory contains a `PLATFORM.md` that aggregates all component data into a platform-level view. It includes:
@@ -83,7 +122,10 @@ Use `PLATFORM.md` when you need a holistic view or need to understand how compon
 
 ## Diagrams
 
-Each component has up to 6 diagram files in the `diagrams/` subdirectory:
+New structured components place diagram files in
+`{component}/diagrams/`; `metadata.json` binds them to the accepted document and
+records generator identity and success/failure. Platform diagrams and legacy
+component diagrams remain under the version-level `diagrams/` directory.
 
 | Diagram | Format | Purpose |
 |---------|--------|---------|
@@ -157,8 +199,11 @@ The number of components grows across versions (e.g., `rhoai-2.6` has ~10 compon
 ### "What components exist in version X?"
 
 ```
-ls architecture/rhoai-X/*.md
+cat architecture/rhoai-X/INDEX.md
 ```
+
+If that version predates index generation, inspect `component-map.json`; avoid
+counting `INDEX.md`, `PLATFORM.md`, or `README.md` as components.
 
 ### "What are the network ports for component Y in version X?"
 
@@ -170,11 +215,11 @@ Compare the component `.md` files across version directories. The `## Recent Cha
 
 ### "What RBAC does component Y need?"
 
-Read `architecture/rhoai-X/Y.md` and look for the `## Security > ### RBAC` tables. For the Mermaid visualization, read `architecture/rhoai-X/diagrams/Y-rbac.mmd`.
+Read `architecture/rhoai-X/Y.md` and look for the `## Security > ### RBAC` tables. For a newly structured component, use `architecture/rhoai-X/Y/diagrams/`; legacy diagrams remain in `architecture/rhoai-X/diagrams/`.
 
 ### "Show me how requests flow through the system"
 
-Read the `## Data Flows` section in either a component `.md` (for component-specific flows) or `PLATFORM.md` (for cross-component flows). The `diagrams/{component}-dataflow.mmd` files provide visual representations.
+Read the `## Data Flows` section in either a component `.md` (for component-specific flows) or `PLATFORM.md` (for cross-component flows). Use `{component}/diagrams/` for newly structured component derivatives and `diagrams/` for platform or legacy derivatives.
 
 ### "What are all the CRDs in the platform?"
 

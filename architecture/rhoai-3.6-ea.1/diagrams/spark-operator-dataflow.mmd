@@ -1,0 +1,44 @@
+sequenceDiagram
+    participant User as User / CI
+    participant KubeAPI as kube-apiserver<br/>6443/TCP HTTPS
+    participant Webhook as spark-operator-webhook<br/>443/TCP TLS
+    participant Controller as spark-operator-controller<br/>watch TLS 1.2+
+    participant Driver as Driver Pod
+    participant Executors as Executor Pods
+
+    Note over User,Executors: Flow 1: Spark Application Submission
+
+    User->>KubeAPI: POST SparkApplication CR<br/>HTTPS/6443, TLS 1.2+<br/>Auth: User token
+    KubeAPI->>Webhook: Mutating admission<br/>HTTPS/443, TLS<br/>Auth: Kubernetes admission
+    Webhook-->>KubeAPI: Mutated SparkApplication<br/>(defaults applied)
+    KubeAPI->>Webhook: Validating admission<br/>HTTPS/443, TLS<br/>Auth: Kubernetes admission
+    Webhook-->>KubeAPI: Validation result
+    KubeAPI-->>User: SparkApplication created
+
+    KubeAPI->>Controller: Watch event: SparkApplication<br/>TLS 1.2+<br/>Auth: ServiceAccount token
+    Controller->>KubeAPI: Create Driver Pod<br/>HTTPS/6443, TLS 1.2+<br/>Auth: ServiceAccount token
+    Controller->>KubeAPI: Create Service<br/>HTTPS/6443
+    Controller->>KubeAPI: Create ConfigMap (monitoring)<br/>HTTPS/6443
+    Controller->>KubeAPI: Create PodDisruptionBudget<br/>HTTPS/6443
+
+    KubeAPI-->>Driver: Schedule Driver Pod
+    Driver->>Executors: Launch Executor Pods
+
+    Controller->>KubeAPI: Watch Executor Pods (owned)<br/>TLS 1.2+
+    Controller->>KubeAPI: Update SparkApplication status<br/>HTTPS/6443
+
+    Note over User,Executors: Flow 2: Platform Component Management
+
+    participant ODH as ODH Operator
+    participant Module as spark-operator-module<br/>SA: module-controller-manager
+
+    ODH->>KubeAPI: Create SparkOperator CR<br/>HTTPS/6443, TLS 1.2+<br/>Auth: ServiceAccount token
+    KubeAPI->>Module: Watch event: SparkOperator CR<br/>TLS 1.2+<br/>Auth: ServiceAccount token
+    Module->>KubeAPI: Deploy controller Deployment<br/>HTTPS/6443
+    Module->>KubeAPI: Deploy webhook Deployment<br/>HTTPS/6443
+    Module->>KubeAPI: Create CRDs, RBAC, Services<br/>HTTPS/6443
+    Module->>KubeAPI: Create webhook configurations<br/>HTTPS/6443
+    Module->>KubeAPI: Create NetworkPolicies<br/>HTTPS/6443
+    Module->>KubeAPI: Create cert-manager Certificates<br/>HTTPS/6443
+    Module->>KubeAPI: Create PodMonitors<br/>HTTPS/6443
+    Module->>KubeAPI: Update SparkOperator status<br/>(PlatformObject conditions)

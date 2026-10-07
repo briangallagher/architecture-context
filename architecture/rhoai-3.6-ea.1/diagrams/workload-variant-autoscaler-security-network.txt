@@ -1,0 +1,125 @@
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  CLUSTER INTERNAL (Service Mesh / Namespace Boundary)                       │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐     │
+│  │  Namespace: workload-variant-autoscaler-system                      │     │
+│  │                                                                      │     │
+│  │  [controller-manager Deployment]                                     │     │
+│  │  - Image: controller:latest (UBI9 base)                              │     │
+│  │  - ServiceAccount: controller-manager                                │     │
+│  │  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1               │     │
+│  │                                                                      │     │
+│  │  Ports:                                                               │     │
+│  │  ┌──────────────────────────────────────────────────────────────┐    │     │
+│  │  │  :8443/TCP - Metrics endpoint                                │    │     │
+│  │  │  Protocol: HTTPS                                             │    │     │
+│  │  │  Encryption: TLS (self-signed or cert-manager)               │    │     │
+│  │  │  Auth: TokenReview + SubjectAccessReview                     │    │     │
+│  │  │  Enforcement: controller-runtime authn/authz filter          │    │     │
+│  │  └──────────────────────────────────────────────────────────────┘    │     │
+│  │  ┌──────────────────────────────────────────────────────────────┐    │     │
+│  │  │  :8081/TCP - Health & readiness probes                       │    │     │
+│  │  │  Protocol: HTTP                                              │    │     │
+│  │  │  Encryption: None (plaintext)                                │    │     │
+│  │  │  Auth: None (by design)                                      │    │     │
+│  │  │  Paths: /healthz, /readyz                                    │    │     │
+│  │  └──────────────────────────────────────────────────────────────┘    │     │
+│  │                                                                      │     │
+│  │  [controller-manager-metrics-service]                                │     │
+│  │  - Type: ClusterIP                                                   │     │
+│  │  - Port: 8443/TCP → 8443                                            │     │
+│  │  - Exposure: Internal only                                           │     │
+│  │                                                                      │     │
+│  └─────────────────────────────────────────────────────────────────────┘     │
+│         │                                │                                    │
+│         │                                │                                    │
+│         │ Port: 6443/TCP                 │ Port: varies (HTTP/HTTPS)          │
+│         │ Protocol: HTTPS/WSS            │ Protocol: HTTP or HTTPS            │
+│         │ Encryption: TLS 1.2+           │ Encryption: TLS 1.2+ (HTTPS)       │
+│         │ Auth: ServiceAccount token     │       or plaintext (HTTP, opt-in)   │
+│         │ (in-cluster)                   │ Auth: Bearer token (env/file)       │
+│         │                                │       or mTLS (client cert/key)     │
+│         ▼                                ▼                                    │
+│  ┌────────────────────┐    ┌──────────────────────────────┐                  │
+│  │  Kubernetes API     │    │  Prometheus                   │                  │
+│  │  Server             │    │                               │                  │
+│  │  Port: 6443/TCP     │    │  Port: configurable           │                  │
+│  │  Protocol: HTTPS    │    │  Protocol: HTTP or HTTPS      │                  │
+│  │  Encryption: TLS    │    │  Encryption: TLS 1.2+ min     │                  │
+│  │  1.2+               │    │  (when HTTPS)                 │                  │
+│  │  Auth: SA token     │    │  Auth: Bearer token / mTLS    │                  │
+│  │                     │    │  Custom CA: supported         │                  │
+│  │  Resources accessed │    │  InsecureSkipVerify:          │                  │
+│  │  via RBAC:          │    │    configurable (not          │                  │
+│  │  - ConfigMaps       │    │    recommended for prod)      │                  │
+│  │  - HPAs             │    │  HTTP: only if                │                  │
+│  │  - InferencePools   │    │    PROMETHEUS_ALLOW_HTTP=true  │                  │
+│  │  - ScaledObjects    │    │  Bearer over HTTP: blocked    │                  │
+│  │  - Deployments      │    │                               │                  │
+│  │  - LWS              │    │  Hard dependency: controller  │                  │
+│  │  - Nodes            │    │  exits if unreachable         │                  │
+│  │  - ResourceQuotas   │    │                               │                  │
+│  │  - Services         │    └──────────────────────────────┘                  │
+│  │  - Pods             │                                                      │
+│  │  - Namespaces       │    ┌──────────────────────────────┐                  │
+│  │  - Events           │    │  Prometheus (scraping)        │                  │
+│  │  - ReplicaSets      │    │  SA: kube-prometheus-stack-   │                  │
+│  │  - StatefulSets     │    │      prometheus               │                  │
+│  │  - TokenReviews     │    │                               │                  │
+│  │  - SAReviews        │    │  Port: 8443/TCP               │                  │
+│  │  - Leases           │    │  Protocol: HTTPS              │                  │
+│  └────────────────────┘    │  Auth: TokenReview + SAR      │                  │
+│                              │  Role: metrics-reader         │                  │
+│                              └──────────────────────────────┘                  │
+│                                                                                │
+│  Monitoring namespace: workload-variant-autoscaler-monitoring                 │
+│  ┌──────────────────────────────────────────────────────────────┐              │
+│  │  RoleBinding: metrics-reader-rolebinding                     │              │
+│  │  Grants: metrics-reader ClusterRole                          │              │
+│  │  To: SA kube-prometheus-stack-prometheus                     │              │
+│  └──────────────────────────────────────────────────────────────┘              │
+│                                                                                │
+│  EPP metrics access (cluster-scoped):                                          │
+│  ┌──────────────────────────────────────────────────────────────┐              │
+│  │  ClusterRoleBinding: epp-metrics-reader-role-binding          │              │
+│  │  Grants: epp-metrics-reader-role ClusterRole                  │              │
+│  │  To: SA epp-metrics-reader                                    │              │
+│  └──────────────────────────────────────────────────────────────┘              │
+│                                                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+NO EXTERNAL INGRESS - This component has no ingress resources.
+All access is cluster-internal only.
+
+RBAC Summary:
+- ClusterRole: manager-role
+  - Core API: configmaps, namespaces, nodes, nodes/status, pods, resourcequotas, services (get, list, watch)
+  - Core API: configmaps/status (get)
+  - Core API: events (create, patch)
+  - apps: deployments (get, list, patch, update, watch)
+  - apps: deployments/scale (get, update)
+  - apps: replicasets, statefulsets (get, list, watch)
+  - autoscaling: horizontalpodautoscalers (get, list, patch, update, watch)
+  - inference.networking.k8s.io, inference.networking.x-k8s.io: inferencepools (get, list, watch)
+  - keda.sh: scaledobjects (get, list, patch, update, watch)
+  - leaderworkerset.x-k8s.io: leaderworkersets (get, list, patch, update, watch)
+  - leaderworkerset.x-k8s.io: leaderworkersets/scale (get, update)
+  - monitoring.coreos.com: servicemonitors (get, list, watch)
+
+- ClusterRole: metrics-auth-role
+  - authentication.k8s.io: tokenreviews (create)
+  - authorization.k8s.io: subjectaccessreviews (create)
+
+- Role: leader-election-role (namespace-scoped)
+  - coordination.k8s.io: leases (create, delete, get, list, patch, update, watch)
+  - Core API: events (create, patch)
+
+Secrets:
+- epp-metrics-token (kubernetes.io/service-account-token) - SA token for controller-manager, provisioned by manifest
+
+FIPS Compliance:
+- Build flags: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
+- Dynamic linking for OpenSSL FIPS module via UBI9 base
+- TLS minimum version: 1.2 (crypto/tls)
+- Crypto: stdlib crypto/tls and crypto/x509 (FIPS via OpenSSL when strictfipsruntime)
+- InsecureSkipVerify: configurable but logged as not recommended for production

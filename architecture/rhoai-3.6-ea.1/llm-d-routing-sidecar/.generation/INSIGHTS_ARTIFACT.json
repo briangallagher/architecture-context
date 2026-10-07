@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "component": "llm-d-routing-sidecar",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "llm-d-routing-sidecar-risk-001",
+      "claim": "The proxy endpoint exposes an unauthenticated reverse proxy to vLLM and accepts dynamic prefill routing targets from request headers, relying entirely on optional SSRF allowlisting for target validation.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/proxy/proxy.go:276 (catch-all handler with no auth middleware)"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/llm-d-routing-sidecar/main.go:43 (SSRF protection disabled by default)"
+        }
+      ],
+      "reasoning": "The catch-all mux handler forwards all requests to vLLM with no authentication check. Prefill target addresses come from untrusted request headers (x-prefiller-url, x-prefiller-host-port). The SSRF protection mode that validates targets against InferencePool-backed pod addresses is disabled by default and requires explicit opt-in. Without SSRF protection or network policies, the sidecar could be used to reach arbitrary cluster-internal endpoints.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-routing-sidecar-risk-002",
+      "claim": "The upstream Dockerfile builds with CGO_ENABLED=0 on ubi9/ubi-micro, producing a statically linked binary that uses pure-Go cryptography and would fail Konflux check-payload FIPS validation.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile:24 (CGO_ENABLED=0)"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile:26 (ubi9/ubi-micro base without OpenSSL)"
+        }
+      ],
+      "reasoning": "check-payload requires dynamically linked Go binaries with OpenSSL. CGO_ENABLED=0 produces static binaries using pure-Go crypto. ubi9/ubi-micro is a minimal image without OpenSSL libraries. The downstream Konflux build may override these settings, but the upstream configuration is not FIPS-compliant.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-routing-sidecar-pattern-001",
+      "claim": "The sidecar implements a P/D disaggregation proxy pattern that separates inference routing concerns from the vLLM engine, supporting pluggable connector protocols (nixlv2, nixl, lmcache) for prefill/decode coordination.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/proxy/proxy.go:130-139 (connector protocol selection)"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/llm-d-routing-sidecar/main.go:33 (connector flag with nixlv2 default)"
+        }
+      ],
+      "reasoning": "The sidecar pattern cleanly separates P/D routing from the inference engine. Each connector protocol is a distinct handler function (runNIXLProtocolV2, runNIXLProtocolV1, runLMCacheProtocol) selected at startup via a CLI flag. This allows the vLLM engine to remain unmodified while the sidecar handles inter-pod P/D coordination, and enables protocol evolution without changing the inference engine deployment.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-routing-sidecar-trade-off-001",
+      "claim": "TLS InsecureSkipVerify options are available for both prefiller and decoder connections, trading certificate validation for operational flexibility in development and testing environments.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/llm-d-routing-sidecar/main.go:36-37 (InsecureSkipVerify flags)"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/proxy/proxy.go:300 (InsecureSkipVerify in prefiller TLS config)"
+        }
+      ],
+      "reasoning": "The --prefiller-tls-insecure-skip-verify and --decoder-tls-insecure-skip-verify flags allow disabling certificate validation for outbound connections. While useful for development with self-signed certificates, this weakens the TLS trust chain in production. The default self-signed certificate for the secure proxy listener has a 10-year validity, further indicating a development-oriented TLS posture.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

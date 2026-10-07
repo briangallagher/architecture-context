@@ -1,0 +1,165 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  OPERATOR POD (mcp-lifecycle-operator-controller-manager)               │
+│  Namespace: mcp-lifecycle-operator-system                               │
+│  ServiceAccount: mcp-lifecycle-operator-controller-manager              │
+│  Image: controller:latest                                               │
+│  Replicas: 1 (leader election enabled)                                  │
+│  FIPS: GOEXPERIMENT=strictfipsruntime (UBI9 base)                       │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────┐        │
+│  │  Manager Process (/manager)                                  │        │
+│  │                                                               │        │
+│  │  [MCPServerReconciler]                                        │        │
+│  │  - Watches: MCPServer CRs, ConfigMaps, Secrets               │        │
+│  │  - Owns: Deployments, Services, NetworkPolicies               │        │
+│  │                                                               │        │
+│  │  [MCP Handshake Client]                                       │        │
+│  │  - SDK: github.com/modelcontextprotocol/go-sdk v1.6.1        │        │
+│  │  - Backoff: 10s, 20s, 40s, 80s (exponential)                 │        │
+│  │  - Graceful on 401/403 (auth-protected servers)               │        │
+│  │                                                               │        │
+│  │  [TLS Configuration]                                          │        │
+│  │  - Env: TLS_MIN_VERSION, TLS_CIPHER_SUITES                   │        │
+│  │  - PROPAGATE_TLS_ENV_VARS=true → inject into managed pods    │        │
+│  └─────────────────────────────────────────────────────────────┘        │
+│                                                                          │
+│  Listening Ports:                                                        │
+│  ┌─────────────────────────────────────────────────────────────┐        │
+│  │  Port 8081/TCP - Health & Readiness Probes                    │        │
+│  │  - /healthz (GET) - No auth - Kubernetes probe               │        │
+│  │  - /readyz  (GET) - No auth - Kubernetes probe               │        │
+│  │  - Protocol: HTTP                                             │        │
+│  │  - Encryption: None                                           │        │
+│  │  - Auth: None (by design)                                     │        │
+│  └─────────────────────────────────────────────────────────────┘        │
+│  ┌─────────────────────────────────────────────────────────────┐        │
+│  │  Port 8443/TCP - Metrics Endpoint                             │        │
+│  │  - Protocol: HTTPS                                            │        │
+│  │  - Encryption: TLS (self-signed by default, external cert     │        │
+│  │    injection via --metrics-cert-dir)                           │        │
+│  │  - Auth: TokenReview + SubjectAccessReview                    │        │
+│  │  - RBAC: mcp-lifecycle-operator-metrics-auth-role             │        │
+│  │  - Service: mcp-lifecycle-operator-controller-manager-        │        │
+│  │             metrics-service (ClusterIP)                       │        │
+│  └─────────────────────────────────────────────────────────────┘        │
+│         │                                                                │
+│         │ OUTBOUND CONNECTIONS                                           │
+│         │                                                                │
+│         ├──── To: Kubernetes API Server ─────────────────────────────┐  │
+│         │     Port: 6443/TCP                                          │  │
+│         │     Protocol: HTTPS/WSS                                     │  │
+│         │     Encryption: TLS 1.2+                                    │  │
+│         │     Auth: ServiceAccount token (in-cluster)                 │  │
+│         │     Purpose: CRUD on MCPServer, Deployment, Service,        │  │
+│         │              NetworkPolicy, ConfigMap, Secret, Pod          │  │
+│         │     RBAC: mcp-lifecycle-operator-manager-role (ClusterRole) │  │
+│         │                                                              │  │
+│         ├──── To: MCP Server Pods (managed) ─────────────────────┐   │  │
+│         │     Port: dynamic (container port)                      │   │  │
+│         │     Protocol: HTTP                                      │   │  │
+│         │     Encryption: None (in-cluster)                       │   │  │
+│         │     Auth: None (graceful on 401/403)                    │   │  │
+│         │     Purpose: MCP protocol initialize handshake          │   │  │
+│         │     Extracts: tools, resources, prompts, logging,       │   │  │
+│         │              completions capabilities                   │   │  │
+│         └─────────────────────────────────────────────────────────┘   │  │
+│                                                                       │  │
+├───────────────────────────────────────────────────────────────────────┤  │
+│  INBOUND CONNECTIONS                                                  │  │
+│                                                                       │  │
+│  [Kubernetes kubelet]                                                 │  │
+│  - Target: :8081/healthz, :8081/readyz                               │  │
+│  - Protocol: HTTP                                                     │  │
+│  - Auth: None                                                         │  │
+│  - Purpose: Pod health and readiness checks                          │  │
+│                                                                       │  │
+│  [Prometheus Scraper]                                                 │  │
+│  - Target: :8443/metrics                                              │  │
+│  - Protocol: HTTPS                                                    │  │
+│  - Encryption: TLS (self-signed)                                      │  │
+│  - Auth: TokenReview + SubjectAccessReview                           │  │
+│  - Required RBAC: mcp-lifecycle-operator-metrics-reader ClusterRole  │  │
+│  - Via Service: mcp-lifecycle-operator-controller-manager-            │  │
+│                 metrics-service (ClusterIP 8443/TCP)                  │  │
+│                                                                       │  │
+└───────────────────────────────────────────────────────────────────────┘  │
+                                                                           │
+┌──────────────────────────────────────────────────────────────────────────┘
+│
+▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  KUBERNETES API SERVER                                                   │
+│                                                                          │
+│  Port: 6443/TCP                                                          │
+│  Protocol: HTTPS                                                         │
+│  Encryption: TLS 1.2+                                                    │
+│  Auth: ServiceAccount token                                              │
+│                                                                          │
+│  Resources Managed:                                                      │
+│  - mcp.x-k8s.io/v1alpha1 MCPServer (get, list, patch, update, watch)   │
+│  - apps/v1 Deployment (create, get, list, update, watch)                │
+│  - v1 Service (create, get, list, update, watch)                        │
+│  - networking.k8s.io/v1 NetworkPolicy (create, get, list, update,watch) │
+│  - v1 ConfigMap, Secret (get, list, watch)                              │
+│  - v1 Pod (get, list)                                                    │
+│  - events.k8s.io Event (create, patch)                                  │
+│  - coordination.k8s.io Lease (leader election)                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  MANAGED MCP SERVER PODS                                                 │
+│                                                                          │
+│  Namespace: {user-namespace}                                             │
+│  Created by: mcp-lifecycle-operator (owned Deployment)                  │
+│  Network: Governed by operator-created NetworkPolicy                    │
+│  Port: dynamic (container-defined)                                      │
+│  Protocol: HTTP (MCP protocol over SSE/Streamable HTTP)                 │
+│  Encryption: None (in-cluster) or TLS (if PROPAGATE_TLS_ENV_VARS=true) │
+│  Auth: Server-defined (operator graceful on 401/403)                    │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- ClusterRole: mcp-lifecycle-operator-manager-role
+  - core: configmaps, secrets (get, list, watch)
+  - core: pods (get, list)
+  - core: services (create, get, list, update, watch)
+  - events.k8s.io: events (create, patch)
+  - apps: deployments (create, get, list, update, watch)
+  - mcp.x-k8s.io: mcpservers (get, list, patch, update, watch)
+  - mcp.x-k8s.io: mcpservers/finalizers (update)
+  - mcp.x-k8s.io: mcpservers/status (get, patch, update)
+  - networking.k8s.io: networkpolicies (create, get, list, update, watch)
+
+- ClusterRole: mcp-lifecycle-operator-metrics-auth-role
+  - authentication.k8s.io: tokenreviews (create)
+  - authorization.k8s.io: subjectaccessreviews (create)
+
+- Role: mcp-lifecycle-operator-leader-election-role (namespace-scoped)
+  - core: configmaps (CRUD + watch)
+  - coordination.k8s.io: leases (CRUD + watch)
+  - core: events (create, patch)
+
+RBAC Aggregation:
+- mcpserver-admin-role: aggregate-to-admin label
+  - mcp.x-k8s.io: mcpservers (full CRUD + deletecollection)
+- mcpserver-editor-role: aggregate-to-edit label
+  - mcp.x-k8s.io: mcpservers (CRUD, no deletecollection)
+- mcpserver-viewer-role: aggregate-to-view label
+  - mcp.x-k8s.io: mcpservers (get, list, watch)
+
+Authentication & Authorization:
+- :8081/healthz, /readyz: No auth (health probes)
+- :8443/metrics: TokenReview + SubjectAccessReview via controller-runtime
+- Kubernetes API access: ServiceAccount token (in-cluster)
+- MCP handshake: No auth required (graceful 401/403 handling)
+
+TLS Configuration:
+- Metrics endpoint: TLS with self-signed cert (default) or injected certs
+- Kubernetes API: TLS 1.2+ (platform-provided)
+- MCP handshake: HTTP (in-cluster, no TLS)
+- Configurable: TLS_MIN_VERSION, TLS_CIPHER_SUITES environment variables
+- FIPS: GOEXPERIMENT=strictfipsruntime ensures crypto backed by OpenSSL
+
+Secrets:
+- No operator-specific secrets defined
+- References user-defined Secrets in MCPServer specs (watched, not owned)

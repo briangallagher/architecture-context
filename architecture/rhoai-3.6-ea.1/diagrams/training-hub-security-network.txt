@@ -1,0 +1,78 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  HOST PROCESS (Caller's Security Context)                               │
+│                                                                          │
+│  Training Hub runs as a pure Python library within the caller's          │
+│  process. It has NO services, NO ingress, NO CRDs, and NO container      │
+│  images of its own. All security context is inherited from the host.     │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │  [Training Hub Library]                                            │  │
+│  │  - Runs in-process (Jupyter notebook or training job pod)          │  │
+│  │  - No listening ports                                              │  │
+│  │  - No Kubernetes RBAC requirements                                 │  │
+│  │  - No service mesh participation                                   │  │
+│  │                                                                    │  │
+│  │  Algorithms: SFT, OSFT, LoRA, GRPO, GEPA                         │  │
+│  │  Backends: InstructLab, Mini-Trainer, Unsloth, ART, VeRL, GEPA    │  │
+│  │                                                                    │  │
+│  │  ┌──────────────────────────────────────────────────────────────┐  │  │
+│  │  │  GEPA Algorithm (outbound network activity)                  │  │  │
+│  │  │                                                              │  │  │
+│  │  │  Temporarily sets env vars:                                  │  │  │
+│  │  │  - OPENAI_API_BASE (endpoint URL)                           │  │  │
+│  │  │  - OPENAI_API_KEY (API credential)                          │  │  │
+│  │  │  Restores original values after optimization run             │  │  │
+│  │  └──────────────────────────────────────────────────────────────┘  │  │
+│  │         │                              │                           │  │
+│  │         │                              │                           │  │
+│  └─────────┼──────────────────────────────┼───────────────────────────┘  │
+│            │                              │                              │
+│            │ Port: unknown                │ Port: unknown                │
+│            │ Protocol: HTTPS              │ Protocol: HTTPS              │
+│            │ Encryption: unknown          │ Encryption: unknown          │
+│            │ Auth: OPENAI_API_KEY         │ Auth: mlflow SDK             │
+│            │ (Bearer Token)               │ (session-based)              │
+│            ▼                              ▼                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                       │
+│                                                                          │
+│  [OpenAI-compatible LLM Endpoint]                                        │
+│  - Purpose: LLM inference for GEPA prompt optimization                   │
+│  - Protocol: HTTPS (via litellm)                                         │
+│  - Auth: Bearer Token (OPENAI_API_KEY env var)                          │
+│  - Encryption: Unknown (depends on endpoint configuration)               │
+│  - Used by: GEPA algorithm, GRPO reward evaluation                       │
+│                                                                          │
+│  [MLflow Tracking Server]                                                │
+│  - Purpose: Experiment tracking and prompt registry                      │
+│  - Protocol: HTTPS (via mlflow SDK)                                      │
+│  - Auth: Unknown (depends on MLflow server configuration)                │
+│  - Encryption: Unknown (depends on server configuration)                 │
+│  - Used by: MLflowGEPABackend, optional SFT tracking                    │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No Kubernetes RBAC resources defined
+- Training Hub is a library; RBAC is inherited from the host pod's
+  ServiceAccount
+
+Service Mesh Configuration:
+- No service mesh participation
+- Training Hub does not expose any network services
+- Outbound traffic from GEPA/MLflow flows through the host pod's
+  network namespace and any sidecar proxies configured at the pod level
+
+Secrets:
+- OPENAI_API_KEY (environment variable) - API credential for
+  OpenAI-compatible endpoints, provisioned by runtime environment,
+  rotation policy unknown
+- Note: The library temporarily injects OPENAI_API_KEY and
+  OPENAI_API_BASE into the process environment during GEPA optimization
+  runs, then restores original values
+
+FIPS Compliance:
+- No cryptographic library imports detected in source
+- FIPS compliance delegated entirely to host environment
+  (Python/OpenSSL configuration of the notebook or training job container)
+- No explicit FIPS opt-in or opt-out signals found

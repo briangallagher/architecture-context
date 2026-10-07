@@ -1,70 +1,62 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA_Controller["spark-operator-controller<br/>(Operator NS)"]
-        SA_Webhook["spark-operator-webhook<br/>(Operator NS)"]
-        SA_Spark["spark-operator-spark<br/>(User NS)"]
+        SA_Controller["spark-operator-controller<br/>(operator namespace)"]
+        SA_Webhook["spark-operator-webhook<br/>(operator namespace)"]
+        SA_Spark["spark-operator-spark<br/>(operator namespace)"]
     end
 
-    subgraph ClusterRoleBindings["Cluster Role Bindings"]
-        CRB_Controller["spark-operator-controller<br/>(ClusterRoleBinding)"]
-        CRB_Webhook["spark-operator-webhook<br/>(ClusterRoleBinding)"]
+    subgraph ControllerBindings["Controller Bindings"]
+        CRB_Controller["spark-operator-controller<br/>ClusterRoleBinding"]
+        RB_Controller["spark-operator-controller<br/>RoleBinding (namespace)"]
     end
 
-    subgraph RoleBindings["Role Bindings (namespace-scoped)"]
-        RB_ControllerLE["spark-operator-controller<br/>leader-election<br/>(RoleBinding)"]
-        RB_WebhookLE["spark-operator-webhook<br/>leader-election<br/>(RoleBinding)"]
-        RB_Spark["spark-operator-spark<br/>(RoleBinding)"]
+    subgraph WebhookBindings["Webhook Bindings"]
+        CRB_Webhook["spark-operator-webhook<br/>ClusterRoleBinding"]
+        RB_Webhook["spark-operator-webhook<br/>RoleBinding (namespace)"]
     end
 
-    subgraph CR_Controller["ClusterRole: spark-operator-controller"]
+    subgraph SparkBindings["Spark Pod Bindings"]
+        RB_Spark["spark-operator-spark<br/>RoleBinding (namespace)"]
+    end
+
+    subgraph ControllerClusterRole["ClusterRole: spark-operator-controller"]
         direction LR
-        CR_C_Pods["core: pods<br/>get, list, watch, create,<br/>update, patch, delete,<br/>deletecollection"]
-        CR_C_CM["core: configmaps<br/>get, list, create,<br/>update, patch, delete"]
-        CR_C_Svc["core: services<br/>get, create, delete"]
-        CR_C_Events["core: events<br/>create, update, patch"]
-        CR_C_RQ["core: resourcequotas<br/>get, list, watch"]
-        CR_C_Ingress["extensions +<br/>networking.k8s.io:<br/>ingresses<br/>get, list, watch,<br/>create, update, delete"]
-        CR_C_CRD["apiextensions.k8s.io:<br/>customresourcedefinitions<br/>get"]
+        CR_Core["core<br/>pods, configmaps,<br/>services, events<br/>get,list,watch,<br/>create,update,<br/>patch,delete"]
+        CR_Net["networking.k8s.io<br/>ingresses,<br/>networkpolicies<br/>get,create,<br/>update,delete"]
+        CR_Spark["sparkoperator.k8s.io<br/>sparkapplications,<br/>scheduledsparkapplications,<br/>sparkconnects<br/>get,list,watch,<br/>create,update,delete"]
+        CR_SparkStatus["sparkoperator.k8s.io<br/>*/status, */finalizers<br/>update,patch"]
+        CR_Policy["policy<br/>poddisruptionbudgets<br/>get,list,watch,<br/>create,delete"]
+        CR_OpenShift["config.openshift.io<br/>apiservers (cluster)<br/>get"]
+        CR_CRD["apiextensions.k8s.io<br/>customresourcedefinitions<br/>get"]
     end
 
-    subgraph CR_Controller_Spark["ClusterRole: spark-operator-controller (Spark CRDs)"]
+    subgraph WebhookClusterRole["ClusterRole: spark-operator-webhook"]
         direction LR
-        CR_C_SA["sparkoperator.k8s.io:<br/>sparkapplications<br/>FULL CRUD + finalizers"]
-        CR_C_SSA["sparkoperator.k8s.io:<br/>scheduledsparkapplications<br/>FULL CRUD + finalizers"]
-        CR_C_SC["sparkoperator.k8s.io:<br/>sparkconnects<br/>FULL CRUD + status"]
+        WR_Core["core<br/>resourcequotas,<br/>pods<br/>list,watch"]
+        WR_Admission["admissionregistration<br/>mutatingwebhookconfigurations,<br/>validatingwebhookconfigurations<br/>get,list,watch,update"]
+        WR_Spark["sparkoperator.k8s.io<br/>sparkapplications,<br/>scheduledsparkapplications<br/>get,list,watch"]
+        WR_OpenShift["config.openshift.io<br/>apiservers (cluster)<br/>get"]
     end
 
-    subgraph CR_Webhook["ClusterRole: spark-operator-webhook"]
-        direction LR
-        CR_W_MWC["admissionregistration:<br/>mutatingwebhookconfigurations<br/>list, watch, get, update"]
-        CR_W_VWC["admissionregistration:<br/>validatingwebhookconfigurations<br/>list, watch, get, update"]
-        CR_W_CRDs["sparkoperator.k8s.io:<br/>sparkapplications,<br/>scheduledsparkapplications<br/>get, list, watch"]
-        CR_W_Pods["core: pods<br/>list, watch"]
+    subgraph SparkRole["Role: spark-role (namespace)"]
+        SR_Perms["core<br/>pods, services,<br/>configmaps<br/>get,list,watch,<br/>create,update,delete"]
     end
 
-    subgraph R_Spark["Role: spark-operator-spark (user namespace)"]
-        direction LR
-        R_S_Resources["core: pods, configmaps,<br/>persistentvolumeclaims,<br/>services<br/>get, list, watch, create,<br/>update, patch, delete,<br/>deletecollection"]
-    end
-
-    subgraph EditorRoles["Editor ClusterRoles (for users)"]
-        direction LR
-        Editor_SA["sparkapplication-editor-role<br/>sparkapplications + /status<br/>FULL CRUD"]
-        Editor_SSA["scheduledsparkapplication-<br/>editor-role<br/>scheduledsparkapplications<br/>+ /status FULL CRUD"]
-    end
-
-    %% Bindings
+    %% Controller bindings
     SA_Controller -->|bound via| CRB_Controller
-    SA_Controller -->|bound via| RB_ControllerLE
-    CRB_Controller -->|grants| CR_Controller
-    CRB_Controller -->|grants| CR_Controller_Spark
+    SA_Controller -->|bound via| RB_Controller
+    CRB_Controller -->|grants| ControllerClusterRole
+    RB_Controller -->|grants| ControllerClusterRole
 
+    %% Webhook bindings
     SA_Webhook -->|bound via| CRB_Webhook
-    SA_Webhook -->|bound via| RB_WebhookLE
-    CRB_Webhook -->|grants| CR_Webhook
+    SA_Webhook -->|bound via| RB_Webhook
+    CRB_Webhook -->|grants| WebhookClusterRole
+    RB_Webhook -->|grants| WebhookClusterRole
 
+    %% Spark bindings
     SA_Spark -->|bound via| RB_Spark
-    RB_Spark -->|grants| R_Spark
+    RB_Spark -->|grants| SparkRole
 
     %% Styling
     style SA_Controller fill:#4a90e2,stroke:#333,color:#fff
@@ -72,28 +64,22 @@ graph TD
     style SA_Spark fill:#4a90e2,stroke:#333,color:#fff
 
     style CRB_Controller fill:#e8e8e8,stroke:#333
+    style RB_Controller fill:#e8e8e8,stroke:#333
     style CRB_Webhook fill:#e8e8e8,stroke:#333
-    style RB_ControllerLE fill:#e8e8e8,stroke:#333
-    style RB_WebhookLE fill:#e8e8e8,stroke:#333
+    style RB_Webhook fill:#e8e8e8,stroke:#333
     style RB_Spark fill:#e8e8e8,stroke:#333
 
-    style CR_C_Pods fill:#7ed321,stroke:#333,color:#fff
-    style CR_C_CM fill:#7ed321,stroke:#333,color:#fff
-    style CR_C_Svc fill:#7ed321,stroke:#333,color:#fff
-    style CR_C_Events fill:#7ed321,stroke:#333,color:#fff
-    style CR_C_RQ fill:#7ed321,stroke:#333,color:#fff
-    style CR_C_Ingress fill:#7ed321,stroke:#333,color:#fff
-    style CR_C_CRD fill:#7ed321,stroke:#333,color:#fff
-    style CR_C_SA fill:#f5a623,stroke:#333,color:#fff
-    style CR_C_SSA fill:#f5a623,stroke:#333,color:#fff
-    style CR_C_SC fill:#f5a623,stroke:#333,color:#fff
+    style CR_Core fill:#7ed321,stroke:#333
+    style CR_Net fill:#7ed321,stroke:#333
+    style CR_Spark fill:#7ed321,stroke:#333
+    style CR_SparkStatus fill:#7ed321,stroke:#333
+    style CR_Policy fill:#7ed321,stroke:#333
+    style CR_OpenShift fill:#7ed321,stroke:#333
+    style CR_CRD fill:#7ed321,stroke:#333
 
-    style CR_W_MWC fill:#7ed321,stroke:#333,color:#fff
-    style CR_W_VWC fill:#7ed321,stroke:#333,color:#fff
-    style CR_W_CRDs fill:#f5a623,stroke:#333,color:#fff
-    style CR_W_Pods fill:#7ed321,stroke:#333,color:#fff
+    style WR_Core fill:#f5a623,stroke:#333
+    style WR_Admission fill:#f5a623,stroke:#333
+    style WR_Spark fill:#f5a623,stroke:#333
+    style WR_OpenShift fill:#f5a623,stroke:#333
 
-    style R_S_Resources fill:#7ed321,stroke:#333,color:#fff
-
-    style Editor_SA fill:#ddd,stroke:#333
-    style Editor_SSA fill:#ddd,stroke:#333
+    style SR_Perms fill:#9b59b6,stroke:#333,color:#fff

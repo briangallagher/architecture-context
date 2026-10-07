@@ -1,0 +1,84 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client"]
+    end
+
+    subgraph Ingress["INGRESS (Platform-managed)"]
+        Gateway["Istio Gateway /<br/>K8s Ingress /<br/>Gateway API HTTPRoute<br/>443/TCP<br/>TLS 1.2+"]
+    end
+
+    subgraph AppLayer["APPLICATION LAYER (user-namespace)"]
+        direction TB
+        Router["Inference Router<br/>(cmd/router)<br/>Traffic split / canary<br/>Auth: None"]
+        AGServer["AutoGluon Model Server<br/>8080/TCP<br/>FastAPI/uvicorn<br/>V2 Inference Protocol<br/>⚠ Auth: NONE"]
+        Router --> AGServer
+    end
+
+    subgraph ControlPlane["OPERATOR CONTROL PLANE (kserve namespace)"]
+        direction TB
+
+        subgraph ControllerPod["kserve-controller-manager Deployment"]
+            RBACProxy["kube-rbac-proxy<br/>8443/TCP HTTPS<br/>TLS termination<br/>K8s token auth"]
+            ManagerProc["Manager Process<br/>8080/TCP HTTP (localhost)<br/>8081/TCP health/ready"]
+            RBACProxy -->|"localhost:8080<br/>HTTP"| ManagerProc
+        end
+
+        WebhookSvc["Webhook Server<br/>443/TCP TLS<br/>cert: kserve-webhook-server-cert<br/>Failure Policy: Fail"]
+
+        LLMCtrl["LLMInferenceService<br/>Controller (cmd/llmisvc)<br/>SA: llmisvc-sa"]
+
+        LocalModelCtrl["LocalModel Controller<br/>(cmd/localmodel)<br/>SA: kserve-localmodel-controller-manager"]
+
+        LocalModelNode["LocalModelNode Agent<br/>(cmd/localmodelnode)<br/>SA: kserve-localmodelnode-agent"]
+    end
+
+    subgraph PlatformSvc["PLATFORM SERVICES"]
+        K8sAPI["Kubernetes API<br/>6443/TCP<br/>HTTPS/WSS<br/>TLS 1.2+<br/>SA token + RBAC"]
+        Prometheus["Prometheus<br/>Scrapes :8443"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        S3["S3 Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>AWS IAM"]
+        GCS["Google Cloud Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>GCP SA"]
+        Azure["Azure Blob Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Azure AD"]
+    end
+
+    %% External → Ingress
+    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Platform auth"| Gateway
+
+    %% Ingress → App
+    Gateway -->|"HTTP/8080<br/>mTLS (if mesh)"| Router
+
+    %% App → External Storage
+    AGServer -->|"HTTPS/443<br/>TLS 1.2+<br/>Cloud IAM"| S3
+    AGServer -->|"HTTPS/443<br/>TLS 1.2+<br/>GCP SA"| GCS
+    AGServer -->|"HTTPS/443<br/>TLS 1.2+<br/>Azure AD"| Azure
+
+    %% Control Plane → K8s API
+    ManagerProc -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
+    LLMCtrl -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
+    LocalModelCtrl -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
+    LocalModelNode -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
+
+    %% Prometheus → kube-rbac-proxy
+    Prometheus -->|"HTTPS/8443<br/>K8s token auth"| RBACProxy
+
+    %% K8s API → Webhook
+    K8sAPI -->|"HTTPS/443<br/>TLS<br/>Admission review"| WebhookSvc
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef app fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef controlplane fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef platform fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef warning fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    class Client external
+    class Gateway ingress
+    class Router app
+    class AGServer warning
+    class RBACProxy,ManagerProc,WebhookSvc,LLMCtrl,LocalModelCtrl,LocalModelNode controlplane
+    class K8sAPI,Prometheus platform
+    class S3,GCS,Azure externalservice

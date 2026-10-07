@@ -1,93 +1,78 @@
 graph TB
-    subgraph KubeRBACProxy["kube-rbac-proxy (Sidecar Container)"]
+    subgraph "kube-rbac-proxy Sidecar"
         direction TB
+        TLSListener["TLS Listener<br/>8443/TCP<br/>TLS 1.2+"]
+        PathFilter["Path Filter<br/>(--allow-paths / --ignore-paths)"]
+        AuthN["Authentication Layer"]
+        AuthZ["Authorization Layer"]
+        AuthHeaders["Auth Header Injection<br/>(x-remote-user, x-remote-groups)"]
+        CertReloader["CertReloader<br/>(TLS hot-reload, 1m poll)"]
+        SanitizingFilter["SanitizingFilter<br/>(Bearer token masking in logs)"]
+        HealthEndpoint["/healthz Endpoint<br/>(proxy-endpoints-port)"]
 
-        subgraph Listeners["Listeners"]
-            SecureListener["Secure Listener<br/>0.0.0.0:8443/TCP<br/>TLS 1.2+"]
-            HealthEndpoint["Health Endpoint<br/>/healthz<br/>proxy-endpoints-port"]
+        subgraph "Authentication Backends"
+            TokenReviewAuth["TokenReview Authenticator<br/>(Bearer Token)"]
+            X509Auth["X.509 Authenticator<br/>(Client TLS Certificate)"]
+            OIDCAuth["OIDC Authenticator<br/>(JWT via --oidc-issuer)"]
         end
 
-        subgraph Middleware["HTTP Middleware Chain (pkg/filters)"]
-            PathFilter["Path Filter<br/>--ignore-paths<br/>--allow-paths"]
-            AuthNFilter["Authentication Filter<br/>pkg/authn"]
-            AuthZFilter["Authorization Filter<br/>pkg/authz"]
-            HeaderInjection["Auth Header Injection<br/>x-remote-user<br/>x-remote-groups"]
+        subgraph "Authorization Backends"
+            SARAuthorizer["SAR Authorizer<br/>(SubjectAccessReview)"]
+            HardcodedMetrics["Hardcoded Metrics Authorizer<br/>(Prometheus SA → /metrics)"]
+            StaticAuthorizer["Static Authorizer<br/>(configurable allow-list)"]
         end
 
-        subgraph AuthN["Authentication Module (pkg/authn)"]
-            Delegating["Delegating Authenticator<br/>TokenReview API"]
-            OIDC["OIDC Authenticator<br/>JWT Validation"]
-            X509["X.509 Client Cert<br/>--client-ca-file"]
+        subgraph "Config Formats"
+            Format1["Format1<br/>(top-level resourceAttributes)"]
+            Format2["Format2<br/>(path-scoped endpoints)"]
         end
 
-        subgraph AuthZ["Authorization Module (pkg/authz)"]
-            HardcodedAuthz["Hardcoded Authorizer<br/>Always allows prometheus-k8s SA<br/>GET /metrics"]
-            SARAuthz["SAR Authorizer<br/>SubjectAccessReview API"]
-            Format1["Format1 Config<br/>Static resourceAttributes"]
-            Format2["Format2 Config<br/>Per-path endpoint rules"]
-        end
-
-        subgraph TLSModule["TLS Module (pkg/tls)"]
-            CertReloader["Certificate Reloader<br/>Hot-reload on interval"]
-        end
-
-        Sanitizer["Log Sanitizer<br/>Masks bearer tokens"]
-        ReverseProxy["Reverse Proxy Handler<br/>httputil.ReverseProxy"]
+        TLSListener --> PathFilter
+        PathFilter -->|"matched --ignore-paths"| UpstreamProxy
+        PathFilter -->|"not ignored"| AuthN
+        AuthN --> TokenReviewAuth
+        AuthN --> X509Auth
+        AuthN --> OIDCAuth
+        AuthN --> AuthZ
+        AuthZ --> SARAuthorizer
+        AuthZ --> HardcodedMetrics
+        AuthZ --> StaticAuthorizer
+        SARAuthorizer --> Format1
+        SARAuthorizer --> Format2
+        AuthZ --> AuthHeaders
+        AuthHeaders --> UpstreamProxy["Upstream Reverse Proxy"]
     end
 
-    %% External entities
-    Client["External Client<br/>(Service / Pod)"]
-    Prometheus["Prometheus<br/>openshift-monitoring<br/>prometheus-k8s SA"]
+    Client["Client<br/>(via Gateway/HTTPRoute)"] -->|"HTTPS/8443<br/>Bearer / mTLS / OIDC"| TLSListener
+    Prometheus["Prometheus<br/>(openshift-monitoring)"] -->|"HTTPS/8443<br/>GET /metrics"| TLSListener
 
-    %% Request flow
-    Client -->|"HTTPS/8443<br/>Bearer / mTLS / OIDC"| SecureListener
-    Prometheus -->|"HTTPS/8443<br/>Bearer Token"| SecureListener
+    UpstreamProxy -->|"HTTP/8080<br/>localhost"| AppContainer["Application Container<br/>(upstream service)"]
 
-    SecureListener --> PathFilter
-    PathFilter -->|"allowed path"| AuthNFilter
-    PathFilter -->|"ignored path<br/>(bypass auth)"| ReverseProxy
-    AuthNFilter --> AuthZFilter
-    AuthZFilter --> HeaderInjection
-    HeaderInjection --> ReverseProxy
-
-    AuthNFilter -.->|"delegates"| Delegating
-    AuthNFilter -.->|"validates JWT"| OIDC
-    AuthNFilter -.->|"validates cert"| X509
-
-    AuthZFilter -.->|"checks"| HardcodedAuthz
-    AuthZFilter -.->|"evaluates SAR"| SARAuthz
-    SARAuthz -.-> Format1
-    SARAuthz -.-> Format2
-
-    CertReloader -.->|"provides certs"| SecureListener
-
-    %% Downstream
-    ReverseProxy -->|"HTTP/8080<br/>localhost<br/>no auth"| Upstream["Upstream Application<br/>(metrics, API)"]
-
-    %% External calls
-    Delegating -->|"HTTPS/443<br/>TokenReview"| K8sAPI["Kubernetes API Server"]
-    SARAuthz -->|"HTTPS/443<br/>SubjectAccessReview"| K8sAPI
-    OIDC -->|"HTTPS/443<br/>OIDC Discovery + JWKS"| OIDCProvider["OIDC Provider<br/>(optional)"]
+    TokenReviewAuth -->|"HTTPS/443"| K8sAPI["Kubernetes API Server"]
+    SARAuthorizer -->|"HTTPS/443"| K8sAPI
+    OIDCAuth -->|"HTTPS/443"| OIDCProvider["OIDC Identity Provider"]
+    CertReloader -.->|"polls cert files"| TLSListener
 
     %% Styling
-    style SecureListener fill:#4a90e2,color:#fff
-    style HealthEndpoint fill:#4a90e2,color:#fff
-    style PathFilter fill:#9b59b6,color:#fff
-    style AuthNFilter fill:#9b59b6,color:#fff
-    style AuthZFilter fill:#9b59b6,color:#fff
-    style HeaderInjection fill:#9b59b6,color:#fff
-    style Delegating fill:#e67e22,color:#fff
-    style OIDC fill:#e67e22,color:#fff
-    style X509 fill:#e67e22,color:#fff
-    style HardcodedAuthz fill:#e74c3c,color:#fff
-    style SARAuthz fill:#e74c3c,color:#fff
-    style Format1 fill:#f39c12,color:#fff
-    style Format2 fill:#f39c12,color:#fff
-    style CertReloader fill:#27ae60,color:#fff
-    style ReverseProxy fill:#2c3e50,color:#fff
-    style Sanitizer fill:#7f8c8d,color:#fff
-    style Client fill:#f9f9f9,stroke:#999,stroke-width:2px
-    style Prometheus fill:#f9f9f9,stroke:#999,stroke-width:2px
-    style Upstream fill:#7ed321,stroke:#333
-    style K8sAPI fill:#999,stroke:#333
-    style OIDCProvider fill:#999,stroke:#333
+    style TLSListener fill:#4a90e2,stroke:#333,color:#fff
+    style AuthN fill:#4a90e2,stroke:#333,color:#fff
+    style AuthZ fill:#4a90e2,stroke:#333,color:#fff
+    style UpstreamProxy fill:#4a90e2,stroke:#333,color:#fff
+    style CertReloader fill:#4a90e2,stroke:#333,color:#fff
+    style SanitizingFilter fill:#4a90e2,stroke:#333,color:#fff
+    style PathFilter fill:#4a90e2,stroke:#333,color:#fff
+    style AuthHeaders fill:#4a90e2,stroke:#333,color:#fff
+    style HealthEndpoint fill:#4a90e2,stroke:#333,color:#fff
+    style TokenReviewAuth fill:#6baed6,stroke:#333
+    style X509Auth fill:#6baed6,stroke:#333
+    style OIDCAuth fill:#6baed6,stroke:#333
+    style SARAuthorizer fill:#f5a623,stroke:#333
+    style HardcodedMetrics fill:#f5a623,stroke:#333
+    style StaticAuthorizer fill:#f5a623,stroke:#333
+    style Format1 fill:#d4edda,stroke:#333
+    style Format2 fill:#d4edda,stroke:#333
+    style Client fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style AppContainer fill:#7ed321,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style OIDCProvider fill:#e8e8e8,stroke:#333

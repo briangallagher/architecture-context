@@ -2,77 +2,66 @@ graph TB
     subgraph SDK["CodeFlare SDK (Python Client Library)"]
         direction TB
 
-        subgraph RayModule["ray module"]
-            Cluster["ray.cluster<br/>Cluster Class<br/>(lifecycle management)"]
-            Config["ray.cluster.config<br/>ClusterConfiguration<br/>(dataclass)"]
-            GenYAML["ray.cluster.generate_yaml<br/>YAML Generation Engine"]
-            AppWrapper["ray.appwrapper<br/>AWManager"]
-            RayClient["ray.client<br/>RayJobClient"]
-
-            Config -->|configures| Cluster
-            Cluster -->|calls| GenYAML
-            Cluster -->|optional wrap| AppWrapper
-            Cluster -->|job submission| RayClient
+        subgraph Foundation["Foundation Layer"]
+            Auth["kubernetes_cluster<br/>Kubernetes Auth<br/>(kube-authkit, OIDC, OAuth, token)"]
+            Kueue["common.kueue<br/>Queue Discovery &<br/>Priority Validation"]
+            GenCert["common.utils.generate_cert<br/>TLS Certificate Generation<br/>(RSA-3072, SHA-256)"]
         end
 
-        subgraph CommonModule["common module"]
-            Auth["common.kubernetes_cluster.auth<br/>K8s Authentication"]
-            Kueue["common.kueue<br/>LocalQueue Integration"]
-            GenCert["common.utils.generate_cert<br/>TLS Certificate Generation"]
-            Widgets["common.widgets<br/>Jupyter ipywidgets UI"]
+        subgraph Features["Feature Layer"]
+            RayCluster["ray.cluster<br/>RayCluster CR Lifecycle<br/>(apply, down, status, wait_ready)"]
+            RayJobs["ray.rayjobs<br/>RayJob CR Lifecycle<br/>(submit, stop, resubmit, delete)"]
+            RayClient["ray.client<br/>Direct Job Submission<br/>(JobSubmissionClient wrapper)"]
         end
 
-        Cluster -->|authenticates via| Auth
-        Cluster -->|queue assignment| Kueue
-        Cluster -->|TLS setup| GenCert
-        Cluster -->|notebook UI| Widgets
+        subgraph UI["User Interface"]
+            Widgets["common.widgets<br/>ipywidgets Jupyter UI<br/>Cluster Management"]
+        end
+
+        subgraph Vendored["Vendored"]
+            KubeRayClient["vendored.python_client<br/>KubeRay Python Client<br/>(RayClusterApi, RayjobApi)"]
+        end
     end
 
-    %% External CRDs consumed
-    User[Data Scientist / User] -->|Python API| Cluster
-    GenYAML -->|generates| RayClusterCR["RayCluster CR<br/>ray.io/v1"]
-    AppWrapper -->|generates| AppWrapperCR["AppWrapper CR<br/>workload.codeflare.dev/v1beta2"]
-    Kueue -->|reads| LocalQueueCR["LocalQueue CR<br/>kueue.x-k8s.io/v1beta1"]
+    %% Internal relationships
+    RayCluster -->|uses| Auth
+    RayCluster -->|uses| Kueue
+    RayCluster -->|uses| GenCert
+    RayJobs -->|uses| Auth
+    RayJobs -->|uses| Kueue
+    RayJobs -->|imports| KubeRayClient
+    RayClient -->|uses| Auth
+    Widgets -->|manages| RayCluster
 
-    %% K8s API interactions
-    Auth -->|connects to| K8sAPI["Kubernetes API<br/>6443/TCP HTTPS"]
-    RayClusterCR -->|submitted to| K8sAPI
-    AppWrapperCR -->|submitted to| K8sAPI
+    %% External CRDs
+    User[Data Scientist<br/>Jupyter Notebook / Python Script] -->|creates| RayCluster
+    User -->|submits| RayJobs
+    User -->|connects| RayClient
 
-    %% Operator reconciliation
-    K8sAPI -->|reconciles| KubeRayOp["KubeRay Operator"]
-    K8sAPI -->|reconciles| CFOperator["CodeFlare Operator"]
-    KubeRayOp -->|creates| RayHead["Ray Head Pod"]
-    KubeRayOp -->|creates| RayWorkers["Ray Worker Pods"]
-    KubeRayOp -->|creates| HeadSvc["{cluster}-head-svc<br/>6379, 8265, 10001"]
+    RayCluster -->|creates/deletes| RayClusterCR[RayCluster CR<br/>ray.io/v1]
+    RayJobs -->|creates/manages| RayJobCR[RayJob CR<br/>ray.io/v1]
 
-    %% Dashboard access
-    RayClient -->|submits jobs| RayDashboard["Ray Dashboard<br/>8265/TCP"]
-    Cluster -->|status check| RayDashboard
-    RayDashboard -.->|via| Route["OpenShift Route<br/>443/TCP HTTPS"]
+    %% External systems
+    RayClusterCR -->|reconciled by| KubeRayOp[KubeRay Operator]
+    RayJobCR -->|reconciled by| KubeRayOp
+    Kueue -->|discovers| KueueCtrl[Kueue Controller<br/>LocalQueue / WorkloadPriorityClass]
+    Auth -->|authenticates via| K8sAPI[Kubernetes API Server<br/>6443/TCP]
+    GenCert -->|reads CA from| CASecret[KubeRay CA Secret]
+    RayCluster -->|connects to| RayHead[Ray Head Node<br/>10001/TCP mTLS]
+    RayCluster -->|checks| Dashboard[Ray Dashboard<br/>8265/TCP HTTPS]
 
     %% Styling
     style SDK fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    style RayModule fill:#bbdefb,stroke:#1976d2,stroke-width:1px
-    style CommonModule fill:#bbdefb,stroke:#1976d2,stroke-width:1px
-    style Cluster fill:#4a90e2,stroke:#333,color:#fff
-    style Config fill:#4a90e2,stroke:#333,color:#fff
-    style GenYAML fill:#4a90e2,stroke:#333,color:#fff
-    style AppWrapper fill:#4a90e2,stroke:#333,color:#fff
-    style RayClient fill:#4a90e2,stroke:#333,color:#fff
-    style Auth fill:#4a90e2,stroke:#333,color:#fff
-    style Kueue fill:#4a90e2,stroke:#333,color:#fff
-    style GenCert fill:#4a90e2,stroke:#333,color:#fff
-    style Widgets fill:#4a90e2,stroke:#333,color:#fff
+    style Foundation fill:#e8f5e9,stroke:#2e7d32
+    style Features fill:#fff3e0,stroke:#e65100
+    style UI fill:#f3e5f5,stroke:#6a1b9a
+    style Vendored fill:#fce4ec,stroke:#b71c1c
+    style User fill:#fff9c4,stroke:#f57f17
     style RayClusterCR fill:#f5a623,stroke:#333
-    style AppWrapperCR fill:#f5a623,stroke:#333
-    style LocalQueueCR fill:#f5a623,stroke:#333
-    style K8sAPI fill:#e8e8e8,stroke:#333
-    style KubeRayOp fill:#7ed321,stroke:#333
-    style CFOperator fill:#7ed321,stroke:#333
-    style RayHead fill:#c8e6c9,stroke:#333
-    style RayWorkers fill:#c8e6c9,stroke:#333
-    style HeadSvc fill:#c8e6c9,stroke:#333
-    style RayDashboard fill:#c8e6c9,stroke:#333
-    style Route fill:#ffe0b2,stroke:#333
-    style User fill:#f9f9f9,stroke:#333
+    style RayJobCR fill:#f5a623,stroke:#333
+    style KubeRayOp fill:#999,stroke:#333
+    style KueueCtrl fill:#999,stroke:#333
+    style K8sAPI fill:#999,stroke:#333
+    style CASecret fill:#999,stroke:#333
+    style RayHead fill:#999,stroke:#333
+    style Dashboard fill:#999,stroke:#333

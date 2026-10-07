@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "component": "batch-gateway",
+  "reads": [
+    {
+      "path": "internal/apiserver/server/server.go",
+      "line_range": "80-210",
+      "gap_category": ["authentication", "services"],
+      "question": "What authentication middleware is applied to API routes, and how does the server configure TLS and port listeners?",
+      "expected_signal": "middleware chain, auth enforcement, TLS setup, listener port configuration",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization", "Architectural Analysis", "Purpose", "Data Flows", "FIPS Compliance"],
+      "scope_reason": "Server constructor and Start method span lines 80-210; both the middleware chain (auth gap) and listener/TLS configuration (services gap) require this full range"
+    },
+    {
+      "path": "docker/Dockerfile.apiserver.konflux",
+      "line_range": "1-33",
+      "gap_category": ["fips_compliance"],
+      "question": "What build flags (CGO_ENABLED, GOEXPERIMENT) and base images are used for the apiserver Konflux build?",
+      "expected_signal": "GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, UBI base image",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Architectural Analysis"]
+    },
+    {
+      "path": "internal/tls/tls.go",
+      "line_range": "1-150",
+      "gap_category": ["fips_compliance"],
+      "question": "What TLS configuration and cipher suite selection does the application use?",
+      "expected_signal": "crypto/tls usage, cipher suite filtering, min TLS version, ALPN configuration",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Architectural Analysis"]
+    },
+    {
+      "path": "charts/batch-gateway/templates/apiserver-service.yaml",
+      "line_range": "1-26",
+      "gap_category": ["services"],
+      "question": "What Kubernetes Service definition exposes the batch-gateway API server?",
+      "expected_signal": "Service kind, ports, targetPort, service type",
+      "outcome": "resolved",
+      "sections": ["Services", "Data Flows"]
+    },
+    {
+      "path": "charts/batch-gateway/values.yaml",
+      "line_range": "1-240",
+      "gap_category": ["authentication", "services", "fips_compliance"],
+      "question": "What are the default service port, type, TLS, HTTPRoute, and authentication configuration values?",
+      "expected_signal": "service.type, service.port, tls.enabled, httpRoute config, observabilityPort, passThroughHeaders",
+      "outcome": "resolved",
+      "sections": ["Services", "Authentication & Authorization", "Purpose", "Architectural Analysis", "Data Flows", "FIPS Compliance"],
+      "scope_reason": "Values.yaml contains configuration defaults for all three gap categories distributed across global, apiserver, tls, and httpRoute sections spanning the full file"
+    },
+    {
+      "path": "docker/Dockerfile.gc.konflux",
+      "line_range": "1-33",
+      "gap_category": ["fips_compliance"],
+      "question": "Does the gc Konflux Dockerfile use the same FIPS build flags as the apiserver?",
+      "expected_signal": "GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    },
+    {
+      "path": "docker/Dockerfile.processor.konflux",
+      "line_range": "1-33",
+      "gap_category": ["fips_compliance"],
+      "question": "Does the processor Konflux Dockerfile use the same FIPS build flags as the apiserver?",
+      "expected_signal": "GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    }
+  ]
+}

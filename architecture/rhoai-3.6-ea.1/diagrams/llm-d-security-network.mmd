@@ -1,0 +1,62 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client"]
+    end
+
+    subgraph Routing["ROUTING LAYER"]
+        EnvoyProxy["Envoy / Agent Gateway<br/>Sidecar Proxy<br/>InferencePool routing"]
+        EPP["EPP<br/>(Endpoint Picker Plugin)<br/>Selects backend pod"]
+    end
+
+    subgraph ModelServer["MODEL SERVER LAYER"]
+        direction TB
+
+        subgraph DecodeA["decode Pod A"]
+            vLLMA["vLLM OpenAI API Server<br/>8000/TCP HTTP<br/>⚠ No Auth, No Encryption"]
+            MXMetaA["MX Metadata<br/>5555/TCP gRPC<br/>⚠ No Auth (RDMA bypass)"]
+            MXTensorA["MX Tensor Transfer<br/>6555/TCP gRPC<br/>⚠ No Auth (RDMA bypass)"]
+        end
+
+        subgraph DecodeB["decode Pod B"]
+            vLLMB["vLLM OpenAI API Server<br/>8000/TCP HTTP"]
+            MXMetaB["MX Metadata<br/>5555/TCP gRPC"]
+            MXTensorB["MX Tensor Transfer<br/>6555/TCP gRPC"]
+        end
+    end
+
+    subgraph MXSubsystem["P2P KV CACHE (Istio mTLS STRICT)"]
+        MXServer["ModelExpress Server<br/>8001/TCP gRPC<br/>Istio mTLS STRICT<br/>AuthorizationPolicy: decode SA only"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        HFHub["HuggingFace Hub<br/>443/TCP HTTPS<br/>TLS, HF_TOKEN"]
+        OTel["OpenTelemetry Collector<br/>4317/TCP gRPC OTLP"]
+    end
+
+    %% Flows
+    Client -->|"HTTP<br/>Platform-dependent auth"| EnvoyProxy
+    EnvoyProxy -->|"HTTP/gRPC<br/>Pod selection"| EPP
+    EnvoyProxy -->|"HTTP 8000/TCP<br/>⚠ No encryption<br/>⚠ No auth"| vLLMA
+    EnvoyProxy -->|"HTTP 8000/TCP<br/>⚠ No encryption<br/>⚠ No auth"| vLLMB
+
+    vLLMA -->|"gRPC 8001/TCP<br/>Istio mTLS STRICT<br/>SA-scoped AuthzPolicy"| MXServer
+    vLLMB -->|"gRPC 8001/TCP<br/>Istio mTLS STRICT<br/>SA-scoped AuthzPolicy"| MXServer
+
+    MXMetaA <-->|"gRPC 5555/TCP<br/>⚠ No encryption (RDMA)"| MXMetaB
+    MXTensorA <-->|"gRPC 6555/TCP<br/>⚠ No encryption (RDMA)"| MXTensorB
+
+    vLLMA -->|"HTTPS 443/TCP<br/>TLS, HF_TOKEN"| HFHub
+    vLLMA -->|"gRPC OTLP 4317/TCP"| OTel
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef routing fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef modelserver fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef mtls fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+
+    class Client external
+    class EnvoyProxy,EPP routing
+    class vLLMA,vLLMB,MXMetaA,MXTensorA,MXMetaB,MXTensorB modelserver
+    class MXServer mtls
+    class HFHub,OTel externalservice

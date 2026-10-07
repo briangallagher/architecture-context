@@ -1,0 +1,88 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["Client / User"]
+    end
+
+    subgraph ClusterInternal["CLUSTER INTERNAL"]
+        direction TB
+
+        subgraph MSAPIDeploy["model-serving-api Deployment"]
+            MSAPI["model-serving-api<br/>SA: model-serving-api<br/>Ports: 8443/TCP (API), 8080/TCP (metrics)"]
+            AuthMW["Auth Middleware<br/>Bearer Token Validation"]
+        end
+
+        subgraph ControllerDeploy["odh-model-controller Deployment"]
+            WebhookSvc["Webhook Server<br/>Port: 9443/TCP<br/>FailurePolicy: Fail<br/>8 webhooks (5 mutating, 3 validating)"]
+            Controllers["10 Controllers<br/>SA: odh-model-controller<br/>InferenceService, Gateway,<br/>LLMInferenceService, Account, ..."]
+            MetricsSvc["Metrics Endpoint<br/>Port: 8443/TCP<br/>TokenReview + SSAR Auth"]
+        end
+
+        subgraph K8sControl["Kubernetes Control Plane"]
+            KubeAPI["kube-apiserver<br/>Port: 6443/TCP<br/>TLS 1.2+<br/>RBAC Enforced"]
+        end
+
+        subgraph PlatformCRs["Platform Configuration"]
+            DSC["DataScienceCluster CR"]
+            DSCI["DSCInitialization CR"]
+            APIServerCR["OpenShift APIServer CR<br/>TLS Profile Source"]
+        end
+
+        subgraph ManagedResources["Managed Resources"]
+            Routes["OpenShift Routes"]
+            NP["NetworkPolicies"]
+            AuthPolicies["Kuadrant AuthPolicies"]
+            EnvoyFilters["Istio EnvoyFilters"]
+            KEDATrigger["KEDA TriggerAuth"]
+            Monitoring["PodMonitors /<br/>ServiceMonitors"]
+        end
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES (Optional)"]
+        OTel["OpenTelemetry Collector<br/>OTLP/gRPC"]
+    end
+
+    %% External to internal flows
+    Client -->|"HTTPS/8443<br/>TLS 1.2+<br/>Bearer Token"| MSAPI
+    MSAPI --> AuthMW
+
+    %% model-serving-api to Kubernetes API
+    MSAPI -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA: model-serving-api<br/>SelfSubjectAccessReview"| KubeAPI
+
+    %% kube-apiserver to webhook
+    KubeAPI -->|"HTTPS/9443<br/>TLS<br/>Admission Webhook"| WebhookSvc
+
+    %% Controller to Kubernetes API
+    Controllers -->|"HTTPS+WSS/6443<br/>TLS 1.2+<br/>SA: odh-model-controller<br/>Watch + CRUD"| KubeAPI
+
+    %% Platform CR reads
+    KubeAPI -.->|watch| DSC
+    KubeAPI -.->|watch| DSCI
+    KubeAPI -.->|watch| APIServerCR
+
+    %% Resource management
+    Controllers -->|creates/manages| Routes
+    Controllers -->|creates/manages| NP
+    Controllers -->|creates/manages| AuthPolicies
+    Controllers -->|creates/manages| EnvoyFilters
+    Controllers -->|creates/manages| KEDATrigger
+    Controllers -->|creates/manages| Monitoring
+
+    %% Optional OTel
+    MSAPI -.->|"OTLP/gRPC<br/>Runtime configured"| OTel
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef controller fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef k8s fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef managed fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef platform fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef externalservice fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    class Client external
+    class MSAPI,AuthMW ingress
+    class WebhookSvc,Controllers,MetricsSvc controller
+    class KubeAPI k8s
+    class Routes,NP,AuthPolicies,EnvoyFilters,KEDATrigger,Monitoring managed
+    class DSC,DSCI,APIServerCR platform
+    class OTel externalservice

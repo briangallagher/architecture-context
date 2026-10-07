@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "component": "guardrails-regex-detector",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "guardrails-regex-detector-security-delegation-001",
+      "claim": "The service has zero application-layer authentication or TLS, fully delegating security to the platform mesh or gateway.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/main.rs:31-38"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Cargo.toml:7-14"
+        }
+      ],
+      "reasoning": "The Axum router contains only a TraceLayer middleware — no auth middleware, header filtering, or TLS configuration. No crypto or TLS crates appear in the dependency manifest. If deployed without a service mesh sidecar or API gateway, the detection API is fully exposed without authentication or encryption. This is architecturally intentional for a sidecar-pattern deployment but represents a risk if the deployment context changes.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "guardrails-regex-detector-stateless-scaling-002",
+      "claim": "The service is fully stateless with no external dependencies, making it horizontally scalable without coordination.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/detectors.rs:96-137"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "src/main.rs:14-46"
+        }
+      ],
+      "reasoning": "All detection is performed in-memory using CPU-bound regex matching with no database, cache, or external service calls. The handler function instantiates a fresh detector registry per request. This pattern supports straightforward horizontal scaling via replica count without shared state or distributed coordination concerns.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

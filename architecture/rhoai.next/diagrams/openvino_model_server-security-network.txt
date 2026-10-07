@@ -1,184 +1,161 @@
-================================================================================
-  SECURITY NETWORK DIAGRAM: OpenVINO Model Server (OVMS)
-  Component: openvino_model_server
-  Generated: 2026-05-15
-================================================================================
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [External Client]                                                       │
+│         │                                                                │
+│         │ Port: 443/TCP                                                  │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: Bearer Token (OpenShift OAuth)                           │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Platform-Managed)                                             │
+│                                                                          │
+│  [Platform Ingress (Gateway/Route)]                                      │
+│  - Managed by: rhods-operator (HTTPRoute or Route)                      │
+│  - Port: 443/TCP (external)                                             │
+│  - TLS Termination: TLS 1.2+                                            │
+│  - AuthN: OpenShift OAuth                                                │
+│         │                                                                │
+│         │ Port: 8443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS                                                │
+│         │ Auth: Kubernetes RBAC                                          │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  SIDECAR (Auth Enforcement - RHOAI 3.x)                                │
+│                                                                          │
+│  [kube-rbac-proxy]                                                       │
+│  - Namespace: {user-namespace}                                           │
+│  - Port: 8443/TCP (listen) → 8888/TCP (upstream)                       │
+│  - TLS: Terminates TLS, proxies plaintext to OVMS                      │
+│  - AuthZ: Kubernetes SubjectAccessReview                                │
+│         │                                                                │
+│         │ Port: 8888/TCP                                                 │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: None (plaintext, localhost)                        │
+│         │ Auth: None (delegated to sidecar)                             │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  APPLICATION (OVMS Pod - UID 5000, non-root)                            │
+│                                                                          │
+│  [OpenVINO Model Server]                                                 │
+│  - Namespace: {user-namespace}                                           │
+│  - User: ovms (UID 5000)                                                │
+│  - Security Context: no privilege escalation, all caps dropped          │
+│  - Image: odh-openvino-model-server-rhel9                               │
+│  - Base: UBI 9 Minimal                                                   │
+│                                                                          │
+│  Listening Ports:                                                        │
+│  ┌─────────────────────────────────────────────┐                        │
+│  │ REST: 8888/TCP (HTTP, plaintext)            │                        │
+│  │  - /v1/* TFS API                            │                        │
+│  │  - /v2/* KServe v2 API                      │                        │
+│  │  - /v3/* OpenAI-compatible API              │                        │
+│  │  - /metrics (Prometheus, unauthenticated)   │                        │
+│  │  - /v2/health/ready (unauthenticated)       │                        │
+│  │  - /v2/health/live (unauthenticated)        │                        │
+│  │  Auth: API Key via Authorization header     │                        │
+│  │        (optional, single shared key)        │                        │
+│  ├─────────────────────────────────────────────┤                        │
+│  │ gRPC: 8001/TCP (gRPC, plaintext)            │                        │
+│  │  - KServe v2 GRPCInferenceService           │                        │
+│  │  - TFS PredictionService                    │                        │
+│  │  - TFS ModelService                         │                        │
+│  │  Auth: None (InsecureServerCredentials)     │                        │
+│  └─────────────────────────────────────────────┘                        │
+│         │                                                                │
+│         │ EGRESS                                                         │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES (Model Storage)                                      │
+│                                                                          │
+│  [S3-Compatible Storage]                                                 │
+│  - Port: 443/TCP                                                        │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: AWS IAM credentials / access key                               │
+│  - Purpose: Load models from S3 buckets                                 │
+│                                                                          │
+│  [Google Cloud Storage]                                                  │
+│  - Port: 443/TCP                                                        │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: GCP service account credentials                                │
+│  - Purpose: Load models from GCS buckets                                │
+│                                                                          │
+│  [Azure Blob Storage]                                                    │
+│  - Port: 443/TCP                                                        │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: Azure storage key / SAS token                                  │
+│  - Purpose: Load models from Azure containers                           │
+│                                                                          │
+│  [HuggingFace Hub (github.com)]                                         │
+│  - Port: 443/TCP                                                        │
+│  - Protocol: HTTPS (git clone via libgit2)                              │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: HF_TOKEN (optional)                                            │
+│  - Certificate: System trust store or GIT_SSL_CERT_LOCATIONS            │
+│  - Purpose: Clone model repositories                                    │
+│                                                                          │
+│  [Configurable Image URLs]                                               │
+│  - Port: 443/TCP                                                        │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: None                                                            │
+│  - Restrictions: allowed_media_domains whitelist                        │
+│  - Purpose: Download images for VLM inference                           │
+└─────────────────────────────────────────────────────────────────────────┘
 
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  EXTERNAL (Untrusted)                                                        │
-│                                                                              │
-│  [External Client / Application]                                             │
-│         │                                                                    │
-│         │ Port: 443/TCP                                                      │
-│         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: Bearer Token / None                                          │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  INGRESS (Platform-Managed)                                                  │
-│                                                                              │
-│  [Istio Gateway / OpenShift Route / HTTPRoute]                               │
-│  - Managed by: KServe + RHOAI Platform Operator                             │
-│  - Port: 443/TCP (external) → internal routing                              │
-│  - TLS Termination: TLS 1.2+ at gateway                                     │
-│  - Auth: Platform-level (configurable)                                       │
-│         │                                                                    │
-│         │ Port: 8443/TCP                                                     │
-│         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS                                                    │
-│         │ Auth: Service Identity                                             │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  AUTH PROXY (Pod-Level Security Boundary)                                     │
-│                                                                              │
-│  [kube-rbac-proxy] (sidecar container)                                       │
-│  - Port: 8443/TCP (inbound, HTTPS)                                          │
-│  - Purpose: Authentication enforcement for RHOAI deployments                │
-│  - Auth: RBAC-based authorization                                            │
-│  - TLS: Terminates TLS, proxies to OVMS as plaintext                        │
-│         │                                                                    │
-│         │ Port: 8080/TCP (REST) / 8085/TCP (gRPC)                           │
-│         │ Protocol: HTTP / gRPC (HTTP/2)                                     │
-│         │ Encryption: None (localhost / pod-internal)                         │
-│         │ Auth: Already authenticated by proxy                               │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  APPLICATION (Pod-Internal - OVMS Container)                                 │
-│  - Runs as: UID 5000 / GID 5000 (non-root)                                 │
-│  - Image: quay.io/modh/openvino_model_server                                │
-│  - Base: UBI 9 (RHEL 9)                                                     │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐     │
-│  │  [Drogon HTTP Server]                                                │     │
-│  │  - Bind: 0.0.0.0:{rest_port} (default 8080/TCP)                    │     │
-│  │  - Protocol: HTTP/1.1                                                │     │
-│  │  - Auth: API key via --api_key_file (optional)                      │     │
-│  │  - Validates: HttpRestApiHandler::isAuthorized()                    │     │
-│  │                                                                      │     │
-│  │  Endpoints:                                                          │     │
-│  │    /v1/models/{model}:predict    POST  API key (opt)  TFS predict   │     │
-│  │    /v1/models/{model}            GET   API key (opt)  TFS metadata  │     │
-│  │    /v2/models/{model}/infer      POST  API key (opt)  KServe infer  │     │
-│  │    /v2/models/{model}/ready      GET   None           Readiness     │     │
-│  │    /v2/health/ready              GET   None           Health probe  │     │
-│  │    /v2/health/live               GET   None           Health probe  │     │
-│  │    /v3/v1/chat/completions       POST  API key (opt)  LLM chat     │     │
-│  │    /v3/v1/completions            POST  API key (opt)  LLM complete │     │
-│  │    /v3/v1/embeddings             POST  API key (opt)  Embeddings   │     │
-│  │    /v3/v1/rerank                 POST  API key (opt)  Reranking    │     │
-│  │    /v3/v1/images/generations     POST  API key (opt)  Image gen    │     │
-│  │    /v3/v1/audio/transcriptions   POST  API key (opt)  Speech-text  │     │
-│  │    /v3/v1/audio/speech           POST  API key (opt)  Text-speech  │     │
-│  │    /metrics                      GET   None           Prometheus   │     │
-│  └─────────────────────────────────────────────────────────────────────┘     │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐     │
-│  │  [gRPC Server]                                                       │     │
-│  │  - Bind: 0.0.0.0:{grpc_port} (default 8085/TCP)                    │     │
-│  │  - Protocol: gRPC (HTTP/2)                                           │     │
-│  │  - Auth: None (application-level); relies on kube-rbac-proxy        │     │
-│  │                                                                      │     │
-│  │  Services:                                                           │     │
-│  │    inference.GRPCInferenceService  KServe v2 (infer, stream, meta) │     │
-│  │    tensorflow.serving.PredictionService  TFS predict + metadata     │     │
-│  │    tensorflow.serving.ModelService       TFS status + reload        │     │
-│  └─────────────────────────────────────────────────────────────────────┘     │
-│                                                                              │
-│         │                                                                    │
-│         │ EGRESS (outbound connections from OVMS)                            │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  EXTERNAL SERVICES (Egress)                                                  │
-│                                                                              │
-│  [HuggingFace Hub - huggingface.co]                                          │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS (libgit2 + libcurl)                                      │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: HuggingFace Token (optional)                                        │
-│  - Purpose: Model download via --pull flag                                   │
-│                                                                              │
-│  [AWS S3 - s3.amazonaws.com]                                                 │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: AWS IAM credentials (env vars)                                      │
-│  - Purpose: Model artifact loading from S3 buckets                           │
-│                                                                              │
-│  [Azure Blob Storage - *.blob.core.windows.net]                              │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS (Azure C++ SDK)                                           │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: Azure connection string                                             │
-│  - Purpose: Model artifact loading from Azure Blob                           │
-│                                                                              │
-│  [Google Cloud Storage - storage.googleapis.com]                             │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: GCP service account credentials (file)                             │
-│  - Purpose: Model artifact loading from GCS                                  │
-│                                                                              │
-│  [Local / PVC Filesystem]                                                    │
-│  - Protocol: Filesystem (no network)                                         │
-│  - Auth: POSIX file permissions (UID 5000)                                   │
-│  - Purpose: Model artifact loading from mounted volumes                      │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+RBAC Summary:
+  OVMS does not define its own RBAC resources. RBAC is managed by:
+  - KServe: Manages pod creation and service account for InferenceService
+  - RHOAI Operator: Creates kube-rbac-proxy sidecar for auth enforcement
+  - Platform: NetworkPolicies (if configured by operator)
 
-================================================================================
-  INTERNAL INTEGRATIONS (Pod-Level)
-================================================================================
+Authentication Summary:
+  ┌────────────────────────┬─────────────────────────┬──────────────────────┐
+  │ Endpoint               │ Auth Mechanism          │ Enforcement Point    │
+  ├────────────────────────┼─────────────────────────┼──────────────────────┤
+  │ All REST endpoints     │ API Key (Bearer token)  │ OVMS application     │
+  │                        │ (optional, shared key)  │ code                 │
+  ├────────────────────────┼─────────────────────────┼──────────────────────┤
+  │ All REST endpoints     │ kube-rbac-proxy         │ Sidecar container    │
+  │ (RHOAI 3.x)           │ (SubjectAccessReview)   │ (RHOAI deployment)   │
+  ├────────────────────────┼─────────────────────────┼──────────────────────┤
+  │ /v2/health/ready       │ None                    │ N/A                  │
+  │ /v2/health/live        │ (always unauthenticated)│                      │
+  ├────────────────────────┼─────────────────────────┼──────────────────────┤
+  │ /metrics               │ None                    │ N/A                  │
+  │                        │ (unauthenticated)       │                      │
+  └────────────────────────┴─────────────────────────┴──────────────────────┘
 
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  [Kubernetes Health Probes]                                                   │
-│  - Liveness:  GET /v2/health/live   (REST port, HTTP, no auth)              │
-│  - Readiness: GET /v2/health/ready  (REST port, HTTP, no auth)              │
-│  - Note: gRPC server starts before models load for early liveness           │
-│                                                                              │
-│  [Prometheus / OpenShift Monitoring]                                         │
-│  - Endpoint: GET /metrics (REST port, HTTP, no auth)                        │
-│  - Format: Prometheus text exposition format                                 │
-│  - Scraped by: OpenShift monitoring stack or custom Prometheus               │
-└──────────────────────────────────────────────────────────────────────────────┘
+Secrets:
+  - Cloud storage credentials injected via environment variables by KServe:
+    - AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (S3)
+    - AZURE_STORAGE_CONNECTION_STRING (Azure)
+    - GCP service account JSON (GCS)
+    - HF_TOKEN (HuggingFace)
+  - OVMS does not define or manage Secrets directly
 
-================================================================================
-  RBAC SUMMARY
-================================================================================
+TLS Configuration:
+  - gRPC: InsecureServerCredentials() — no TLS
+  - HTTP: Drogon with no SSL config — no TLS
+  - TLS delegated to platform ingress layer (Routes, Gateway, kube-rbac-proxy)
+  - Crypto: OpenSSL MD5 for model file checksums (non-security, cache keys only)
+  - Certificate handling: libgit2 uses system trust store for HF Hub
 
-OVMS does not define its own RBAC resources. All RBAC is managed by KServe.
+Container Security:
+  - Runs as non-root user: ovms (UID 5000)
+  - No privilege escalation allowed
+  - All Linux capabilities dropped
+  - Base image: UBI 9 Minimal
+  - SSRF protection: allowed_media_domains whitelist for VLM image URLs
+  - Path traversal protection: allowed_local_media_path restriction
 
-Container Security Context:
-- Runs as: UID 5000 / GID 5000 (non-root)
-- Base image: UBI 9 (Red Hat Universal Base Image 9)
-- No privileged capabilities required
-
-Authentication Enforcement:
-- REST API: Optional API key via --api_key_file flag
-  - Validated by: HttpRestApiHandler::isAuthorized()
-  - Exempted: /v2/health/live, /v2/health/ready, /metrics
-- gRPC API: No built-in authentication
-  - Relies on: kube-rbac-proxy sidecar (8443/TCP, HTTPS)
-- RHOAI deployment: kube-rbac-proxy enforces RBAC for all external access
-
-================================================================================
-  SECRETS
-================================================================================
-
-| Secret                    | Type          | Purpose                        | Provisioned By | Auto-Rotate |
-|---------------------------|---------------|--------------------------------|----------------|-------------|
-| API key file              | Opaque (file) | REST API auth (--api_key_file) | User/platform  | No          |
-| HuggingFace token         | Opaque (env)  | HF model download auth         | User           | No          |
-| Azure connection string   | Opaque (env)  | Azure Blob Storage access      | User/platform  | No          |
-| GCS credentials           | Opaque (file) | Google Cloud Storage access    | User/platform  | No          |
-| S3 credentials            | Opaque (env)  | AWS S3 storage access          | User/platform  | No          |
-
-================================================================================
-  CRYPTO / FIPS NOTES
-================================================================================
-
-- TLS: Uses system OpenSSL (via libcurl, libgit2) from UBI 9 base image
-- FIPS: Inherits FIPS compliance from UBI 9 OpenSSL
-- Risk: OpenSSL MD5 used in src/filesystem.hpp for file checksumming
-  (non-cryptographic use: cache key computation, not security-relevant)
-- Certificate trust: System CA bundle (ca-certificates.crt)
-- libgit2: Configurable SSL cert via GIT_OPT_SET_SSL_CERT_LOCATIONS env var
+FIPS Compliance:
+  - C++ binary (not Go — check-payload primarily validates Go binaries)
+  - Dynamically links system OpenSSL from UBI 9 (FIPS-validated module)
+  - No TLS termination in application
+  - MD5 usage: OpenSSL MD5 for model file caching (not security-sensitive)

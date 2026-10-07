@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "kube-auth-proxy",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "kube-auth-proxy-pattern-001",
+      "claim": "kube-auth-proxy implements a layered authentication middleware chain where Kubernetes TokenReview validation runs before OAuth2/OIDC session loading, ensuring programmatic service account access is resolved without triggering browser-based OAuth redirects.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "oauthproxy.go:425-438"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "main.go:59-81"
+        }
+      ],
+      "reasoning": "The session chain construction in buildSessionChain explicitly appends K8s token validation middleware first (line 431) before JWT and OAuth session loaders. This ordering is architecturally significant for RHOAI because platform components use ServiceAccount tokens for programmatic access, and failing to validate them early would cause unnecessary OAuth redirects or 401 responses for valid service accounts.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "kube-auth-proxy-pattern-002",
+      "claim": "The auth-only endpoint ({prefix}/auth) enables ext_authz and subrequest authentication patterns, allowing external proxies like Envoy or Nginx to delegate authentication decisions to kube-auth-proxy without proxying the actual traffic through it.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "oauthproxy.go:353-355"
+        }
+      ],
+      "reasoning": "The auth-only path is registered separately from the proxy subrouter and explicitly avoids no-cache headers to allow short caching of auth decisions. This supports the RHOAI ingress pattern where a Gateway or Route delegates authentication to a sidecar auth proxy via subrequest/ext_authz, reducing latency for repeated checks.",
+      "applicability": "cross-component",
+      "confidence": "medium"
+    },
+    {
+      "id": "kube-auth-proxy-risk-001",
+      "claim": "The Redis session store supports an InsecureSkipTLSVerify option that disables TLS certificate validation for Redis connections, which could weaken the security posture in production deployments if misconfigured.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/sessions/redis/redis_store.go:184-190"
+        }
+      ],
+      "reasoning": "The setupTLSConfig function explicitly supports InsecureSkipTLSVerify=true, which sets tls.Config.InsecureSkipVerify. While this is useful for development environments, enabling it in production would allow man-in-the-middle attacks on the Redis connection carrying session tokens. Platform operators should ensure this option is not enabled in RHOAI deployments.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+graph LR
+    RhoaiMCP["rhoai-mcp<br/>MCP Server"]
+
+    %% Kubernetes API (primary dependency)
+    RhoaiMCP -->|"HTTPS/6443<br/>SA token / impersonation"| K8sAPI["Kubernetes API Server"]
+
+    %% Platform CRD Dependencies (via Kubernetes API)
+    RhoaiMCP -->|"CRUD notebooks"| KubeflowNotebooks["Kubeflow Notebooks<br/>(kubeflow.org)"]
+    RhoaiMCP -->|"Watch/CRUD<br/>inferenceservices"| KServe["KServe<br/>(serving.kserve.io)"]
+    RhoaiMCP -->|"CRUD servingruntimes"| ServingRuntime["ServingRuntime CRs<br/>(serving.kserve.io)"]
+    RhoaiMCP -->|"CRUD trainjobs"| KubeflowTraining["Kubeflow Training<br/>(trainer.kubeflow.org)"]
+    RhoaiMCP -->|"CRUD DSPA"| DSP["Data Science Pipelines<br/>(datasciencepipelinesapplications<br/>.opendatahub.io)"]
+
+    %% Core K8s Resources
+    RhoaiMCP -->|"list/watch"| CoreReadOnly["Core Resources (read)<br/>pods, nodes, events,<br/>services, storageclasses"]
+    RhoaiMCP -->|"CRUD"| CoreReadWrite["Core Resources (write)<br/>namespaces, secrets,<br/>PVCs, PVs"]
+
+    %% Runtime Framework Dependencies
+    RhoaiMCP -->|"ASGI server"| Uvicorn["uvicorn 0.52+"]
+    RhoaiMCP -->|"web framework"| Starlette["Starlette 1.4+"]
+    RhoaiMCP -->|"MCP protocol"| MCP["mcp 1.26+<br/>(FastMCP)"]
+    RhoaiMCP -->|"plugin system"| Pluggy["pluggy 1.6+"]
+    RhoaiMCP -->|"K8s client"| K8sClient["kubernetes 35+<br/>(Python SDK)"]
+
+    %% Security Dependencies
+    RhoaiMCP -->|"JWT auth"| PyJWT["PyJWT 2.12+<br/>(crypto)"]
+    RhoaiMCP -->|"TLS/crypto"| Cryptography["cryptography 50+"]
+    RhoaiMCP -->|"HTTP client"| HTTPX["httpx 0.28+"]
+
+    %% Base Image
+    RhoaiMCP -.->|"runtime base"| AIPCC["AIPCC Base Image<br/>(FIPS OpenSSL)"]
+
+    %% Styling
+    style RhoaiMCP fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style K8sAPI fill:#326ce5,stroke:#333,color:#fff
+    style KubeflowNotebooks fill:#7ed321,stroke:#333
+    style KServe fill:#7ed321,stroke:#333
+    style ServingRuntime fill:#7ed321,stroke:#333
+    style KubeflowTraining fill:#7ed321,stroke:#333
+    style DSP fill:#7ed321,stroke:#333
+    style CoreReadOnly fill:#f5a623,stroke:#333
+    style CoreReadWrite fill:#f5a623,stroke:#333
+    style Uvicorn fill:#e8e8e8,stroke:#333
+    style Starlette fill:#e8e8e8,stroke:#333
+    style MCP fill:#e8e8e8,stroke:#333
+    style Pluggy fill:#e8e8e8,stroke:#333
+    style K8sClient fill:#e8e8e8,stroke:#333
+    style PyJWT fill:#e74c3c,stroke:#333,color:#fff
+    style Cryptography fill:#e74c3c,stroke:#333,color:#fff
+    style HTTPX fill:#e8e8e8,stroke:#333
+    style AIPCC fill:#999,stroke:#333,color:#fff

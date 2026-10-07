@@ -1,0 +1,45 @@
+graph LR
+    TrustyAI["TrustyAI Service<br/>Python FastAPI"]
+
+    %% Internal Platform Dependencies
+    TrustyAI -->|"auth sidecar<br/>127.0.0.1:8080"| KubeRBACProxy["kube-rbac-proxy<br/>Authentication Gateway"]
+    TrustyAI -->|"inference data<br/>POST /consumer/kserve/v2"| ModelServing["ModelMesh / KServe<br/>Inference Data Source"]
+    TrustyAI -.->|"optional storage<br/>TCP/3306"| MariaDB["MariaDB<br/>Optional Database"]
+
+    %% Key Runtime Libraries
+    TrustyAI -->|"web framework"| FastAPI["FastAPI >=0.116"]
+    TrustyAI -->|"ASGI server"| Hypercorn["Hypercorn >=0.18"]
+    TrustyAI -->|"metrics export"| PromClient["prometheus-client >=0.22"]
+    TrustyAI -->|"ML algorithms"| ScikitLearn["scikit-learn >=1.7"]
+    TrustyAI -->|"data storage"| H5py["h5py >=3.13"]
+    TrustyAI -->|"data processing"| NumPy["NumPy >=2.0"]
+    TrustyAI -->|"data processing"| Pandas["Pandas >=3.0"]
+    TrustyAI -->|"TLS/crypto"| Cryptography["cryptography >=48.0.1"]
+    TrustyAI -.->|"optional eval"| LMEval["lm-eval >=0.4"]
+
+    %% Observability Integration
+    Prometheus["Prometheus<br/>Scraper"] -->|"GET /q/metrics"| TrustyAI
+
+    %% Infrastructure
+    TrustyAI -->|"file storage"| PVC["PVC<br/>Persistent Volume"]
+    TrustyAI -->|"health probes"| K8s["Kubernetes API<br/>Liveness/Readiness"]
+
+    %% Styling
+    style TrustyAI fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style KubeRBACProxy fill:#f5a623,stroke:#333
+    style ModelServing fill:#7ed321,stroke:#333
+    style MariaDB fill:#7ed321,stroke:#333
+
+    style FastAPI fill:#999,stroke:#333,color:#fff
+    style Hypercorn fill:#999,stroke:#333,color:#fff
+    style PromClient fill:#999,stroke:#333,color:#fff
+    style ScikitLearn fill:#999,stroke:#333,color:#fff
+    style H5py fill:#999,stroke:#333,color:#fff
+    style NumPy fill:#999,stroke:#333,color:#fff
+    style Pandas fill:#999,stroke:#333,color:#fff
+    style Cryptography fill:#999,stroke:#333,color:#fff
+    style LMEval fill:#999,stroke:#333,color:#fff
+
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style PVC fill:#e8e8e8,stroke:#333
+    style K8s fill:#e8e8e8,stroke:#333

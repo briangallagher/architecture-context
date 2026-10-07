@@ -1,0 +1,146 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [Data Scientist / User]                                                 │
+│         │                                                                │
+│         │ Port: 443/TCP                                                  │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS (OpenShift Router)                             │
+│         │ Auth: OAuth token (OpenShift OAuth)                            │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (OpenShift Route)                                              │
+│                                                                          │
+│  [OpenShift Route]                                                       │
+│  - Path: /notebook/<project>/<name>/*                                   │
+│  - TLS Termination: edge / reencrypt                                    │
+│  - Managed by: odh-notebook-controller                                  │
+│         │                                                                │
+│         │ Port: 8443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS                                                │
+│         │ Auth: OAuth proxy validation                                   │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  AUTHENTICATION LAYER (oauth-proxy sidecar)                             │
+│                                                                          │
+│  [oauth-proxy]                                                           │
+│  - Injected by: odh-notebook-controller                                 │
+│  - Port: 8443/TCP (listening)                                           │
+│  - Auth: OpenShift OAuth token validation                               │
+│  - Note: JupyterLab token/password auth DISABLED                       │
+│    (--ServerApp.token='' --ServerApp.password='')                       │
+│         │                                                                │
+│         │ Port: 8888/TCP (JupyterLab)                                   │
+│         │   or  8787/TCP (code-server)                                  │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: None (pod-internal)                                │
+│         │ Auth: None (delegated to oauth-proxy)                          │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  WORKBENCH POD (StatefulSet)                                            │
+│                                                                          │
+│  ┌─ JupyterLab Path ──────────────────────────────────────────────┐    │
+│  │  [JupyterLab ServerApp]                                         │    │
+│  │  - Port: 8888/TCP                                               │    │
+│  │  - Protocol: HTTP                                               │    │
+│  │  - Base URL: $NB_PREFIX (/notebook/<project>/<name>)           │    │
+│  │  - Auth: DISABLED (platform-delegated)                          │    │
+│  │  - Env: NOTEBOOK_ARGS, NB_PREFIX, NOTEBOOK_PORT                │    │
+│  │  - Entrypoint: start-notebook.sh                                │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+│  ┌─ code-server Path ─────────────────────────────────────────────┐    │
+│  │  [nginx Reverse Proxy]                                          │    │
+│  │  - Port: 8787/TCP                                               │    │
+│  │  - Protocol: HTTP                                               │    │
+│  │                                                                  │    │
+│  │  [code-server]                                                   │    │
+│  │  - Port: 8787/TCP (behind nginx)                                │    │
+│  │  - Entrypoint: run-code-server.sh                               │    │
+│  │                                                                  │    │
+│  │  [httpd + access.cgi]                                           │    │
+│  │  - Endpoint: /api/kernels/ (culling shim)                       │    │
+│  │  - Translates code-server heartbeat → kernel JSON               │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│         │                                                                │
+│         │ (Outbound connections from user code)                          │
+│         │                                                                │
+│         ├──── Port: 443/TCP ──────────────────────────────────────┐     │
+│         │     Protocol: HTTPS                                      │     │
+│         │     Encryption: TLS                                      │     │
+│         │     Auth: ServiceAccount token                           │     │
+│         │     ▼                                                    │     │
+│         │  [Kubernetes API Server]                                 │     │
+│         │  - kubernetes Python client (v36.0.3)                    │     │
+│         │  - Purpose: User-authored automation                    │     │
+│         │                                                          │     │
+│         └──── Port: 443/TCP ──────────────────────────────────────┘     │
+│               Protocol: HTTPS                                            │
+│               Encryption: TLS                                            │
+│               Auth: AWS credentials / S3 keys                            │
+│               ▼                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                       │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS                                                       │
+│  - Auth: ServiceAccount token                                            │
+│  - Purpose: Cluster API access from notebook code                        │
+│                                                                          │
+│  [S3-Compatible Object Storage]                                          │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS                                                       │
+│  - Auth: AWS IAM credentials (boto3)                                     │
+│  - Purpose: Model/data artifact storage                                  │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  PLATFORM CONTROL PLANE                                                  │
+│                                                                          │
+│  [odh-notebook-controller]                                               │
+│         │                                                                │
+│         ├── Creates/manages StatefulSet                                  │
+│         ├── Injects oauth-proxy sidecar                                  │
+│         ├── Injects env vars (NOTEBOOK_ARGS, NB_PREFIX)                 │
+│         └── Polls /api/kernels/ for idle culling                        │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No explicit ClusterRoles defined in the notebooks repository
+- Workbench pods run under per-notebook ServiceAccounts
+- RBAC for workbench management is defined in odh-notebook-controller
+
+Authentication & Authorization:
+- JupyterLab built-in auth: DISABLED (token='', password='')
+- Authentication: Delegated to oauth-proxy sidecar injected by odh-notebook-controller
+- oauth-proxy: Validates OpenShift OAuth tokens
+- Enforcement point: odh-notebook-controller (sidecar injection)
+- SECURITY NOTE: Workbench images contain NO authentication enforcement;
+  correct platform deployment with oauth-proxy is REQUIRED
+
+Secrets:
+- PULL_SECRET (env var) - Container registry pull credentials
+- GITHUB_TOKEN (env var) - GitHub API access
+- GEMINI_API_KEY (env var) - Gemini AI API access
+- RENOVATE_TOKEN (env var) - Renovate bot token
+- JIRA_API_TOKEN (env var) - Jira API access
+- JIRA_TOKEN (env var) - Jira access token
+- JIRA_OAUTH_CLIENT_SECRET (env var) - Jira OAuth client secret
+- All secrets provisioned by: runtime environment
+- Auto-rotation: Unknown
+
+Cryptographic Libraries:
+- cryptography v49.0.0 (system OpenSSL backend on UBI9)
+- pycryptodome v3.23.0 (NOT a FIPS-validated provider)
+- compat-openssl11 installed for FIPS scanning tool compatibility
+- Go build utilities: CGO_ENABLED=0 (static linking, build-time only)
+
+FIPS Compliance Notes:
+- Runtime images install compat-openssl11 for libcrypto.so.1.1
+- pycryptodome is present but NOT FIPS-validated
+- Go build utilities (buildinputs, check-payload) use static linking
+  and would not pass FIPS check-payload, but are build-time only

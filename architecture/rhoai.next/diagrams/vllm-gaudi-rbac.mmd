@@ -1,50 +1,66 @@
 graph TD
-    subgraph "Authentication Flow (Platform-Managed)"
-        Client["External Client<br/>Bearer Token (JWT)"]
-        Gateway["KServe Ingress<br/>TLS 1.3 Termination"]
-        KRBAC["kube-rbac-proxy Sidecar<br/>(Injected by KServe/RHOAI)"]
-    end
-
-    subgraph "Authorization Decision"
-        JWTValidation["JWT Token Validation"]
-        K8sRBAC["Kubernetes RBAC Check<br/>SubjectAccessReview"]
-        K8sAPI["Kubernetes API Server"]
-    end
-
-    subgraph "vLLM Endpoints (No Built-in Auth)"
+    subgraph Note["RBAC Overview"]
         direction TB
-        AuthProtected["/v1/completions<br/>/v1/chat/completions<br/>/v1/models<br/>/v1/embeddings<br/>(Protected by kube-rbac-proxy)"]
-        OpenEndpoints["/health<br/>/metrics<br/>(Unauthenticated - direct access)"]
+        Info["vllm-gaudi defines NO RBAC resources<br/>All RBAC is managed by KServe and<br/>the RHOAI platform operator"]
     end
 
-    subgraph "Secrets"
-        HFToken["HF_TOKEN<br/>Type: Opaque (env var)<br/>Purpose: HuggingFace Hub auth<br/>Provisioned: User-managed<br/>Auto-Rotate: No"]
+    subgraph PlatformRBAC["Platform-Managed Auth (RHOAI 3.x)"]
+        direction TB
+
+        subgraph AuthFlow["Authentication Flow"]
+            Client["External Client"]
+            Gateway["Gateway API (Envoy)<br/>TLS 1.3 termination"]
+            KRBAC["kube-rbac-proxy Sidecar<br/>8443/TCP"]
+            SAR["SubjectAccessReview<br/>Kubernetes API Server"]
+            VLLMContainer["vllm-gaudi Container<br/>8000/TCP (no auth)"]
+        end
+
+        subgraph KServeRBAC["KServe-Managed RBAC"]
+            KServeSA["ServiceAccount<br/>{serving-runtime}-sa"]
+            KServeCR["ClusterRole<br/>(managed by KServe)"]
+            KServeCRB["ClusterRoleBinding<br/>(managed by KServe)"]
+        end
+
+        subgraph OperatorRBAC["Operator-Managed RBAC"]
+            RHODSOp["rhods-operator<br/>ServiceAccount"]
+            OpCR["ClusterRole<br/>(managed by rhods-operator)"]
+            OpCRB["ClusterRoleBinding<br/>(managed by rhods-operator)"]
+        end
     end
 
-    subgraph "Platform RBAC (Not in this component)"
-        Note["No RBAC resources defined<br/>in vllm-gaudi repo.<br/>All RBAC is managed by:<br/>- KServe operator<br/>- RHOAI platform operator<br/>- kube-rbac-proxy sidecar"]
+    subgraph Endpoints["Endpoint Auth Matrix"]
+        direction TB
+        V1Endpoints["/v1/* endpoints<br/>Methods: GET, POST<br/>Auth: Bearer Token<br/>Enforced by: kube-rbac-proxy"]
+        HealthEndpoint["/health endpoint<br/>Methods: GET<br/>Auth: None<br/>Direct access (unauthenticated)"]
     end
 
     %% Auth flow
-    Client -->|"HTTPS/443<br/>JWT Bearer Token"| Gateway
-    Gateway -->|"Forward"| KRBAC
-    KRBAC -->|"Validate"| JWTValidation
-    KRBAC -->|"Authorize"| K8sRBAC
-    K8sRBAC -->|"SubjectAccessReview"| K8sAPI
-    KRBAC -->|"Allowed → HTTP/8000"| AuthProtected
-    Client -.->|"Direct pod access<br/>(no auth)"| OpenEndpoints
+    Client -->|"Bearer Token"| Gateway
+    Gateway -->|"TLS"| KRBAC
+    KRBAC -->|"validates token"| SAR
+    SAR -->|"approved"| KRBAC
+    KRBAC -->|"HTTP (localhost)"| VLLMContainer
 
-    %% Secret usage
-    HFToken -.->|"env var injection"| AuthProtected
+    %% KServe RBAC
+    KServeSA -->|"bound via"| KServeCRB
+    KServeCRB -->|"grants"| KServeCR
+
+    %% Operator RBAC
+    RHODSOp -->|"bound via"| OpCRB
+    OpCRB -->|"grants"| OpCR
 
     %% Styling
-    style Client fill:#e8e8e8,stroke:#333
+    style Info fill:#fff3cd,stroke:#ffc107,stroke-width:2px
+    style Client fill:#f9f9f9,stroke:#999
     style Gateway fill:#ffe6cc,stroke:#d79b00
-    style KRBAC fill:#ffe6cc,stroke:#d79b00
-    style JWTValidation fill:#d5e8d4,stroke:#82b366
-    style K8sRBAC fill:#d5e8d4,stroke:#82b366
-    style K8sAPI fill:#d5e8d4,stroke:#82b366
-    style AuthProtected fill:#4a90e2,stroke:#333,color:#fff
-    style OpenEndpoints fill:#f5a623,stroke:#333,color:#fff
-    style HFToken fill:#f8cecc,stroke:#b85450
-    style Note fill:#f9f9f9,stroke:#999,stroke-dasharray: 5 5
+    style KRBAC fill:#fff2cc,stroke:#d6b656
+    style SAR fill:#dae8fc,stroke:#6c8ebf
+    style VLLMContainer fill:#d5e8d4,stroke:#82b366
+    style KServeSA fill:#4a90e2,stroke:#333,color:#fff
+    style KServeCR fill:#f5a623,stroke:#333,color:#fff
+    style KServeCRB fill:#f5a623,stroke:#333,color:#fff
+    style RHODSOp fill:#4a90e2,stroke:#333,color:#fff
+    style OpCR fill:#f5a623,stroke:#333,color:#fff
+    style OpCRB fill:#f5a623,stroke:#333,color:#fff
+    style V1Endpoints fill:#d5e8d4,stroke:#82b366
+    style HealthEndpoint fill:#f8cecc,stroke:#b85450

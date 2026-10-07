@@ -1,54 +1,50 @@
 sequenceDiagram
     participant Client as External Client
-    participant Gateway as Knative Ingress Gateway<br/>(Istio)<br/>443/TCP HTTPS
-    participant QueueProxy as Knative Activator /<br/>Queue Proxy<br/>8012/TCP
-    participant Caikit as Caikit Runtime<br/>(transformer-container)<br/>8080/TCP HTTP
-    participant TGIS as TGIS<br/>(kserve-container)<br/>8033/TCP gRPC
-    participant S3 as S3 Storage<br/>443/TCP HTTPS
-    participant Prometheus as OpenShift UWM<br/>(Prometheus)
+    participant Gateway as Istio IngressGateway<br/>443/TCP HTTPS TLS 1.2+
+    participant QueueProxy as Knative Activator/<br/>Queue-Proxy<br/>8012/TCP mTLS
+    participant Caikit as Caikit Runtime<br/>(transformer-container)<br/>8080/TCP HTTP | 8085/TCP gRPC
+    participant TGIS as TGIS Backend<br/>(kserve-container)<br/>8033/TCP gRPC
+    participant Models as /mnt/models/<br/>PVC Mount
+    participant Prometheus as Prometheus<br/>(openshift-user-workload-monitoring)
 
-    Note over Client,TGIS: Flow 1: HTTP Inference Request
+    Note over Client,TGIS: Flow 1: HTTP Text Generation Inference
 
-    Client->>Gateway: POST /api/v1/task/text-generation<br/>HTTPS / TLS 1.3 (wildcard cert)
-    Gateway->>QueueProxy: Forward request<br/>HTTP/8012 / mTLS (Istio)
-    QueueProxy->>Caikit: Inference request<br/>HTTP/8080 / mTLS (Istio sidecar)
-    Caikit->>TGIS: Generate text<br/>gRPC/8033 / plaintext (localhost)
-    TGIS->>TGIS: GPU inference execution
-    TGIS-->>Caikit: Generation result
+    Client->>Gateway: POST /api/v1/task/text-generation<br/>HTTPS/443, TLS 1.2+, TLS passthrough
+    Gateway->>QueueProxy: Forward request<br/>HTTP/8012, mTLS (Istio), PeerAuthentication
+    QueueProxy->>Caikit: Route to transformer-container<br/>HTTP/8080, mTLS (Istio sidecar), PeerAuthentication
+    Caikit->>TGIS: Inference request<br/>gRPC/8033, plaintext (localhost), no auth
+    TGIS->>Models: Load model artifacts
+    Models-->>TGIS: Model weights (Caikit format)
+    TGIS-->>Caikit: Inference result
     Caikit-->>QueueProxy: JSON response
     QueueProxy-->>Gateway: Forward response
-    Gateway-->>Client: HTTPS response
+    Gateway-->>Client: HTTPS response<br/>TLS 1.2+
 
-    Note over Client,TGIS: Flow 2: gRPC Inference Request
+    Note over Client,TGIS: Flow 2: gRPC Text Generation Inference
 
-    Client->>Gateway: caikit.runtime.Nlp RPC<br/>HTTPS (h2) / TLS 1.3
-    Gateway->>QueueProxy: Forward request<br/>gRPC/8012 / mTLS (Istio)
-    QueueProxy->>Caikit: Inference request<br/>gRPC/8085 (h2c) / mTLS (sidecar)
-    Caikit->>TGIS: Generate text<br/>gRPC/8033 / plaintext (localhost)
-    TGIS->>TGIS: GPU inference execution
-    TGIS-->>Caikit: Generation result
+    Client->>Gateway: gRPC TextGenerationTaskPredict<br/>HTTPS/443, TLS 1.2+, h2c upgrade
+    Gateway->>QueueProxy: Forward gRPC<br/>gRPC/HTTP2/8012, mTLS (Istio), PeerAuthentication
+    QueueProxy->>Caikit: Route to transformer-container<br/>gRPC/HTTP2/8085, mTLS (Istio sidecar), PeerAuthentication
+    Caikit->>TGIS: Inference request<br/>gRPC/8033, plaintext (localhost)
+    TGIS-->>Caikit: Inference result
     Caikit-->>QueueProxy: gRPC response
     QueueProxy-->>Gateway: Forward response
-    Gateway-->>Client: gRPC response
+    Gateway-->>Client: gRPC/HTTP2 response<br/>TLS 1.2+
 
     Note over Client,TGIS: Flow 3: Streaming Text Generation (HTTP)
 
-    Client->>Gateway: POST /api/v1/task/server-streaming-text-generation<br/>HTTPS / TLS 1.3
-    Gateway->>QueueProxy: Forward<br/>mTLS
-    QueueProxy->>Caikit: Streaming request<br/>HTTP/8080 / mTLS
-    Caikit->>TGIS: Streaming generate<br/>gRPC/8033 / localhost
-    loop Token streaming
-        TGIS-->>Caikit: Token chunk
-        Caikit-->>QueueProxy: SSE chunk
+    Client->>Gateway: POST /api/v1/task/server-streaming-text-generation<br/>HTTPS/443
+    Gateway->>QueueProxy: Forward<br/>HTTP/8012, mTLS
+    QueueProxy->>Caikit: Stream request<br/>HTTP/8080, mTLS
+    Caikit->>TGIS: Streaming inference<br/>gRPC/8033 (localhost)
+    loop Token-by-token streaming
+        TGIS-->>Caikit: Partial result
+        Caikit-->>QueueProxy: Stream chunk
         QueueProxy-->>Gateway: Forward chunk
-        Gateway-->>Client: SSE chunk
+        Gateway-->>Client: SSE/streaming chunk
     end
 
-    Note over Prometheus,Caikit: Flow 4: Metrics Collection
+    Note over Prometheus,Caikit: Flow 4: Prometheus Metrics Scraping
 
-    Prometheus->>Caikit: GET /metrics<br/>HTTP/8086 / PERMISSIVE mTLS<br/>(plaintext allowed)
-    Caikit-->>Prometheus: Prometheus metrics
-
-    Note over S3,TGIS: Flow 5: Model Loading (Init)
-
-    S3-->>TGIS: Model artifacts download<br/>HTTPS/443 / TLS 1.2+<br/>AWS IAM / Access Key
+    Prometheus->>Caikit: GET /metrics<br/>HTTP/8086, PERMISSIVE mTLS, no auth
+    Caikit-->>Prometheus: caikit_* metrics

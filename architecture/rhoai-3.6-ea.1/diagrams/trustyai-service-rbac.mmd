@@ -1,0 +1,63 @@
+graph TD
+    subgraph AuthModel["Authentication Model"]
+        direction TB
+        Note["No ClusterRoles or RoleBindings<br/>defined in component source.<br/>Authentication is fully delegated<br/>to the kube-rbac-proxy sidecar."]
+    end
+
+    subgraph SidecarAuth["kube-rbac-proxy Sidecar (Platform-Delegated)"]
+        KRP["kube-rbac-proxy"]
+        SAR["SubjectAccessReview<br/>(OpenShift RBAC)"]
+        KRP -->|"validates via"| SAR
+    end
+
+    subgraph Secrets["Secrets / Credentials"]
+        DBPassword["DATABASE_PASSWORD<br/>(env var)<br/>MariaDB credentials"]
+        LegacyDBPassword["QUARKUS_DATASOURCE_PASSWORD<br/>(env var)<br/>MariaDB credentials (legacy)"]
+    end
+
+    subgraph AccessPaths["Access Paths"]
+        direction TB
+        HTTPPath["HTTP Path<br/>kube-rbac-proxy → 127.0.0.1:8080<br/>Auth: OpenShift RBAC"]
+        HTTPSPath["HTTPS Path (Optional)<br/>Direct → 0.0.0.0:4443<br/>Auth: TLS Client Certificate<br/>No app-level auth"]
+    end
+
+    subgraph Resources["Protected Resources (API Groups)"]
+        ConsumerAPI["Consumer API<br/>/consumer/kserve/v2"]
+        MetricsAPI["Metrics API<br/>/metrics/group/fairness/*<br/>/metrics/drift/*"]
+        ExplainersAPI["Explainers API<br/>/explainers/local/*<br/>/explainers/global/*"]
+        InfoAPI["Info API<br/>/info/*"]
+        HealthAPI["Health API<br/>/q/health/*<br/>/q/metrics"]
+    end
+
+    ExternalClient["External Client"] -->|"authenticated"| HTTPPath
+    ExternalClient -.->|"TLS cert"| HTTPSPath
+
+    HTTPPath -->|"forwards to"| ConsumerAPI
+    HTTPPath -->|"forwards to"| MetricsAPI
+    HTTPPath -->|"forwards to"| ExplainersAPI
+    HTTPPath -->|"forwards to"| InfoAPI
+    HTTPPath -->|"forwards to"| HealthAPI
+
+    HTTPSPath -->|"direct access"| ConsumerAPI
+    HTTPSPath -->|"direct access"| MetricsAPI
+    HTTPSPath -->|"direct access"| ExplainersAPI
+    HTTPSPath -->|"direct access"| InfoAPI
+    HTTPSPath -->|"direct access"| HealthAPI
+
+    DBPassword -.->|"used by"| MariaDBConn["MariaDB Connection<br/>TCP/3306"]
+    LegacyDBPassword -.->|"used by"| MariaDBConn
+
+    style KRP fill:#f5a623,stroke:#333
+    style SAR fill:#f5a623,stroke:#333
+    style Note fill:#fff3cd,stroke:#856404,stroke-width:2px
+    style DBPassword fill:#f8d7da,stroke:#721c24
+    style LegacyDBPassword fill:#f8d7da,stroke:#721c24
+    style HTTPPath fill:#d5e8d4,stroke:#82b366
+    style HTTPSPath fill:#f8cecc,stroke:#b85450
+    style ConsumerAPI fill:#7ed321,stroke:#333
+    style MetricsAPI fill:#7ed321,stroke:#333
+    style ExplainersAPI fill:#7ed321,stroke:#333
+    style InfoAPI fill:#7ed321,stroke:#333
+    style HealthAPI fill:#7ed321,stroke:#333
+    style ExternalClient fill:#f9f9f9,stroke:#999
+    style MariaDBConn fill:#e8e8e8,stroke:#333

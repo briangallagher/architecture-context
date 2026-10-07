@@ -1,0 +1,54 @@
+graph TB
+    subgraph OperatorNS["Namespace: opendatahub"]
+        direction TB
+
+        subgraph Manager["mlflow-operator-controller-manager"]
+            direction LR
+            MetricsPort[":8443/metrics<br/>HTTPS, TLS<br/>TokenReview + SAR"]
+            HealthPort[":8081/healthz, /readyz<br/>HTTP, plaintext<br/>No auth"]
+        end
+    end
+
+    subgraph K8sControl["Kubernetes Control Plane"]
+        K8sAPI["Kubernetes API Server<br/>6443/TCP<br/>TLS 1.2+<br/>ServiceAccount Token"]
+    end
+
+    subgraph WorkspaceNS["Namespace: {workspace}<br/>label: opendatahub.io/mlflow-workspace"]
+        direction TB
+        MLflowServer["MLflow Tracking Server<br/>(Helm-rendered Deployment)"]
+        ArtifactSecret["Secret: mlflow-artifact-connection<br/>(resourceNames-scoped access)"]
+        WorkspaceRBAC["RoleBindings<br/>mlflow-view / mlflow-edit"]
+        ManagedResources["Service, SA, PVC,<br/>CronJob, NetworkPolicy"]
+    end
+
+    subgraph OptionalServices["OPTIONAL PLATFORM SERVICES<br/>(discovery-gated)"]
+        GatewayAPI["Gateway API<br/>HTTPRoute<br/>HTTPS, TLS 1.2+"]
+        Prometheus["Prometheus<br/>ServiceMonitor<br/>Scrapes :8443"]
+        Console["OpenShift Console<br/>ConsoleLink"]
+    end
+
+    %% Flows
+    Manager -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token auth"| K8sAPI
+    K8sAPI -->|"Watch events<br/>(label: app=mlflow)"| Manager
+
+    Manager -->|"Server-side apply<br/>Helm-rendered resources"| WorkspaceNS
+    Manager -->|"RoleBinding propagation<br/>(from Auth CR)"| WorkspaceRBAC
+
+    Manager -.->|"Conditional:<br/>HTTPRoute CRUD"| GatewayAPI
+    Manager -.->|"Conditional:<br/>ServiceMonitor CRUD"| Prometheus
+    Manager -.->|"Conditional:<br/>ConsoleLink CRUD"| Console
+
+    Prometheus -->|"HTTPS/8443<br/>TLS, TokenReview"| MetricsPort
+
+    %% Styling
+    classDef operator fill:#4a90e2,stroke:#2c5f8a,color:#fff,stroke-width:2px
+    classDef k8s fill:#326ce5,stroke:#1a3e7a,color:#fff,stroke-width:2px
+    classDef workspace fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef optional fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef port fill:#9b59b6,stroke:#6c3483,color:#fff
+
+    class Manager operator
+    class K8sAPI k8s
+    class MLflowServer,ArtifactSecret,WorkspaceRBAC,ManagedResources workspace
+    class GatewayAPI,Prometheus,Console optional
+    class MetricsPort,HealthPort port

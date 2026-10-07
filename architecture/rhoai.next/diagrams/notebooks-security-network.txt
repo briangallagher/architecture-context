@@ -1,173 +1,179 @@
-================================================================================
-  SECURITY NETWORK DIAGRAM: Notebooks (Workbench Images)
-  Component: notebooks
-  Distribution: RHOAI
-  Generated: 2026-05-15
-================================================================================
-
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  EXTERNAL (Untrusted)                                                        │
 │                                                                              │
-│  [Data Scientist / User Browser]                                             │
+│  [User / Data Scientist]                                                     │
+│         │                                                                    │
+│         │ Port: 443/TCP                                                      │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS 1.3                                                │
+│         │ Auth: OpenShift OAuth                                              │
+│         ▼                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  PLATFORM LAYER (OpenShift / ODH)                                            │
+│                                                                              │
+│  [ODH Dashboard]                                                             │
+│  - Namespace: redhat-ods-applications                                        │
+│  - Discovers workbench images via ImageStream annotations                    │
+│  - Creates Notebook CR via Kubernetes API                                    │
+│         │                                                                    │
+│         │ Port: 6443/TCP                                                     │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS 1.3                                                │
+│         │ Auth: Service Account Token                                        │
+│         ▼                                                                    │
+│  [Kubernetes API Server]                                                     │
+│         │                                                                    │
+│         │ Protocol: Watch (mTLS)                                             │
+│         │ Auth: Service Account Token                                        │
+│         ▼                                                                    │
+│  [ODH Notebook Controller]                                                   │
+│  - Namespace: redhat-ods-applications                                        │
+│  - Reconciles Notebook CR → creates Pod                                      │
+│  - Injects kube-rbac-proxy sidecar                                           │
+│  - Mounts CA certs, DSPA secrets, pipeline ConfigMaps                        │
 │         │                                                                    │
 │         │ Port: 443/TCP                                                      │
 │         │ Protocol: HTTPS                                                    │
 │         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: OAuth/OIDC (OpenShift)                                       │
+│         │ Auth: Image Pull Secret                                            │
 │         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  INGRESS (Platform Gateway)                                                  │
-│                                                                              │
-│  [Platform Gateway (Envoy)]                                                  │
-│  - Type: HTTPRoute (Gateway API) in RHOAI 3.x                              │
-│  - Hosts: *.apps.cluster.example.com                                         │
-│  - Port: 443/TCP (external)                                                  │
-│  - TLS Termination: SIMPLE (TLS 1.2+)                                       │
-│  - Managed by: kubeflow notebook controller + rhods-operator                │
-│         │                                                                    │
-│         │ Port: 8443/TCP                                                     │
-│         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: OAuth Token (forwarded)                                      │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  AUTH BOUNDARY (Sidecar)                                                     │
-│                                                                              │
-│  [kube-rbac-proxy Sidecar]                                                   │
-│  - Port: 8443/TCP (HTTPS, TLS 1.2+)                                        │
-│  - Auth: OAuth/OIDC Token validation                                        │
-│  - Injected by: kubeflow notebook controller webhook                        │
-│  - Purpose: Authentication enforcement for all workbench traffic            │
-│         │                                                                    │
-│         │ JUPYTER PATH:              CODE-SERVER PATH:                       │
-│         │ Port: 8888/TCP             Port: 80/TCP                           │
-│         │ Protocol: HTTP             Protocol: HTTP                         │
-│         │ Encryption: None           Encryption: None                       │
-│         │ (localhost, trusted)       (localhost, trusted)                    │
-│         │ Auth: None                 Auth: None                             │
-│         ▼                            ▼                                       │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  WORKBENCH POD (Internal - localhost only)                                   │
-│                                                                              │
-│  ┌─────────────────────────────┐ ┌──────────────────────────────────────┐   │
-│  │  JUPYTER WORKBENCH          │ │  CODE-SERVER WORKBENCH               │   │
-│  │                             │ │                                      │   │
-│  │  [JupyterLab]               │ │  [nginx Reverse Proxy]              │   │
-│  │  - Port: 8888/TCP           │ │  - Port: 80/TCP                     │   │
-│  │  - Protocol: HTTP           │ │  - Protocol: HTTP                   │   │
-│  │  - Encryption: None         │ │  - JSON access logging              │   │
-│  │  - Auth: None (sidecar)     │ │         │                           │   │
-│  │  - Endpoints:               │ │         │ Port: 8787/TCP            │   │
-│  │    /lab (Web UI)            │ │         │ Protocol: HTTP            │   │
-│  │    /api/kernels/ (culling)  │ │         ▼                           │   │
-│  │                             │ │  [code-server]                      │   │
-│  │  [Elyra Extension]          │ │  - Port: 8787/TCP                   │   │
-│  │  - Pipeline editor          │ │  - Protocol: HTTP                   │   │
-│  │  - Connects to DSPA ──────────│  - Auth: --auth none               │   │
-│  │                             │ │  - Endpoints:                       │   │
-│  │                             │ │    /* (VS Code UI)                  │   │
-│  │                             │ │    /codeserver/healthz              │   │
-│  │                             │ │                                      │   │
-│  │                             │ │  [httpd CGI Gateway]                │   │
-│  │                             │ │  - Port: 8080/TCP                   │   │
-│  │                             │ │  - Protocol: HTTP                   │   │
-│  │                             │ │  - Endpoint: /api/kernels/          │   │
-│  │                             │ │    (Jupyter-compatible culling)     │   │
-│  │                             │ │  - access.cgi → polls healthz      │   │
-│  └─────────────────────────────┘ └──────────────────────────────────────┘   │
+│  [Container Registry]                                                        │
+│  - registry.redhat.io/rhoai/ (RHOAI)                                        │
+│  - quay.io/opendatahub/ (ODH)                                               │
 │                                                                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│  EGRESS (Outbound from Workbench Pod)                                       │
+│  WORKBENCH POD (User Namespace)                                              │
 │                                                                              │
-│  ┌──────────────────────────┐  ┌──────────────────────────────────────────┐ │
-│  │  To: DSPA                │  │  To: Kubernetes API Server               │ │
-│  │  Port: 443/TCP           │  │  Port: 6443/TCP                          │ │
-│  │  Protocol: HTTPS         │  │  Protocol: HTTPS                         │ │
-│  │  Encryption: TLS 1.2+    │  │  Encryption: TLS 1.2+                    │ │
-│  │  Auth: ServiceAccount    │  │  Auth: ServiceAccount Token               │ │
-│  │        Token             │  │  Purpose: kubectl/oc from workbench      │ │
-│  │  Purpose: Elyra pipeline │  │                                          │ │
-│  │           submission     │  │                                          │ │
-│  └──────────────────────────┘  └──────────────────────────────────────────┘ │
+│  ┌────────────────────────────────────────────────────────────────┐           │
+│  │  [kube-rbac-proxy sidecar]                                    │           │
+│  │  - Port: 8443/TCP (external-facing)                           │           │
+│  │  - Protocol: HTTPS                                            │           │
+│  │  - Encryption: TLS 1.3                                        │           │
+│  │  - Auth: Bearer Token (OpenShift user token)                  │           │
+│  │  - Policy: Only authenticated users with namespace access     │           │
+│  │         │                                                     │           │
+│  │         │ Port: 8888/TCP (Jupyter) or 80/TCP (Code-Server)    │           │
+│  │         │ Protocol: HTTP                                      │           │
+│  │         │ Encryption: None (pod-internal localhost)            │           │
+│  │         │ Auth: None                                          │           │
+│  │         ▼                                                     │           │
+│  │  [JupyterLab Server / Code-Server]                            │           │
+│  │  - Port: 8888/TCP (JupyterLab)                                │           │
+│  │  - Port: 80/TCP → 8888/TCP (Code-Server via nginx)            │           │
+│  │  - Serves: /lab, /api/kernels/, /api/status                   │           │
+│  │                                                               │           │
+│  │  Code-Server Internal Stack:                                  │           │
+│  │    nginx :80 → httpd :8080 → access.cgi → code-server :8888  │           │
+│  │    (reverse proxy → CGI gateway → bash CGI → VS Code IDE)     │           │
+│  └────────────────────────────────────────────────────────────────┘           │
+│                                                                              │
+│  Mounted Secrets:                                                            │
+│  - DSPA connection secret at /opt/app-root/runtimes/                         │
+│  - CA certificate bundle at /etc/pki/tls/custom-certs/ca-bundle.crt         │
 │                                                                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│  EXTERNAL SERVICES                                                           │
+│  EGRESS from Workbench Pod                                                   │
 │                                                                              │
-│  [Container Registry - registry.redhat.io / quay.io]                        │
+│  [Kubeflow Pipelines API]                                                    │
 │  - Port: 443/TCP                                                             │
 │  - Protocol: HTTPS                                                           │
 │  - Encryption: TLS 1.2+                                                      │
-│  - Auth: Token                                                               │
-│  - Purpose: Image pull at pod startup                                        │
+│  - Auth: Bearer Token                                                        │
+│  - Purpose: Elyra pipeline submission                                        │
+│                                                                              │
+│  [S3-Compatible Object Storage]                                              │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: AWS IAM / Access Key                                                │
+│  - Purpose: Data access from notebooks and pipeline runtimes                 │
+│                                                                              │
+│  [Git Repositories]                                                          │
+│  - Port: 443/TCP                                                             │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: Bearer Token / SSH Key                                              │
+│  - Purpose: jupyterlab-git extension and nbgitpuller                         │
+│                                                                              │
+│  [MongoDB]                                                                   │
+│  - Port: 27017/TCP                                                           │
+│  - Protocol: TCP                                                             │
+│  - Encryption: TLS (configurable)                                            │
+│  - Auth: Username/Password                                                   │
+│  - Purpose: mongocli from datascience images                                 │
+│                                                                              │
+│  [PostgreSQL]                                                                │
+│  - Port: 5432/TCP                                                            │
+│  - Protocol: TCP                                                             │
+│  - Encryption: TLS (configurable)                                            │
+│  - Auth: Username/Password                                                   │
+│  - Purpose: Psycopg driver from datascience images                           │
+│                                                                              │
+│  [MySQL]                                                                     │
+│  - Port: 3306/TCP                                                            │
+│  - Protocol: TCP                                                             │
+│  - Encryption: TLS (configurable)                                            │
+│  - Auth: Username/Password                                                   │
+│  - Purpose: MySQL Connector from datascience images                          │
+│                                                                              │
+│  [MLflow Tracking Server]                                                    │
+│  - Port: 5000/TCP                                                            │
+│  - Protocol: HTTP/HTTPS                                                      │
+│  - Encryption: TLS (configurable)                                            │
+│  - Auth: Bearer Token                                                        │
+│  - Purpose: MLflow experiment tracking                                       │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  BUILD-TIME DEPENDENCIES                                                     │
+│                                                                              │
+│  [AIPCC Base Images Pipeline]                                                │
+│  - Protocol: Container Registry (HTTPS)                                      │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: Registry credentials                                                │
+│  - Purpose: RHEL 9.6 EUS base with accelerator libraries                     │
+│  - Variants: CPU, CUDA 12.9/13.0, ROCm 7.14                                 │
+│                                                                              │
+│  [Konflux / Tekton Build Pipeline]                                           │
+│  - Hermetic builds via Cachi2 (Hermeto) prefetch                             │
+│  - All dependencies (RPMs, Python, npm, Go) prefetched offline               │
+│  - check-payload validates FIPS compliance                                   │
+│                                                                              │
+│  [RHEL AI PyPI Index]                                                        │
+│  - URL: packages.redhat.com/api/pypi/public-rhai/                            │
+│  - Protocol: HTTPS                                                           │
+│  - Encryption: TLS 1.2+                                                      │
+│  - Auth: Registry credentials                                                │
+│  - Purpose: Python package resolution for RHOAI builds                       │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 
-================================================================================
-  RBAC SUMMARY
-================================================================================
+RBAC Summary:
+- No RBAC resources defined by this component
+- Auth is enforced by kube-rbac-proxy sidecar injected by Notebook Controller
+- kube-rbac-proxy validates OpenShift user tokens against namespace access
 
-Workbench images do NOT define RBAC resources.
-RBAC for workbench pods is managed by:
-  - kubeflow notebook controller (injects sidecar, creates RBAC bindings)
-  - rhods-operator / opendatahub-operator (deploys platform RBAC)
+Secrets Summary:
+- DSPA connection secret (Opaque) - Pipeline endpoint for Elyra execution
+  Provisioned by: Notebook Controller (mounted at /opt/app-root/runtimes/)
+  Auto-rotate: No
+- CA certificate bundle (Opaque) - Custom CA certificates for TLS verification
+  Provisioned by: Notebook Controller (mounted at /etc/pki/tls/custom-certs/ca-bundle.crt)
+  Auto-rotate: No
 
-Workbench pods run with:
-  - ServiceAccount: per-notebook SA (created by notebook controller)
-  - Permissions: limited to user namespace
+FIPS Compliance:
+- mongocli: CGO_ENABLED=1, -tags strictfipsruntime (dynamic linking, FIPS-compliant)
+- Python images: Interpreted, use system OpenSSL via ssl module
+- compat-openssl11 installed in all images
+- check-payload validates all built images for FIPS compliance
 
-================================================================================
-  SECRETS
-================================================================================
+Build Hermeticity:
+- OS packages: rpms.lock.yaml (rpm-lockfile-prototype)
+- Python deps: pylock.*.toml + requirements.*.txt (uv pip compile)
+- Go deps: go.sum (go mod)
+- npm deps: package-lock.json (npm ci --offline)
+- All deps prefetched via Cachi2 (Hermeto) at /cachi2/output/deps/
 
-  Secret                          Type                                Provisioned By          Auto-Rotate
-  ─────────────────────────────── ─────────────────────────────────── ─────────────────────── ───────────
-  Notebook ServiceAccount Token   kubernetes.io/service-account-token Kubernetes              Yes
-  DSPA Connection Secret          Opaque                              Notebook Controller     No
-  CA Certificate Bundle           ConfigMap mount                     Notebook Controller     No
-    → Mounted at: /etc/pki/tls/custom-certs/ca-bundle.crt
-
-================================================================================
-  AUTHENTICATION & AUTHORIZATION
-================================================================================
-
-  Endpoint                      Auth Mechanism                     Enforcement Point
-  ───────────────────────────── ───────────────────────────────── ─────────────────────────
-  JupyterLab (8888/TCP)         OAuth/OIDC via kube-rbac-proxy    kube-rbac-proxy sidecar
-                                sidecar (8443/TCP)                (8443/TCP)
-  Code-Server (80/TCP nginx)    OAuth/OIDC via kube-rbac-proxy    kube-rbac-proxy sidecar
-                                sidecar (8443/TCP)                (8443/TCP)
-  code-server direct (8787)     None (--auth none)                None (not exposed
-                                                                  outside pod)
-
-================================================================================
-  FIPS COMPLIANCE
-================================================================================
-
-  Build-Time:
-  - mongocli Go binary: CGO_ENABLED=1, -tags strictfipsruntime
-  - Dynamic linking (CGO) for FIPS-compliant crypto
-  - UBI9 base provides system OpenSSL
-  - compat-openssl11 installed for check-payload scanning
-
-  Application-Level:
-  - Python uses system OpenSSL from UBI9 (FIPS-capable)
-  - No custom crypto libraries (pycryptodome, etc.)
-  - CA bundle mounted by notebook controller
-  - No non-FIPS crypto risks detected
-
-================================================================================
-  BUILD HERMETICITY
-================================================================================
-
-  Layer              Lock File               Tool
-  ────────────────── ─────────────────────── ──────────────────────
-  OS packages (RPM)  rpms.lock.yaml          rpm-lockfile-prototype
-  Python deps        pylock.*.toml           uv
-  Go deps            go.sum                  go mod
-  Node.js deps       package-lock.json       npm
-  Artifacts          artifacts.lock.yaml     Hermeto (cachi2)
-
-  All layers locked. Build is fully hermetic with Konflux Dockerfiles.
-  uv configured with exclude-newer="3 days" (supply chain attack mitigation).
-
-================================================================================
+Multi-Tenancy:
+- Tenant boundary: per-user (one workbench pod per user per namespace)
+- Isolation: kube-rbac-proxy sidecar, namespace-scoped PVCs/secrets
+- Risk: Jupyter kernel executes arbitrary user code with pod's service account permissions

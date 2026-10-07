@@ -1,0 +1,135 @@
+┌──────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                    │
+│                                                                          │
+│  [External Client / Service Consumer]                                    │
+│         │                                                                │
+│         │ Port: 8443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+ (configurable min version)                │
+│         │ Cipher Suites: k8s component-base defaults (FIPS-compliant)    │
+│         │ Client Auth: RequestClientCert (optional)                      │
+│         │ Auth: Bearer Token (OIDC or ServiceAccount token)              │
+│         ▼                                                                │
+├──────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES SERVICE (Internal ClusterIP)                                 │
+│                                                                          │
+│  [kube-rbac-proxy Service]                                               │
+│  - Type: ClusterIP                                                       │
+│  - Port: 8443/TCP → target: https (8443)                                │
+│  - Exposure: Internal only (no Ingress)                                  │
+│                                                                          │
+│  [kube-rbac-proxy-verb-override Service]                                 │
+│  - Type: ClusterIP                                                       │
+│  - Port: 8443/TCP → target: https (8443)                                │
+│  - Exposure: Internal only (no Ingress)                                  │
+│         │                                                                │
+│         │ Port: 8443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS (terminated at proxy)                          │
+│         ▼                                                                │
+├──────────────────────────────────────────────────────────────────────────┤
+│  SIDECAR CONTAINER (Trust Boundary)                                      │
+│                                                                          │
+│  [kube-rbac-proxy Container]                                             │
+│  - Image: quay.io/... kube-rbac-proxy (FIPS-compliant build)            │
+│  - Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, UBI 9          │
+│  - Listens: 0.0.0.0:8443 (secure-listen-address)                       │
+│  - TLS: File-based certs with dynamic reload, self-signed fallback      │
+│  - ServiceAccount: kube-rbac-proxy / kube-rbac-proxy-verb-override      │
+│                                                                          │
+│  Request Processing Chain:                                               │
+│  ┌────────────────────────────────────────────────────────┐              │
+│  │ 1. TLS Termination (crypto/tls, min TLS 1.2)          │              │
+│  │ 2. Ignore-Path Check (bypass if matched)              │              │
+│  │ 3. WithAuthentication                                 │              │
+│  │    - OIDC: Local token validation                     │              │
+│  │    - Delegating: TokenReview → K8s API                │              │
+│  │ 4. WithAuthorization (union chain)                    │              │
+│  │    a. Hardcoded metrics authorizer (OCP monitoring)   │              │
+│  │    b. Static file-based rules                         │              │
+│  │    c. SubjectAccessReview → K8s API                   │              │
+│  │ 5. WithAuthHeaders (identity propagation)             │              │
+│  │ 6. httputil.ReverseProxy → upstream                   │              │
+│  └────────────────────────────────────────────────────────┘              │
+│         │                                                                │
+│         │ Port: 8080/TCP (configurable upstream)                         │
+│         │ Protocol: HTTP (default) or HTTPS/H2C                         │
+│         │ Encryption: None (localhost) or TLS (upstream CA/mTLS)         │
+│         │ Auth: Identity headers injected                                │
+│         ▼                                                                │
+│  [Upstream Application Container]                                        │
+│  - Co-located in same pod (localhost)                                    │
+│  - Receives authenticated/authorized requests                           │
+│  - Identity info via HTTP headers                                        │
+│                                                                          │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS/WSS                                            │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token (in-cluster)                        │
+│         ▼                                                                │
+├──────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES CONTROL PLANE                                                │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 6443/TCP                                                        │
+│  - Protocol: HTTPS                                                       │
+│  - Purpose: TokenReview, SubjectAccessReview                             │
+│  - Auth: ServiceAccount token auto-mounted                              │
+└──────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+
+  ClusterRole: kube-rbac-proxy
+  - API Groups: authentication.k8s.io
+    Resources: tokenreviews
+    Verbs: create
+  - API Groups: authorization.k8s.io
+    Resources: subjectaccessreviews
+    Verbs: create
+
+  ClusterRole: kube-rbac-proxy-verb-override
+  - API Groups: authentication.k8s.io
+    Resources: tokenreviews
+    Verbs: create
+  - API Groups: authorization.k8s.io
+    Resources: subjectaccessreviews
+    Verbs: create
+
+  ClusterRole: kube-rbac-proxy-client
+  - API Groups: (core)
+    Resources: services/proxy
+    Verbs: get
+
+  ClusterRole: kube-rbac-proxy-verb-override-client
+  - API Groups: (core)
+    Resources: pods
+    Verbs: list
+
+  ClusterRole: namespace-metrics
+  - API Groups: (core)
+    Resources: namespace/metrics
+    Verbs: get
+
+Role Bindings:
+  - kube-rbac-proxy → SA: kube-rbac-proxy (namespace: default)
+  - kube-rbac-proxy-client → SA: default (namespace: default)
+  - kube-rbac-proxy-verb-override → SA: kube-rbac-proxy-verb-override (namespace: default)
+  - kube-rbac-proxy-verb-override-client → SA: krp-curl-verb-override (namespace: monitoring)
+
+Authentication & Authorization:
+  - Proxied requests: OIDC token validation or Kubernetes TokenReview
+  - Authorization: Union chain (metrics + static + SubjectAccessReview)
+  - Ignore-paths: Configurable URL patterns bypass auth entirely
+  - K8s API access: ServiceAccount token (in-cluster, auto-mounted)
+
+FIPS Compliance:
+  - Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
+  - Base: UBI 9 (OpenSSL FIPS module)
+  - Crypto: stdlib crypto/tls → OpenSSL via strictfipsruntime
+  - No non-FIPS crypto risks detected
+
+TLS Configuration:
+  - Server: Min TLS 1.2, configurable cipher suites, RequestClientCert
+  - Upstream: Min TLS 1.2, optional CA bundle, optional mTLS client certs
+  - Certificates: File-based with dynamic reload, self-signed fallback

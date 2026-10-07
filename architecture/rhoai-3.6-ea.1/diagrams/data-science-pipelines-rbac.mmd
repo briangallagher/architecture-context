@@ -1,0 +1,150 @@
+graph TD
+    subgraph ServiceAccounts["Service Accounts"]
+        SA_MLPipeline["ml-pipeline"]
+        SA_Persist["ml-pipeline-persistenceagent"]
+        SA_Sched["ml-pipeline-scheduledworkflow"]
+        SA_UI["ml-pipeline-ui"]
+        SA_Viewer["ml-pipeline-viewer-crd<br/>-service-account"]
+        SA_Runner["pipeline-runner"]
+        SA_Cache["kubeflow-pipelines-cache"]
+        SA_CacheDeploy["kubeflow-pipelines-cache<br/>-deployer-sa"]
+        SA_MetaWriter["kubeflow-pipelines<br/>-metadata-writer"]
+        SA_Public["system:authenticated<br/>(Group)"]
+    end
+
+    subgraph RoleBindings["Role Bindings (kubeflow namespace)"]
+        RB_MLPipeline["ml-pipeline"]
+        RB_Persist["ml-pipeline-persistenceagent-binding"]
+        RB_Sched["ml-pipeline-scheduledworkflow-binding"]
+        RB_UI["ml-pipeline-ui"]
+        RB_Viewer["ml-pipeline-viewer-crd-binding"]
+        RB_Runner["pipeline-runner-binding"]
+        RB_Cache["kubeflow-pipelines-cache-binding"]
+        RB_CacheDeploy["kubeflow-pipelines-cache<br/>-deployer-rolebinding"]
+        RB_MetaWriter["kubeflow-pipelines-metadata<br/>-writer-binding"]
+        RB_Public["kubeflow-pipelines-public"]
+    end
+
+    subgraph Roles["Roles"]
+        R_MLPipeline["ml-pipeline"]
+        R_Persist["ml-pipeline-persistenceagent-role"]
+        R_Sched["ml-pipeline-scheduledworkflow-role"]
+        R_UI["ml-pipeline-ui"]
+        R_Viewer["ml-pipeline-viewer-controller-role"]
+        R_Runner["pipeline-runner"]
+        R_Cache["kubeflow-pipelines-cache-role"]
+        R_CacheDeploy["kubeflow-pipelines-cache<br/>-deployer-role"]
+        R_MetaWriter["kubeflow-pipelines-metadata<br/>-writer-role"]
+        R_Public["kubeflow-pipelines-public"]
+    end
+
+    subgraph Resources_MLPipeline["ml-pipeline Resources"]
+        Res_TokenReview["authentication/v1<br/>tokenreviews<br/>create"]
+        Res_SAR["authorization/k8s.io<br/>subjectaccessreviews<br/>create"]
+        Res_Workflows["argoproj.io<br/>workflows<br/>full CRUD + watch"]
+        Res_SchedWF["kubeflow.org<br/>scheduledworkflows<br/>create,delete,get,list,<br/>patch,update + finalizers"]
+        Res_Pipelines["pipelines.kubeflow.org<br/>pipelines, pipelineversions<br/>full CRUD + finalizers"]
+        Res_MLFlow["mlflow.kubeflow.org<br/>experiments<br/>create,get,list,update"]
+        Res_Secrets["core<br/>configmaps, secrets<br/>get"]
+        Res_Pods["core<br/>pods, pods/log<br/>delete,get,list"]
+    end
+
+    subgraph Resources_Persist["Persistence Agent Resources"]
+        Res_P_WF["argoproj.io<br/>workflows<br/>get,list,watch"]
+        Res_P_SWF["kubeflow.org<br/>scheduledworkflows<br/>get,list,watch"]
+        Res_P_Runs["pipelines.kubeflow.org<br/>runs<br/>readArtifact,reportMetrics"]
+    end
+
+    subgraph Resources_Sched["Scheduled Workflow Resources"]
+        Res_S_WF["argoproj.io<br/>workflows<br/>full CRUD + watch"]
+        Res_S_SWF["kubeflow.org<br/>scheduledworkflows<br/>full CRUD + finalizers"]
+        Res_S_Runs["pipelines.kubeflow.org<br/>runs<br/>create"]
+        Res_S_Events["core<br/>events<br/>create,patch"]
+    end
+
+    subgraph Resources_Runner["Pipeline Runner Resources"]
+        Res_R_All["core: pods, PVCs, PVs,<br/>services, pods/exec,<br/>pods/log<br/>*"]
+        Res_R_Apps["apps/extensions<br/>deployments, replicasets<br/>*"]
+        Res_R_Batch["batch<br/>jobs<br/>*"]
+        Res_R_KF["kubeflow.org<br/>* (all resources)<br/>*"]
+        Res_R_Argo["argoproj.io<br/>workflows, workflowtaskresults<br/>get,list,patch,update,<br/>watch,create"]
+    end
+
+    %% SA → RB connections
+    SA_MLPipeline -->|"bound via"| RB_MLPipeline
+    SA_Persist -->|"bound via"| RB_Persist
+    SA_Sched -->|"bound via"| RB_Sched
+    SA_UI -->|"bound via"| RB_UI
+    SA_Viewer -->|"bound via"| RB_Viewer
+    SA_Runner -->|"bound via"| RB_Runner
+    SA_Cache -->|"bound via"| RB_Cache
+    SA_CacheDeploy -->|"bound via"| RB_CacheDeploy
+    SA_MetaWriter -->|"bound via"| RB_MetaWriter
+    SA_Public -->|"bound via"| RB_Public
+
+    %% RB → Role connections
+    RB_MLPipeline -->|"grants"| R_MLPipeline
+    RB_Persist -->|"grants"| R_Persist
+    RB_Sched -->|"grants"| R_Sched
+    RB_UI -->|"grants"| R_UI
+    RB_Viewer -->|"grants"| R_Viewer
+    RB_Runner -->|"grants"| R_Runner
+    RB_Cache -->|"grants"| R_Cache
+    RB_CacheDeploy -->|"grants"| R_CacheDeploy
+    RB_MetaWriter -->|"grants"| R_MetaWriter
+    RB_Public -->|"grants"| R_Public
+
+    %% Role → Resource connections
+    R_MLPipeline -->|"permits"| Res_TokenReview
+    R_MLPipeline -->|"permits"| Res_SAR
+    R_MLPipeline -->|"permits"| Res_Workflows
+    R_MLPipeline -->|"permits"| Res_SchedWF
+    R_MLPipeline -->|"permits"| Res_Pipelines
+    R_MLPipeline -->|"permits"| Res_MLFlow
+    R_MLPipeline -->|"permits"| Res_Secrets
+    R_MLPipeline -->|"permits"| Res_Pods
+
+    R_Persist -->|"permits"| Res_P_WF
+    R_Persist -->|"permits"| Res_P_SWF
+    R_Persist -->|"permits"| Res_P_Runs
+
+    R_Sched -->|"permits"| Res_S_WF
+    R_Sched -->|"permits"| Res_S_SWF
+    R_Sched -->|"permits"| Res_S_Runs
+    R_Sched -->|"permits"| Res_S_Events
+
+    R_Runner -->|"permits"| Res_R_All
+    R_Runner -->|"permits"| Res_R_Apps
+    R_Runner -->|"permits"| Res_R_Batch
+    R_Runner -->|"permits"| Res_R_KF
+    R_Runner -->|"permits"| Res_R_Argo
+
+    %% Styling
+    style SA_MLPipeline fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Persist fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Sched fill:#4a90e2,stroke:#333,color:#fff
+    style SA_UI fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Viewer fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Runner fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Cache fill:#4a90e2,stroke:#333,color:#fff
+    style SA_CacheDeploy fill:#4a90e2,stroke:#333,color:#fff
+    style SA_MetaWriter fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Public fill:#4a90e2,stroke:#333,color:#fff
+
+    style R_MLPipeline fill:#f5a623,stroke:#333
+    style R_Persist fill:#f5a623,stroke:#333
+    style R_Sched fill:#f5a623,stroke:#333
+    style R_UI fill:#f5a623,stroke:#333
+    style R_Viewer fill:#f5a623,stroke:#333
+    style R_Runner fill:#f5a623,stroke:#333
+    style R_Cache fill:#f5a623,stroke:#333
+    style R_CacheDeploy fill:#f5a623,stroke:#333
+    style R_MetaWriter fill:#f5a623,stroke:#333
+    style R_Public fill:#f5a623,stroke:#333
+
+    style Res_TokenReview fill:#7ed321,stroke:#333
+    style Res_SAR fill:#e24a4a,stroke:#333,color:#fff
+    style Res_Workflows fill:#7ed321,stroke:#333
+    style Res_Pipelines fill:#7ed321,stroke:#333
+    style Res_R_All fill:#e24a4a,stroke:#333,color:#fff
+    style Res_R_KF fill:#e24a4a,stroke:#333,color:#fff

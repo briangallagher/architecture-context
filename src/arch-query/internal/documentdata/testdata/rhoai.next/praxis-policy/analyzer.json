@@ -1,0 +1,64 @@
+{
+  "component": "policy",
+  "repo": "https://github.com/praxis-proxy/policy.git",
+  "commit_sha": "0123456789abcdef",
+  "extracted_at": "2026-09-06T12:00:00Z",
+  "analyzer_version": "0.1.0-dev",
+  "schema_version": "1",
+  "summary": "Praxis policy evaluation service.",
+  "source_components": [
+    {
+      "name": "policy-api",
+      "type": "service",
+      "purpose": "Evaluates policy",
+      "source": "cmd/server.go:1-40"
+    }
+  ],
+  "rbac": {
+    "cluster_roles": [
+      {
+        "name": "policy-reader",
+        "source": "config/rbac.yaml:1-40",
+        "rules": [
+          {
+            "apiGroups": ["example.io"],
+            "resources": ["policies"],
+            "verbs": ["get", "list"]
+          },
+          {
+            "apiGroups": [],
+            "resources": [],
+            "nonResourceURLs": ["/metrics"],
+            "verbs": ["get"]
+          },
+          {
+            "apiGroups": ["example.io"],
+            "resources": ["policies/status"],
+            "nonResourceURLs": ["/healthz"],
+            "verbs": ["get"]
+          },
+          {
+            "apiGroups": [],
+            "resources": [],
+            "verbs": ["get"]
+          }
+        ]
+      }
+    ],
+    "roles": [],
+    "cluster_role_bindings": [],
+    "role_bindings": []
+  },
+  "security_evidence": [
+    {
+      "kind": "fips-posture",
+      "target": "policy-api",
+      "detail": "FIPS mode is explicitly unresolved",
+      "status": "not-extracted",
+      "source": "cmd/server.go:20-24"
+    }
+  ],
+  "data_coverage": {
+    "source": "complete"
+  }
+}

@@ -1,0 +1,61 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client"]
+        ModelServing["ModelMesh / KServe<br/>Inference Data Producer"]
+    end
+
+    subgraph PodBoundary["POD BOUNDARY"]
+        direction TB
+
+        subgraph Sidecar["Authentication Sidecar"]
+            KRP["kube-rbac-proxy<br/>OpenShift RBAC<br/>SubjectAccessReview"]
+        end
+
+        subgraph Application["APPLICATION (Loopback Trusted)"]
+            TrustyAI["TrustyAI Service<br/>FastAPI / Hypercorn<br/>127.0.0.1:8080 HTTP<br/>0.0.0.0:4443 HTTPS (optional)"]
+        end
+
+        KRP -->|"HTTP/8080<br/>Loopback 127.0.0.1<br/>No encryption<br/>Pre-authenticated"| TrustyAI
+    end
+
+    subgraph StorageLayer["STORAGE"]
+        PVC["PVC Storage<br/>HDF5 Files<br/>Local Volume Mount"]
+        MariaDB["MariaDB<br/>3306/TCP<br/>TLS optional<br/>DATABASE_PASSWORD"]
+    end
+
+    subgraph Observability["OBSERVABILITY"]
+        Prometheus["Prometheus Scraper"]
+    end
+
+    subgraph DirectAccess["OPTIONAL DIRECT ACCESS"]
+        DirectClient["Direct HTTPS Client"]
+    end
+
+    %% External flows
+    Client -->|"HTTPS<br/>TLS (platform)<br/>OpenShift RBAC"| KRP
+    ModelServing -->|"POST /consumer/kserve/v2<br/>HTTPS → kube-rbac-proxy<br/>Inference Payloads"| KRP
+
+    %% Storage flows
+    TrustyAI -->|"File I/O<br/>No network"| PVC
+    TrustyAI -->|"TCP/3306<br/>TLS optional<br/>DATABASE_PASSWORD"| MariaDB
+
+    %% Observability
+    Prometheus -->|"GET /q/metrics<br/>via kube-rbac-proxy"| KRP
+
+    %% Direct HTTPS
+    DirectClient -->|"HTTPS/4443<br/>TLS (Hypercorn)<br/>Cert: /etc/tls/internal/*<br/>No app-level auth"| TrustyAI
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef sidecar fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef application fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef storage fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef observability fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef directaccess fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    class Client,ModelServing external
+    class KRP sidecar
+    class TrustyAI application
+    class PVC,MariaDB storage
+    class Prometheus observability
+    class DirectClient directaccess

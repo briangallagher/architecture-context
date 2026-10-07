@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "eval-hub",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "eval-hub-conditional-auth-001",
+      "claim": "Identity enforcement is configuration-gated rather than structurally guaranteed, meaning authentication can be entirely bypassed in local/development mode.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/eval_hub/server/server.go:430-441"
+        }
+      ],
+      "reasoning": "The RequiresIdentityHeaders() check at server.go:430 gates all identity enforcement. When this returns false (local mode or unconfigured), API endpoints for evaluations/jobs/collections/providers accept requests without any user or tenant identification. Platform operators deploying eval-hub must ensure configuration enables identity enforcement in production.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "eval-hub-platform-delegated-services-002",
+      "claim": "Eval-hub has no Kubernetes Service or ingress manifests; service exposure is entirely platform-delegated.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:107"
+        }
+      ],
+      "reasoning": "The Dockerfile declares io.openshift.expose-services='' and no kustomization.yaml exists in the repository. This means the RHOAI operator or platform installer is responsible for creating the Kubernetes Service, Route, or Gateway resources that expose eval-hub to cluster consumers. Platform architects must track this dependency in the operator's manifest set.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "eval-hub-fips-strictfipsruntime-003",
+      "claim": "All four Go binaries use GOEXPERIMENT=strictfipsruntime with dynamic linking, establishing strong FIPS compliance posture at both build and application layers.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:27-52"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/eval_hub/mlflow/mlflow.go:60-63"
+        }
+      ],
+      "reasoning": "The strictfipsruntime experiment flag routes Go crypto operations through the system OpenSSL at runtime. Combined with CGO_ENABLED=1 and UBI9 base images, this satisfies both the check-payload gate (dynamic linking + OpenSSL present) and application-level crypto correctness (TLS 1.2+ minimum, no non-FIPS cipher suites detected). The MLflow client explicitly sets MinVersion=TLS1.2 and MaxVersion=TLS1.3.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

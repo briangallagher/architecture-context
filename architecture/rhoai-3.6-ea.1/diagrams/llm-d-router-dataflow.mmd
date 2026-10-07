@@ -1,0 +1,31 @@
+sequenceDiagram
+    participant Client as External Client
+    participant Envoy as Envoy Proxy
+    participant EPP as EPP gRPC Server<br/>9002/TCP<br/>Optional TLS
+    participant Plugins as Plugin Pipeline<br/>(Scheduling, Flow Control,<br/>Data Layer, Parsing)
+    participant DS as In-Memory Datastore
+    participant Backend as Model-Serving Pod
+    participant K8sAPI as Kubernetes API<br/>6443/TCP TLS 1.2+
+    participant Prom as Prometheus<br/>9090/TCP HTTP
+    participant OTel as OpenTelemetry Collector<br/>OTLP/gRPC
+
+    Note over EPP,K8sAPI: Controller Reconciliation (startup + continuous)
+    EPP->>K8sAPI: Watch InferencePool, InferenceModelRewrite,<br/>InferenceObjective, Pod resources<br/>Auth: ServiceAccount
+    K8sAPI-->>EPP: Resource events (create/update/delete)
+    EPP->>DS: Populate endpoint state,<br/>model rewrites, objectives
+
+    Note over Client,Backend: Inference Request Flow
+    Client->>Envoy: POST /v1/completions<br/>HTTPS
+    Envoy->>EPP: gRPC ExtProc callout<br/>Port 9002<br/>Optional TLS
+    EPP->>Plugins: Evaluate request
+    Plugins->>DS: Query available endpoints,<br/>model configs, objectives
+    DS-->>Plugins: Endpoint state + configs
+    Plugins-->>EPP: Selected backend pod +<br/>optional request rewrite
+    EPP-->>Envoy: Routing decision<br/>(target pod + headers)
+    Envoy->>Backend: Forward request to<br/>selected pod
+    Backend-->>Envoy: Inference response
+    Envoy-->>Client: Response
+
+    Note over EPP,OTel: Observability
+    EPP->>Prom: Expose /metrics<br/>Port 9090 HTTP
+    EPP-->>OTel: Export traces<br/>OTLP/gRPC (runtime configured)

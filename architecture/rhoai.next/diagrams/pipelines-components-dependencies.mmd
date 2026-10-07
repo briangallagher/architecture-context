@@ -1,91 +1,85 @@
 graph LR
-    PC["Pipelines Components<br/>(KFP Component Library)"]
+    PC["Pipelines Components<br/>(KFP Library + Container Images)"]
 
-    %% ============================================
-    %% External Dependencies (Python Libraries)
-    %% ============================================
-    PC -->|"pipeline SDK"| KFP["kfp >=2.16.1"]
-    PC -->|"K8s extensions"| KFPK8s["kfp-kubernetes >=2.16.1"]
-    PC -->|"S3 access"| Boto3["boto3 >=1.42.34"]
-    PC -->|"tabular/TS ML"| AutoGluon["AutoGluon<br/>(bundled in odh-automl)"]
-    PC -->|"RAG optimization"| AI4RAG["ai4rag ~=0.6.1"]
-    PC -->|"doc extraction"| Docling["docling >=1.0.0"]
-    PC -->|"embeddings/vectors"| OGXClient["OGX Client >=1.0.0"]
-    PC -->|"synthetic data"| SDGHub["sdg-hub >=0.7.0, <1.0"]
-    PC -->|"LLM proxy"| LiteLLM["LiteLLM >=1.0.0"]
-    PC -->|"model eval"| LMEval["lm-eval<br/>(with vllm extra)"]
-    PC -->|"model registry SDK"| ModelRegSDK["model-registry ==0.3.4"]
-    PC -->|"datasets"| HFDatasets["HF Datasets >=2.14.0"]
-    PC -->|"hub client"| HFHub["huggingface-hub >=0.20.0"]
-    PC -->|"data manipulation"| Pandas["pandas >=2.0"]
-    PC -->|"text chunking"| LangChain["langchain-core >=0.1"]
-    PC -->|"LoRA training"| Unsloth["Unsloth<br/>(bundled)"]
-    PC -->|"stratified split"| SKLearn["scikit-learn >=1.0"]
+    %% Internal RHOAI Dependencies
+    PC -->|"init container<br/>shared volume"| KFPAPI["KFP API Server"]
+    PC -->|"CRD CRUD<br/>InferenceService<br/>ServingRuntime"| KServe["KServe"]
+    PC -->|"TrainerClient API<br/>TrainJob CR"| Trainer["Kubeflow Trainer"]
+    PC -->|"REST API<br/>8080/TCP HTTP"| ModelReg["Model Registry"]
+    PC -->|"REST API<br/>443/TCP HTTPS"| EvalHub["Eval Hub"]
+    PC -->|"CRD (RayJob)"| Ray["Ray / CodeFlare"]
+    PC -.->|"CRD (WorkloadPriority)"| Kueue["Kueue (optional)"]
+    PC -->|"REST API<br/>443/TCP HTTPS"| OGX["OGX"]
+    PC -->|"gRPC client<br/>19530/TCP"| Milvus["Milvus"]
+    PC -.->|"annotation conventions"| Dashboard["RHOAI Dashboard"]
+    PC -.->|"REST API (optional)"| MLflow["MLflow (optional)"]
 
-    %% ============================================
-    %% Internal Platform Dependencies
-    %% ============================================
-    PC -->|"pipeline YAML delivery<br/>(init container shared vol)"| KFPAPI["KFP API Server"]
-    PC -->|"model registration<br/>REST 8080/TCP"| KFModelReg["Kubeflow Model Registry"]
-    PC -->|"fine-tuning jobs<br/>TrainJob CRD"| KFTrainer["Kubeflow Trainer"]
-    PC -->|"data/model storage<br/>HTTPS 443/TCP"| S3["S3 Storage<br/>(MinIO / Ceph)"]
-    PC -->|"workspace sharing<br/>filesystem"| PVC["PersistentVolumeClaim"]
-    PC -->|"embeddings + vectors<br/>HTTPS 443/TCP"| OGXAPI["OGX API (RHOAI)"]
-    PC -->|"credentials<br/>vol/env mount"| K8sSecrets["Kubernetes Secrets"]
+    %% External Dependencies
+    PC -->|"AWS SDK<br/>443/9000 TCP"| S3["S3/MinIO"]
+    PC -->|"REST API<br/>443/TCP HTTPS"| HF["HuggingFace Hub"]
+    PC -->|"REST API<br/>443/TCP HTTPS"| LiteLLM["LiteLLM"]
+    PC -->|"OCI pull<br/>443/TCP HTTPS"| OCI["OCI Registry"]
+    PC -->|"HTTPS<br/>443/TCP"| K8sAPI["Kubernetes API"]
 
-    %% ============================================
-    %% Integration Points (inbound)
-    %% ============================================
-    Dashboard["ODH Dashboard"] -.->|"pipeline mgmt UI"| PC
-    DSPA["DS Pipelines Application"] -.->|"deploys init container"| PC
-    Operator["rhods-operator"] -.->|"RELATED_IMAGE_* injection"| PC
+    %% Key Python Dependencies
+    subgraph PythonDeps["Key Python Dependencies"]
+        KFP["kfp >=2.16.1"]
+        KFPKube["kfp-kubernetes >=2.16.1"]
+        AutoGluon["AutoGluon (tabular, timeseries)"]
+        AI4RAG["ai4rag ~=0.10.1"]
+        DoclingLib["Docling >=1.0.0"]
+        SDGHub["SDG Hub >=0.7.0"]
+        LMEvalLib["lm-eval >=0.4.0"]
+        Unsloth["Unsloth >=2024.11.0"]
+        CodeFlareSdk["codeflare-sdk ==0.35.0"]
+        ModelRegClient["model-registry ==0.3.4"]
+        Boto3["boto3 >=1.28.0"]
+        K8sClient["kubernetes >=28.1.0"]
+        PyMilvus["pymilvus >=2.4.0"]
+    end
 
-    %% ============================================
-    %% External Services
-    %% ============================================
-    PC -->|"model/dataset download<br/>HTTPS 443/TCP"| HFHubSvc["HuggingFace Hub<br/>(huggingface.co)"]
-    OGXAPI -->|"vector persistence<br/>gRPC 19530/TCP"| MilvusSvc["Milvus Vector DB"]
-    PC -->|"synthetic data gen<br/>HTTPS 443/TCP"| LLMProviderSvc["LLM Provider<br/>(via LiteLLM)"]
+    PC -->|"core SDK"| KFP
+    PC -->|"K8s extensions"| KFPKube
 
-    %% ============================================
+    %% Consumers (who uses pipelines-components)
+    Dashboard -->|"UI management<br/>one-click pipelines"| PC
+    KFPAPI -->|"executes tasks"| PC
+
     %% Styling
-    %% ============================================
     style PC fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
-    %% External Python libraries
-    style KFP fill:#999,stroke:#333
-    style KFPK8s fill:#999,stroke:#333
-    style Boto3 fill:#999,stroke:#333
-    style AutoGluon fill:#999,stroke:#333
-    style AI4RAG fill:#999,stroke:#333
-    style Docling fill:#999,stroke:#333
-    style OGXClient fill:#999,stroke:#333
-    style SDGHub fill:#999,stroke:#333
-    style LiteLLM fill:#999,stroke:#333
-    style LMEval fill:#999,stroke:#333
-    style ModelRegSDK fill:#999,stroke:#333
-    style HFDatasets fill:#999,stroke:#333
-    style HFHub fill:#999,stroke:#333
-    style Pandas fill:#999,stroke:#333
-    style LangChain fill:#999,stroke:#333
-    style Unsloth fill:#999,stroke:#333
-    style SKLearn fill:#999,stroke:#333
+    %% Internal RHOAI
+    style KFPAPI fill:#7ed321,stroke:#333,color:#fff
+    style KServe fill:#7ed321,stroke:#333,color:#fff
+    style Trainer fill:#7ed321,stroke:#333,color:#fff
+    style ModelReg fill:#f8cecc,stroke:#b85450,color:#333
+    style EvalHub fill:#7ed321,stroke:#333,color:#fff
+    style Ray fill:#7ed321,stroke:#333,color:#fff
+    style Kueue fill:#c8e6c9,stroke:#333,color:#333
+    style OGX fill:#7ed321,stroke:#333,color:#fff
+    style Milvus fill:#f8cecc,stroke:#b85450,color:#333
+    style Dashboard fill:#7ed321,stroke:#333,color:#fff
+    style MLflow fill:#c8e6c9,stroke:#333,color:#333
 
-    %% Internal platform
-    style KFPAPI fill:#7ed321,stroke:#333
-    style KFModelReg fill:#7ed321,stroke:#333
-    style KFTrainer fill:#7ed321,stroke:#333
-    style S3 fill:#7ed321,stroke:#333
-    style PVC fill:#7ed321,stroke:#333
-    style OGXAPI fill:#7ed321,stroke:#333
-    style K8sSecrets fill:#7ed321,stroke:#333
+    %% External
+    style S3 fill:#f5a623,stroke:#333,color:#fff
+    style HF fill:#f5a623,stroke:#333,color:#fff
+    style LiteLLM fill:#f5a623,stroke:#333,color:#fff
+    style OCI fill:#f5a623,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
 
-    %% Integration points (inbound)
-    style Dashboard fill:#7ed321,stroke:#333
-    style DSPA fill:#7ed321,stroke:#333
-    style Operator fill:#7ed321,stroke:#333
-
-    %% External services
-    style HFHubSvc fill:#f5a623,stroke:#333
-    style MilvusSvc fill:#f5a623,stroke:#333
-    style LLMProviderSvc fill:#f5a623,stroke:#333
+    %% Python deps
+    style PythonDeps fill:#f5f5f5,stroke:#999
+    style KFP fill:#dae8fc,stroke:#6c8ebf
+    style KFPKube fill:#dae8fc,stroke:#6c8ebf
+    style AutoGluon fill:#dae8fc,stroke:#6c8ebf
+    style AI4RAG fill:#dae8fc,stroke:#6c8ebf
+    style DoclingLib fill:#dae8fc,stroke:#6c8ebf
+    style SDGHub fill:#dae8fc,stroke:#6c8ebf
+    style LMEvalLib fill:#dae8fc,stroke:#6c8ebf
+    style Unsloth fill:#dae8fc,stroke:#6c8ebf
+    style CodeFlareSdk fill:#dae8fc,stroke:#6c8ebf
+    style ModelRegClient fill:#dae8fc,stroke:#6c8ebf
+    style Boto3 fill:#dae8fc,stroke:#6c8ebf
+    style K8sClient fill:#dae8fc,stroke:#6c8ebf
+    style PyMilvus fill:#dae8fc,stroke:#6c8ebf

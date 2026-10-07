@@ -1,0 +1,49 @@
+sequenceDiagram
+    participant LLMd as llm-d Inference Gateway
+    participant TrainSvc as Training Service<br/>ClusterIP :8000
+    participant TrainServer as Training Server<br/>FastAPI :8000<br/>1 replica
+    participant TrainVol as emptyDir<br/>/local_models<br/>(training)
+    participant PredServer as Prediction Server<br/>FastAPI :8001<br/>10 replicas
+    participant PredVol as emptyDir<br/>/local_models<br/>(prediction)
+    participant Client as Prediction Client
+
+    Note over LLMd,Client: Training Data Ingestion Flow
+
+    LLMd->>TrainSvc: POST /add_training_data_bulk<br/>HTTP :8000 | No Auth<br/>Observed TTFT/TPOT samples
+    TrainSvc->>TrainServer: Forward request
+    TrainServer->>TrainServer: Accumulate samples in memory<br/>per-bucket limit: 500 samples<br/>(LATENCY_MAX_TRAINING_DATA_SIZE_PER_BUCKET)
+
+    Note over TrainServer: Periodic retraining every 1800s<br/>(LATENCY_RETRAINING_INTERVAL_SEC)
+
+    TrainServer->>TrainServer: Train XGBoost models (TTFT + TPOT)
+    TrainServer->>TrainServer: Train LightGBM models (TTFT + TPOT)
+    TrainServer->>TrainServer: Train BayesianRidge models (TTFT + TPOT)
+    TrainServer->>TrainVol: Serialize models via joblib<br/>SHA-256 checksums
+
+    Note over PredServer,TrainServer: Model Sync Flow (every 10s)
+
+    loop Every MODEL_SYNC_INTERVAL_SEC (default 10s)
+        PredServer->>TrainSvc: GET /model/export<br/>HTTP :8000 | No Auth
+        TrainSvc->>TrainServer: Forward request
+        TrainServer-->>PredServer: Serialized model artifacts (joblib)
+        PredServer->>PredVol: Store models locally<br/>/local_models
+        PredServer->>PredServer: Deserialize via joblib
+    end
+
+    Note over Client,PredServer: Prediction Serving Flow
+
+    Client->>PredServer: POST /predict<br/>HTTP :8001 | No Auth<br/>Inference request
+    PredServer->>PredVol: Load cached models
+    PredServer->>PredServer: Run prediction<br/>(ensemble/queue-gated selection)
+    PredServer-->>Client: ORJSONResponse<br/>TTFT + TPOT predictions
+
+    Client->>PredServer: POST /predict/bulk<br/>HTTP :8001 | No Auth<br/>Batch inference request
+    PredServer-->>Client: Bulk prediction results
+
+    Client->>PredServer: POST /predict/bulk/strict<br/>HTTP :8001 | No Auth<br/>Strict batch request
+    PredServer-->>Client: Strict bulk results
+
+    Note over LLMd,Client: Health Check Flows
+
+    PredServer->>PredServer: GET /healthz (liveness probe)
+    PredServer->>PredServer: GET /readyz (readiness probe)

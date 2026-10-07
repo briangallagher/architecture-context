@@ -1,114 +1,155 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA_OMC["odh-model-controller<br/>(ServiceAccount)"]
-        SA_MSA["model-serving-api<br/>(ServiceAccount)"]
+        SA_Controller["odh-model-controller<br/>Namespace: opendatahub"]
+        SA_API["model-serving-api<br/>Namespace: opendatahub"]
+        SA_Dynamic["Dynamic SAs<br/>(per InferenceService)"]
     end
 
     subgraph ClusterRoleBindings["ClusterRole Bindings"]
-        CRB_OMC["odh-model-controller-rolebinding<br/>(ClusterRoleBinding)"]
-        CRB_MSA["model-serving-api<br/>(ClusterRoleBinding)"]
+        CRB_Main["odh-model-controller-rolebinding<br/>(cluster-wide)"]
+        CRB_Proxy["proxy-rolebinding<br/>(cluster-wide)"]
+        CRB_API["model-serving-api<br/>(cluster-wide)"]
+        CRB_Leader["leader-election-rolebinding<br/>(namespace-scoped)"]
+        CRB_AuthDel["{ns}-{sa}-auth-delegator<br/>(dynamic, cluster-wide)"]
     end
 
     subgraph ClusterRoles["ClusterRoles"]
-        CR_OMC["odh-model-controller-role"]
-        CR_MSA["model-serving-api"]
+        CR_Main["odh-model-controller-role"]
+        CR_Proxy["proxy-role"]
+        CR_API["model-serving-api"]
+        CR_Leader["leader-election-role"]
+        CR_AuthDel["system:auth-delegator"]
+        CR_PromK8s["kserve-prometheus-k8s"]
+        CR_AccEditor["account-editor-role"]
+        CR_AccViewer["account-viewer-role"]
     end
 
-    SA_OMC -->|bound via| CRB_OMC
-    CRB_OMC -->|grants| CR_OMC
-    SA_MSA -->|bound via| CRB_MSA
-    CRB_MSA -->|grants| CR_MSA
-
-    subgraph KServeResources["serving.kserve.io"]
-        ISVC["InferenceService<br/>get,list,patch,update,watch"]
-        LLMISVC["LLMInferenceService<br/>get,list,patch,post,update,watch"]
-        LLMISVCFin["LLMInferenceService/finalizers<br/>patch,update"]
-        LLMISVCStatus["LLMInferenceService/status<br/>get,patch,update"]
-        IG["InferenceGraph<br/>get,list,watch"]
-        ISVCFin["InferenceService/finalizers<br/>full CRUD + watch"]
-        SR["ServingRuntime<br/>create,get,list,update,watch"]
-        LLMISVCConfig["LLMInferenceServiceConfig<br/>get,list,watch"]
+    subgraph CoreResources["Core API Resources"]
+        ConfigMaps["core<br/>ConfigMaps"]
+        Secrets["core<br/>Secrets"]
+        ServiceAccounts_R["core<br/>ServiceAccounts"]
+        Services["core<br/>Services"]
+        Endpoints["core<br/>Endpoints"]
+        Namespaces["core<br/>Namespaces"]
+        Pods["core<br/>Pods"]
+        Events["core<br/>Events"]
     end
 
-    subgraph NIMResources["nim.opendatahub.io"]
-        NIMAcct["Account<br/>get,list,patch,update,watch"]
-        NIMAcctFin["Account/finalizers<br/>update"]
-        NIMAcctStatus["Account/status<br/>get,list,update,watch"]
+    subgraph KServeResources["KServe API Resources"]
+        InferenceService["serving.kserve.io<br/>InferenceService"]
+        ServingRuntime["serving.kserve.io<br/>ServingRuntime"]
+        LLMInferenceService["serving.kserve.io<br/>LLMInferenceService"]
+        InferenceGraph["serving.kserve.io<br/>InferenceGraph"]
     end
 
-    subgraph GatewayResources["gateway.networking.k8s.io"]
-        GW["Gateway<br/>get,list,patch,update,watch"]
-        GWFin["Gateway/finalizers<br/>patch,update"]
-        HTTPRoute["HTTPRoute<br/>get,list,watch"]
+    subgraph NIMResources["NIM API Resources"]
+        Account["nim.opendatahub.io<br/>Account"]
     end
 
-    subgraph KuadrantResources["kuadrant.io"]
-        AuthPolicy["AuthPolicy<br/>full CRUD + watch"]
-        AuthPolicyStatus["AuthPolicy/status<br/>get,patch,update"]
-        Kuadrants["Kuadrant<br/>get,list,watch"]
+    subgraph NetworkResources["Network & Auth Resources"]
+        AuthPolicy["kuadrant.io<br/>AuthPolicy"]
+        Kuadrant_R["kuadrant.io<br/>Kuadrant"]
+        Authorino_R["operator.authorino.kuadrant.io<br/>Authorino"]
+        Gateway["gateway.networking.k8s.io<br/>Gateway"]
+        HTTPRoute["gateway.networking.k8s.io<br/>HTTPRoute"]
+        EnvoyFilter["networking.istio.io<br/>EnvoyFilter"]
+        Route["route.openshift.io<br/>Route"]
+        NetworkPolicy["networking.k8s.io<br/>NetworkPolicy"]
     end
 
-    subgraph NetworkResources["Networking"]
-        EnvoyFilter["networking.istio.io<br/>EnvoyFilter<br/>full CRUD + watch"]
-        NetPol["networking.k8s.io<br/>NetworkPolicy<br/>full CRUD + watch"]
-        OSRoute["route.openshift.io<br/>Route<br/>full CRUD + watch"]
-        OSRouteCustom["route.openshift.io<br/>Route/custom-host<br/>create"]
+    subgraph MonitoringResources["Monitoring Resources"]
+        ServiceMonitor["monitoring.coreos.com<br/>ServiceMonitor"]
+        PodMonitor["monitoring.coreos.com<br/>PodMonitor"]
+        TriggerAuth["keda.sh<br/>TriggerAuthentication"]
     end
 
-    subgraph CoreResources["Core API"]
-        CM["ConfigMap<br/>full CRUD + watch"]
-        Secret["Secret<br/>full CRUD + watch"]
-        SvcAcct["ServiceAccount<br/>full CRUD + watch"]
-        Svc["Service<br/>full CRUD + watch"]
-        Endpoints["Endpoints<br/>create,get,list,patch,update,watch"]
-        NS["Namespace<br/>create,get,list,patch,update,watch"]
-        Pod["Pod<br/>create,get,list,patch,update,watch"]
-        Event["Event<br/>create,patch"]
+    subgraph RBACResources["RBAC Resources"]
+        ClusterRoleBinding_R["rbac.authorization.k8s.io<br/>ClusterRoleBinding"]
+        RoleBinding_R["rbac.authorization.k8s.io<br/>RoleBinding"]
+        Role_R["rbac.authorization.k8s.io<br/>Role"]
     end
 
-    subgraph MonitoringResources["monitoring.coreos.com"]
-        SvcMon["ServiceMonitor<br/>full CRUD + watch"]
-        PodMon["PodMonitor<br/>full CRUD + watch"]
+    subgraph PlatformResources["Platform Resources"]
+        Template["template.openshift.io<br/>Template"]
+        Authentication["config.openshift.io<br/>Authentication"]
+        DSC["datasciencecluster.opendatahub.io<br/>DataScienceCluster"]
+        DSCI["dscinitialization.opendatahub.io<br/>DSCInitialization"]
+        HWProfile["infrastructure.opendatahub.io<br/>HardwareProfile"]
+        TokenReview["authentication.k8s.io<br/>TokenReview"]
+        SAR["authorization.k8s.io<br/>SubjectAccessReview"]
     end
 
-    subgraph RBACResources["rbac.authorization.k8s.io"]
-        CRBRes["ClusterRoleBinding<br/>full CRUD + watch"]
-        RoleBinding["RoleBinding<br/>full CRUD + watch"]
-        Role["Role<br/>full CRUD + watch"]
-    end
+    %% Service Account → Binding → Role chains
+    SA_Controller -->|bound via| CRB_Main
+    SA_Controller -->|bound via| CRB_Proxy
+    SA_Controller -->|bound via| CRB_Leader
+    SA_API -->|bound via| CRB_API
+    SA_Dynamic -->|bound via| CRB_AuthDel
 
-    subgraph OtherResources["Other"]
-        Template["template.openshift.io<br/>Template<br/>full CRUD + watch"]
-        TriggerAuth["keda.sh<br/>TriggerAuthentication<br/>full CRUD + watch"]
-        OSAuth["config.openshift.io<br/>Authentication<br/>get,list,watch"]
-        DSC["datasciencecluster<br/>DataScienceCluster<br/>get,list,watch"]
-        DSCI["dscinitialization<br/>DSCInitialization<br/>get,list,watch"]
-        AuthorinoRes["operator.authorino<br/>Authorino<br/>get,list,watch"]
-    end
+    CRB_Main -->|grants| CR_Main
+    CRB_Proxy -->|grants| CR_Proxy
+    CRB_API -->|grants| CR_API
+    CRB_Leader -->|grants| CR_Leader
+    CRB_AuthDel -->|grants| CR_AuthDel
 
-    %% odh-model-controller-role permissions
-    CR_OMC -->|manages| KServeResources
-    CR_OMC -->|manages| NIMResources
-    CR_OMC -->|manages| GatewayResources
-    CR_OMC -->|manages| KuadrantResources
-    CR_OMC -->|manages| NetworkResources
-    CR_OMC -->|manages| CoreResources
-    CR_OMC -->|manages| MonitoringResources
-    CR_OMC -->|manages| RBACResources
-    CR_OMC -->|manages| OtherResources
+    %% CR_Main permissions (CRUD)
+    CR_Main -->|"CRUD + watch"| ConfigMaps
+    CR_Main -->|"CRUD + watch"| Secrets
+    CR_Main -->|"CRUD + watch"| ServiceAccounts_R
+    CR_Main -->|"CRUD + watch"| Services
+    CR_Main -->|"create,get,list,<br/>patch,update,watch"| Endpoints
+    CR_Main -->|"create,get,list,<br/>patch,update,watch"| Pods
+    CR_Main -->|"create, patch"| Events
+    CR_Main -->|"get,list,patch,<br/>update,watch"| InferenceService
+    CR_Main -->|"create,get,list,<br/>update,watch"| ServingRuntime
+    CR_Main -->|"CRUD + watch + status"| LLMInferenceService
+    CR_Main -->|"get,list,watch"| InferenceGraph
+    CR_Main -->|"get,list,patch,<br/>update,watch"| Account
+    CR_Main -->|"CRUD + watch"| AuthPolicy
+    CR_Main -->|"get,list,watch"| Kuadrant_R
+    CR_Main -->|"get,list,watch"| Authorino_R
+    CR_Main -->|"get,list,patch,<br/>update,watch"| Gateway
+    CR_Main -->|"get,list,patch,<br/>update,watch"| HTTPRoute
+    CR_Main -->|"CRUD + watch"| EnvoyFilter
+    CR_Main -->|"CRUD + watch"| Route
+    CR_Main -->|"CRUD + watch"| NetworkPolicy
+    CR_Main -->|"CRUD + watch"| ServiceMonitor
+    CR_Main -->|"CRUD + watch"| PodMonitor
+    CR_Main -->|"CRUD + watch"| TriggerAuth
+    CR_Main -->|"CRUD + watch"| ClusterRoleBinding_R
+    CR_Main -->|"CRUD + watch"| RoleBinding_R
+    CR_Main -->|"CRUD + watch"| Role_R
+    CR_Main -->|"CRUD + watch"| Template
+    CR_Main -->|"get,list,watch"| Authentication
+    CR_Main -->|"get,list,watch"| DSC
+    CR_Main -->|"get,list,watch"| DSCI
+    CR_Main -->|"get,list,watch"| HWProfile
 
-    %% model-serving-api permissions
-    subgraph MSAResources["model-serving-api Resources"]
-        MSA_GW["Gateway<br/>list"]
-        MSA_NS["Namespace<br/>get"]
-    end
+    %% CR_Proxy permissions
+    CR_Proxy -->|"create"| TokenReview
+    CR_Proxy -->|"create"| SAR
 
-    CR_MSA -->|manages| MSAResources
+    %% CR_API permissions
+    CR_API -->|"list"| Gateway
+    CR_API -->|"get"| Namespaces
 
     %% Styling
-    style SA_OMC fill:#4a90e2,color:#fff
-    style SA_MSA fill:#4a90e2,color:#fff
-    style CR_OMC fill:#f5a623,color:#fff
-    style CR_MSA fill:#f5a623,color:#fff
-    style CRB_OMC fill:#d4a574
-    style CRB_MSA fill:#d4a574
+    style SA_Controller fill:#4a90e2,stroke:#333,color:#fff
+    style SA_API fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Dynamic fill:#4a90e2,stroke:#333,color:#fff
+    style CR_Main fill:#f5a623,stroke:#333,color:#fff
+    style CR_Proxy fill:#f5a623,stroke:#333,color:#fff
+    style CR_API fill:#f5a623,stroke:#333,color:#fff
+    style CR_Leader fill:#f5a623,stroke:#333,color:#fff
+    style CR_AuthDel fill:#f5a623,stroke:#333,color:#fff
+    style CR_PromK8s fill:#f5a623,stroke:#333,color:#fff
+    style CR_AccEditor fill:#f5a623,stroke:#333,color:#fff
+    style CR_AccViewer fill:#f5a623,stroke:#333,color:#fff
+    style InferenceService fill:#7ed321,stroke:#333
+    style ServingRuntime fill:#7ed321,stroke:#333
+    style LLMInferenceService fill:#7ed321,stroke:#333
+    style InferenceGraph fill:#7ed321,stroke:#333
+    style Account fill:#7ed321,stroke:#333
+    style AuthPolicy fill:#7ed321,stroke:#333
+    style EnvoyFilter fill:#7ed321,stroke:#333
+    style Route fill:#7ed321,stroke:#333

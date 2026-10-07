@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "kserve",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "kserve-fips-split-001",
+      "claim": "The kserve-module-controller Konflux Dockerfile enables FIPS-compliant Go cryptography (strictfipsruntime), but the upstream manager Dockerfile uses CGO_ENABLED=0 which produces a statically linked binary incompatible with FIPS validation.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfiles/Dockerfile.konflux.kserve-module-controller:21"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile:21"
+        }
+      ],
+      "reasoning": "The split FIPS posture means the kserve-module-controller passes check-payload FIPS validation while the core manager binary (built from the upstream Dockerfile) would not. Downstream Konflux pipelines likely override the build flags for RHOAI, but no Konflux Dockerfile for the core manager exists in this checkout, creating a documentation gap for FIPS compliance of the primary controller binary.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "kserve-tls-profile-002",
+      "claim": "KServe dynamically reads the OpenShift cluster TLS security profile from apiservers.config.openshift.io and applies it to controller webhook and API server TLS configuration, enabling platform-wide TLS policy enforcement.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/tls/tls_odh.go:73-159"
+        }
+      ],
+      "reasoning": "This pattern ensures KServe respects the cluster administrator's TLS policy (Old, Intermediate, Modern, or Custom profiles) without per-component configuration. The fallback to Mozilla Intermediate (TLS 1.2) with hardened cipher suites provides secure defaults when the profile is unavailable, which is architecturally significant for RHOAI's security posture.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "kserve-router-auth-003",
+      "claim": "The InferenceGraph router implements Kubernetes-native authentication and fine-grained authorization using TokenReview and SubjectAccessReview APIs, checking that the requesting user has 'get' permission on the specific InferenceGraph resource.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/router/main.go:525-606"
+        }
+      ],
+      "reasoning": "This is a robust authorization model that delegates access control to Kubernetes RBAC rather than implementing application-level authorization. It binds inference request access to the same RBAC policies that govern InferenceGraph resource access, maintaining consistent authorization semantics across the API and data planes.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

@@ -2,57 +2,43 @@ graph TB
     subgraph ModelMeshPod["ModelMesh Pod"]
         direction TB
 
-        subgraph MeshContainer["ModelMesh Container (Java 21)"]
+        subgraph SidecarModelMesh["ModelMesh Sidecar (Java 21)"]
             direction TB
-            SidecarModelMesh["SidecarModelMesh<br/>Distributed LRU Cache<br/>Model Lifecycle Mgmt"]
-            ModelMeshApi["ModelMeshApi<br/>gRPC Server<br/>8033/TCP"]
-            VModelManager["VModelManager<br/>Virtual Model Transitions<br/>Atomic Version Swap"]
-            TypeConstraintMgr["TypeConstraintManager<br/>GPU/Non-GPU Routing"]
-            PayloadPipeline["PayloadProcessor Pipeline<br/>Logging / Forwarding / Filtering"]
-            MetricsExporter["PrometheusMetrics<br/>2112/TCP HTTP/HTTPS"]
-            StatsDExporter["StatsDMetrics<br/>8126/UDP Push"]
-            PreStopServer["PreStop Server<br/>Graceful Shutdown"]
+            API["ModelMeshApi<br/>gRPC Server<br/>Port 8033/TCP"]
+            Cache["SidecarModelMesh<br/>Distributed LRU Cache<br/>(ConcurrentLinkedHashMap)"]
+            VModel["VModelManager<br/>Virtual Model Aliases<br/>Zero-Downtime Transitions"]
+            PrometheusServer["Prometheus NettyServer<br/>HTTPS Metrics<br/>Port 2112/TCP"]
+            PreStop["PreStop Server<br/>HTTP Lifecycle Hook<br/>Port 8090/TCP"]
+            HealthProbe["Health Probes<br/>HTTP /ready /live<br/>Port 8089/TCP"]
+            Litelinks["Litelinks (Thrift RPC)<br/>Inter-Instance Comm<br/>Port 8080/TCP"]
 
-            ModelMeshApi -->|routes requests| SidecarModelMesh
-            SidecarModelMesh -->|manages| VModelManager
-            SidecarModelMesh -->|checks constraints| TypeConstraintMgr
-            SidecarModelMesh -->|processes payloads| PayloadPipeline
-            SidecarModelMesh -->|emits metrics| MetricsExporter
-            SidecarModelMesh -->|emits metrics| StatsDExporter
+            API -->|"method call"| Cache
+            Cache -->|"manages"| VModel
+            Cache -->|"publishes"| PrometheusServer
         end
 
-        subgraph RuntimeContainer["Model Runtime Container"]
-            ModelRuntime["Model Server<br/>(Triton / MLServer / Custom)<br/>ModelRuntime gRPC Service"]
-        end
-
-        SidecarModelMesh -->|"gRPC 8085/TCP or UDS<br/>loadModel / unloadModel<br/>predictModelSize / inference"| ModelRuntime
-        PreStopServer -->|"HTTP prestop hook"| RuntimeContainer
+        Runtime["Model Runtime Container<br/>(mlserver / Triton / custom)<br/>Port 8085/TCP or UDS"]
     end
 
-    Client["Client / KServe<br/>InferenceService"] -->|"gRPC 8033/TCP<br/>TLS + mTLS (optional)"| ModelMeshApi
+    Client[External Client] -->|"gRPC/8033<br/>Optional TLS + mTLS"| API
+    Cache -->|"gRPC/8085 (plaintext)<br/>load/unload/predict"| Runtime
+    Litelinks -->|"Thrift/8080<br/>Optional TLS"| PeerPod["Peer ModelMesh Pod"]
+    Cache -->|"gRPC/2379<br/>model registry, leader election"| etcd["etcd Cluster"]
+    Kubelet["Kubernetes Kubelet"] -->|"HTTP/8089"| HealthProbe
+    Prometheus["Prometheus Scraper"] -->|"HTTPS/2112<br/>self-signed TLS"| PrometheusServer
+    Controller["modelmesh-serving<br/>Controller"] -.->|"ConfigMap<br/>model-serving-config"| SidecarModelMesh
 
-    OtherPods["Other ModelMesh Pods<br/>(Same Deployment)"] <-->|"Thrift (Litelinks) 8080/TCP<br/>TLS (optional)<br/>Cache Miss Forwarding"| SidecarModelMesh
-
-    etcd["etcd<br/>v3.5.x"] <-->|"gRPC 2379/TCP<br/>TLS (configurable)<br/>Model Registry / State"| SidecarModelMesh
-
-    Prometheus["Prometheus"] -->|"HTTP(S) 2112/TCP<br/>Scrape /metrics"| MetricsExporter
-
-    StatsD["StatsD / Sysdig"] <---|"UDP 8126<br/>Metrics Push"| StatsDExporter
-
-    RemotePayload["Remote Payload<br/>Processor"] <---|"HTTP/HTTPS<br/>Payload Forwarding"| PayloadPipeline
-
-    style SidecarModelMesh fill:#4a90e2,stroke:#333,color:#fff
-    style ModelMeshApi fill:#4a90e2,stroke:#333,color:#fff
-    style VModelManager fill:#4a90e2,stroke:#333,color:#fff
-    style TypeConstraintMgr fill:#4a90e2,stroke:#333,color:#fff
-    style PayloadPipeline fill:#4a90e2,stroke:#333,color:#fff
-    style MetricsExporter fill:#50c878,stroke:#333,color:#fff
-    style StatsDExporter fill:#50c878,stroke:#333,color:#fff
-    style PreStopServer fill:#50c878,stroke:#333,color:#fff
-    style ModelRuntime fill:#f5a623,stroke:#333,color:#fff
-    style Client fill:#e8e8e8,stroke:#333
-    style OtherPods fill:#b8d4f0,stroke:#333
-    style etcd fill:#999,stroke:#333,color:#fff
+    style API fill:#4a90e2,stroke:#333,color:#fff
+    style Cache fill:#4a90e2,stroke:#333,color:#fff
+    style VModel fill:#4a90e2,stroke:#333,color:#fff
+    style PrometheusServer fill:#4a90e2,stroke:#333,color:#fff
+    style PreStop fill:#4a90e2,stroke:#333,color:#fff
+    style HealthProbe fill:#4a90e2,stroke:#333,color:#fff
+    style Litelinks fill:#4a90e2,stroke:#333,color:#fff
+    style Runtime fill:#7ed321,stroke:#333,color:#fff
+    style etcd fill:#f5a623,stroke:#333,color:#fff
+    style PeerPod fill:#e8e8e8,stroke:#333
+    style Client fill:#f9f9f9,stroke:#999
+    style Controller fill:#7ed321,stroke:#333,color:#fff
     style Prometheus fill:#e8e8e8,stroke:#333
-    style StatsD fill:#e8e8e8,stroke:#333
-    style RemotePayload fill:#e8e8e8,stroke:#333
+    style Kubelet fill:#e8e8e8,stroke:#333

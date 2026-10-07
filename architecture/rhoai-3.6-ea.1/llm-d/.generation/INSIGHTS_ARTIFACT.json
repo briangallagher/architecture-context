@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "component": "llm-d",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "llm-d-split-security-planes-001",
+      "claim": "The ModelExpress P2P subsystem intentionally splits its security model: gRPC control traffic traverses the Istio mesh with STRICT mTLS, while RDMA data-plane tensor transfers bypass the mesh entirely without encryption or authentication.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "guides/modelexpress-p2p/security/istio-mtls-authz.yaml:1-4"
+        }
+      ],
+      "reasoning": "The istio-mtls-authz.yaml comment explicitly documents that weight transfers ride RDMA and bypass the mesh, with the Istio policies covering only gRPC. This is a performance-driven design trade-off that sacrifices data-plane encryption for HBM-to-HBM transfer throughput, which has implications for RHOAI platform security posture in multi-tenant environments.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-no-builtin-auth-002",
+      "claim": "The vLLM model server HTTP endpoints (port 8000) have no built-in authentication or authorization, making platform-level access control (service mesh, NetworkPolicy) the only barrier to unauthorized inference.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "guides/recipes/modelserver/base/single-host/default/decode-deployment.yaml:17-39"
+        }
+      ],
+      "reasoning": "The decode Deployment manifest defines no auth-related environment variables, sidecar containers, or annotations. The containerPort 8000 is exposed without TLS or bearer token configuration. In an RHOAI deployment, authentication would need to be provided by the platform routing layer or Istio mesh.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "llm-d-upstream-only-003",
+      "claim": "This repository is upstream-only with no Konflux Dockerfiles, Helm charts, or downstream FIPS hardening, indicating that RHOAI integration requires a separate downstream build and packaging pipeline.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "docker/Dockerfile.cpu:1"
+        }
+      ],
+      "reasoning": "The base image is Ubuntu 22.04 (not UBI), there are no Dockerfile.konflux files, no charts/ directory, and no FIPS build flags (CGO_ENABLED, strictfipsruntime). Downstream RHOAI integration must add these layers independently.",
+      "applicability": "platform",
+      "confidence": "high"
+    }
+  ]
+}

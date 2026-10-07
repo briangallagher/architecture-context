@@ -1,180 +1,188 @@
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  EXTERNAL (Untrusted)                                                        │
-│                                                                              │
-│  [Client - Dashboard / CLI / MCP Agent]                                      │
-│         │                                                                    │
-│         │ Port: 8080/TCP                                                     │
-│         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS 1.2+ (configurable TLS 1.2–1.3)                   │
-│         │ Auth: Bearer Token (validated via K8s TokenReview)                  │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  EVAL HUB SERVICE (Internal - ClusterIP)                                     │
-│                                                                              │
-│  [Eval Hub API Server]                                                       │
-│  - Namespace: eval-hub namespace (operator-managed)                          │
-│  - ServiceAccount: eval-hub service account                                  │
-│  - Image: odh-eval-hub-rhel9                                                │
-│  - Port: 8080/TCP (ClusterIP, internal only)                                │
-│  - TLS: Configurable via TLS_CERT_FILE / TLS_KEY_FILE                       │
-│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                      │
-│  - Auth: TokenReview (AuthN) + SubjectAccessReview (AuthZ)                  │
-│  - FIPS Guard: Refuses InsecureSkipVerify when FIPS active                  │
-│         │                                                                    │
-│         ├──────────────────────────────────────────────────────────          │
-│         │                                                                    │
-│  [Eval Hub MCP Server] (Optional)                                            │
-│  - Port: 3001/TCP (ClusterIP) or stdio                                      │
-│  - Protocol: HTTP (MCP Protocol)                                             │
-│  - Encryption: None (configurable)                                           │
-│  - Auth: Bearer token                                                        │
-│  - Connects to Eval Hub API on 8080/TCP                                     │
-│         │                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  EVALUATION JOB PODS (Ephemeral - Created per evaluation)                    │
-│                                                                              │
-│  [eval-runtime-init] (Init Container - runs first, if test_data_ref)        │
-│  - Image: odh-eval-hub-rhel9 (/app/eval-runtime-init)                      │
-│  - ServiceAccount: <instance-name>-<instance-namespace>-job                 │
-│  - No network listener (CLI tool)                                            │
-│         │                                                                    │
-│         │ Port: 443/TCP                                                      │
-│         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: AWS static credentials (from Secret mount)                   │
-│         ▼                                                                    │
-│  [S3-compatible Storage] → see EXTERNAL SERVICES                             │
-│                                                                              │
-│  [Eval Adapter Container] (lm-eval / lighteval / garak / guideLLM)          │
-│  - Image: Provider-specific (from ConfigMap YAML)                            │
-│  - No direct external network access                                         │
-│         │                                                                    │
-│         │ Port: 8080/TCP                                                     │
-│         │ Protocol: HTTP                                                     │
-│         │ Encryption: plaintext (pod-local loopback only)                    │
-│         │ Auth: none (pod-internal, localhost)                                │
-│         ▼                                                                    │
-│  [eval-runtime-sidecar] (Native Sidecar - KEP-753, restartPolicy=Always)    │
-│  - Image: odh-eval-hub-rhel9 (/app/eval-runtime-sidecar)                   │
-│  - Port: 8080/TCP (localhost only)                                           │
-│  - Reverse proxy for eval-hub, MLflow, OCI                                  │
-│  - CA: /etc/pki/ca-trust/source/anchors/service-ca.crt                     │
-│         │                                                                    │
-│         ├─── Port: 8080/TCP ──────────────────────────────────────────────  │
-│         │    Protocol: HTTPS                                                 │
-│         │    Encryption: TLS 1.2+ (custom CA from Service CA)               │
-│         │    Auth: ServiceAccount token (injected by sidecar)               │
-│         │    Destination: Eval Hub API → status updates                      │
-│         │                                                                    │
-│         ├─── Port: configurable ──────────────────────────────────────────  │
-│         │    Protocol: HTTPS                                                 │
-│         │    Encryption: TLS 1.2+                                            │
-│         │    Auth: Projected SA token (/var/run/secrets/mlflow/token, 1h)   │
-│         │    Destination: MLflow Tracking Server → experiment tracking       │
-│         │                                                                    │
-│         └─── Port: 443/TCP ───────────────────────────────────────────────  │
-│              Protocol: HTTPS (OCI Distribution API)                          │
-│              Encryption: TLS 1.2+                                            │
-│              Auth: Docker config.json (from Secret mount)                    │
-│              Destination: OCI Registry → artifact export                     │
-│                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  PLATFORM SERVICES (Internal)                                                │
-│                                                                              │
-│  [Kubernetes API Server]                                                     │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: ServiceAccount token (automounted)                                  │
-│  - Purpose: Job/ConfigMap CRUD, TokenReview, SubjectAccessReview             │
-│                                                                              │
-│  [PostgreSQL Database]                                                       │
-│  - Port: 5432/TCP                                                            │
-│  - Protocol: PostgreSQL                                                      │
-│  - Encryption: TLS (configurable)                                            │
-│  - Auth: Password (from Secret)                                              │
-│  - Purpose: Persistent storage for evaluations, providers, collections       │
-│                                                                              │
-│  [OTEL Collector]                                                            │
-│  - Port: 4317/TCP (gRPC) or 4318/TCP (HTTP)                                │
-│  - Protocol: OTLP                                                            │
-│  - Encryption: TLS (configurable)                                            │
-│  - Auth: None                                                                │
-│  - Purpose: Distributed tracing and metrics export                           │
-│                                                                              │
-│  [Prometheus]                                                                │
-│  - Scrapes: 8080/TCP /metrics                                                │
-│  - Protocol: HTTP/HTTPS (same as API)                                        │
-│  - Auth: None                                                                │
-│  - Purpose: Metrics collection                                               │
-│                                                                              │
-│  [OpenShift Service CA]                                                      │
-│  - Mounted as: ConfigMap → /etc/pki/ca-trust/source/anchors/service-ca.crt  │
-│  - Purpose: Internal TLS CA for service-to-service communication             │
-│  - Provisioned by: service-serving-cert-signer                               │
-│                                                                              │
-│  [Kueue] (Optional)                                                          │
-│  - Integration: Kubernetes label kueue.x-k8s.io/queue-name                  │
-│  - No direct network call                                                    │
-│  - Purpose: Job queue management                                             │
-│                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  EXTERNAL SERVICES                                                           │
-│                                                                              │
-│  [MLflow Tracking Server]                                                    │
-│  - Port: configurable                                                        │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+ (custom CA support)                                 │
-│  - Auth: Bearer token (eval-hub), Projected SA token (sidecar, 1h expiry)   │
-│  - Purpose: Experiment creation and evaluation result tracking               │
-│                                                                              │
-│  [S3-compatible Storage]                                                     │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: AWS static credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)   │
-│  - Purpose: Test data download (init container only)                         │
-│                                                                              │
-│  [OCI Registry (Quay)]                                                       │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS (OCI Distribution API)                                    │
-│  - Encryption: TLS 1.2+                                                      │
-│  - Auth: Docker config.json / Bearer token                                   │
-│  - Purpose: Evaluation artifact export (via sidecar proxy)                   │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [User / Data Scientist]           [AI Agent]                            │
+│         │                              │                                 │
+│         │ Port: 443/TCP                │ Port: 3001/TCP                  │
+│         │ Protocol: HTTPS              │ Protocol: MCP over HTTP/HTTPS   │
+│         │ Encryption: TLS 1.2+         │ Encryption: Optional TLS        │
+│         │ Auth: OAuth/Bearer Token     │ Auth: rbac-proxy or none        │
+│         ▼                              ▼                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│  AUTHENTICATION LAYER (DMZ)                                              │
+│                                                                          │
+│  [kube-rbac-proxy]                                                       │
+│  - Port: 443/TCP (external) → 8080/TCP (internal)                      │
+│  - TLS Termination: TLS 1.2+                                            │
+│  - AuthN: Validates identity, injects X-Tenant + X-User headers         │
+│  - AuthZ: Kubernetes RBAC-based authorization                            │
+│         │                                                                │
+│         │ Port: 8080/TCP                                                 │
+│         │ Protocol: HTTP/HTTPS                                           │
+│         │ Encryption: Optional TLS 1.2-1.3                               │
+│         │ Auth: X-Tenant + X-User headers                                │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  APPLICATION LAYER (Cluster-Internal)                                    │
+│                                                                          │
+│  [EvalHub API Service]                                                   │
+│  - Namespace: {evalhub-namespace}                                        │
+│  - ServiceAccount: {operator-managed}                                    │
+│  - Port: 8080/TCP (API), 8081/TCP (Prometheus metrics)                  │
+│  - Image: quay.io/rhoai/odh-eval-hub-rhel9                             │
+│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                  │
+│  - TLS: MinVersion 1.2, MaxVersion 1.3                                  │
+│  - FIPS mode rejects InsecureSkipVerify=true                             │
+│         │                          │                                     │
+│         │                          │ Port: 8081/TCP                      │
+│         │                          │ Protocol: HTTP                      │
+│         │                          │ Encryption: None                    │
+│         │                          │ Auth: None                          │
+│         │                          ▼                                     │
+│         │                  [Prometheus]                                   │
+│         │                  - Scrapes /metrics                             │
+│         │                                                                │
+│  [evalhub-mcp Server]                                                    │
+│  - Port: 3001/TCP (HTTP) or stdio                                       │
+│  - Transports: stdio, HTTP, HTTP-SSE (deprecated)                       │
+│  - Auth: rbac-proxy (X-User, X-Tenant) or none (configurable)          │
+│         │                                                                │
+│         │ Port: 8080/TCP                                                 │
+│         │ Protocol: HTTP/HTTPS                                           │
+│         │ Auth: Bearer Token                                             │
+│         ▼                                                                │
+│  [EvalHub API Service] (same as above)                                   │
+│         │                                                                │
+│         │ Port: 443/TCP                                                  │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount Token                                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES API (Control Plane)                                          │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 443/TCP                                                         │
+│  - Purpose: Job creation, status polling, log streaming,                 │
+│             ConfigMap/Secret management                                  │
+│  - Auth: ServiceAccount Token (projected)                                │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EVALUATION JOB POD (Ephemeral - Per-Evaluation)                         │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐     │
+│  │  [eval-runtime-init] (Init Container)                           │     │
+│  │  - Downloads test data from S3 to /test_data shared volume      │     │
+│  │  - Port: None (batch, not a server)                             │     │
+│  │         │                                                        │     │
+│  │         │ Port: 443/TCP                                          │     │
+│  │         │ Protocol: HTTPS                                        │     │
+│  │         │ Encryption: TLS 1.2+                                   │     │
+│  │         │ Auth: AWS static credentials (from K8s Secret mount)   │     │
+│  │         ▼                                                        │     │
+│  │  → S3-compatible Storage                                         │     │
+│  └─────────────────────────────────────────────────────────────────┘     │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐     │
+│  │  [Evaluation Adapter Container]                                  │     │
+│  │  - Framework-specific: lm-eval, Garak, RAGAS, GuideLLM, etc.   │     │
+│  │         │                                                        │     │
+│  │         │ Port: 8080/TCP                                         │     │
+│  │         │ Protocol: HTTP                                         │     │
+│  │         │ Encryption: None (pod-local loopback)                  │     │
+│  │         │ Auth: None                                             │     │
+│  │         ▼                                                        │     │
+│  │  [eval-runtime-sidecar] (Sidecar Proxy)                         │     │
+│  │  - Routes by URL prefix:                                         │     │
+│  │    /api/v1/evaluations/* → EvalHub API (SA Token)               │     │
+│  │    /api/2.0/mlflow*     → MLflow (File-based Bearer Token)      │     │
+│  │    /api/3.0/mlflow*     → MLflow (File-based Bearer Token)      │     │
+│  │    OCI paths            → OCI Registry (Docker config.json)     │     │
+│  │    Default              → Model Endpoint (Ref Token / SA Token) │     │
+│  │  - Token caching: 5-min TTL with atomic pointer swap             │     │
+│  │  - Ref token resolution: Bearer api-key:ref → actual secret     │     │
+│  │  - Error signaling: X-Model-Cred-Error header                   │     │
+│  └─────────────────────────────────────────────────────────────────┘     │
+│         │              │              │              │                    │
+│         │              │              │              │                    │
+│         ▼              ▼              ▼              ▼                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                       │
+│                                                                          │
+│  [MLflow Tracking Server]                                                │
+│  - Port: configurable                                                    │
+│  - Protocol: HTTP/HTTPS                                                  │
+│  - Encryption: Optional TLS 1.2-1.3                                     │
+│  - Auth: File-based Bearer Token (5-min cache)                          │
+│  - Purpose: Experiment tracking, run management, metric logging          │
+│                                                                          │
+│  [S3-compatible Storage - e.g., s3.amazonaws.com]                       │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: AWS static credentials (access key + secret key)               │
+│  - Purpose: Test dataset storage                                         │
+│                                                                          │
+│  [OCI Registry - e.g., quay.io]                                         │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS (OCI v2 API)                                         │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: Docker config.json + challenge-response                        │
+│  - Purpose: Evaluation card publishing                                   │
+│                                                                          │
+│  [Model Endpoint - e.g., vLLM, TGI]                                    │
+│  - Port: configurable                                                    │
+│  - Protocol: HTTP/HTTPS                                                  │
+│  - Encryption: Optional TLS                                              │
+│  - Auth: Bearer Token (ref resolution) / SA Token (fallback)            │
+│  - Purpose: Model inference during evaluation                            │
+│                                                                          │
+│  [PostgreSQL]                                                            │
+│  - Port: 5432/TCP                                                        │
+│  - Protocol: TCP (pgx driver)                                            │
+│  - Encryption: Optional TLS                                              │
+│  - Auth: Username/Password                                               │
+│  - Purpose: Production DB (jobs, providers, collections)                 │
+│                                                                          │
+│  [OpenTelemetry Collector]                                               │
+│  - Port: 4317/TCP (gRPC) or 4318/TCP (HTTP)                            │
+│  - Protocol: OTLP gRPC or HTTP                                          │
+│  - Encryption: Optional TLS                                              │
+│  - Auth: None                                                            │
+│  - Purpose: Distributed tracing, metrics, log export                     │
+└─────────────────────────────────────────────────────────────────────────┘
 
-RBAC Summary:
-- Role (managed by RHOAI operator):
-  - API Groups: batch          Resources: jobs                    Verbs: create, get, list, delete
-  - API Groups: ""             Resources: configmaps              Verbs: create, get, list, delete, update
-  - API Groups: ""             Resources: secrets                 Verbs: get
-  - API Groups: authentication.k8s.io  Resources: tokenreviews   Verbs: create
-  - API Groups: authorization.k8s.io   Resources: subjectaccessreviews  Verbs: create
+MULTI-TENANCY:
+- Tenant boundary: per-namespace (X-Tenant header maps to namespace)
+- Deployment model: multi-tenant; single EvalHub serves multiple tenants
+- Data isolation: SQL row-level filtering via WithTenant() / WithOwner()
+- No database-level row security or schema separation
+- K8s Job pods run in tenant namespaces
+- Per-namespace secrets for model auth, MLflow tokens, OCI credentials
 
-- Role Bindings:
-  - eval-hub role → eval-hub service account (eval-hub namespace)
-  - job role → <instance-name>-<instance-namespace>-job SA (job namespace)
+SECRETS:
+- model-auth (Opaque) - Model endpoint credentials; User/Operator provisioned; No auto-rotate
+- mlflow-token (Opaque) - MLflow bearer token; Operator/Manual; No auto-rotate
+- oci-credentials (dockerconfigjson) - OCI registry auth; User/Operator; No auto-rotate
+- test-data-s3 (Opaque) - AWS credentials for S3; User/Manual; No auto-rotate
+- TLS certs (kubernetes.io/tls) - Server TLS cert+key; cert-manager/Manual; Depends on provisioner
+- service-ca (ConfigMap) - OpenShift service CA bundle; Service CA Operator; Yes (auto)
 
-Authentication & Authorization:
-- /api/v1/evaluations/*: Bearer token → K8s TokenReview (AuthN) → SubjectAccessReview (AuthZ)
-  - HTTP verb mapping: GET→get, POST→create, PUT→update, PATCH→patch, DELETE→delete
-  - Resource attributes are configurable
-- /api/v1/health, /openapi.yaml, /docs, /metrics: Unauthenticated
+RBAC:
+- RBAC manifests managed by TrustyAI Service Operator (not in eval-hub repo)
+- K8s runtime requires: create/get/delete Jobs, ConfigMaps, Secrets
+- Permissions granted via operator's ServiceAccount
 
-Secrets:
-- Database password (Opaque) — PostgreSQL credentials, provisioned by operator/admin, no auto-rotate
-- OCI credentials (kubernetes.io/dockerconfigjson) — Registry auth, user-provided, no auto-rotate
-- Model auth (Opaque) — Model endpoint API keys/tokens, user-provided, no auto-rotate
-- Test data S3 credentials (Opaque) — AWS credentials, user-provided, no auto-rotate
-- Service CA ConfigMap (service-ca.crt) — Internal TLS CA, OpenShift auto-provisioned, auto-rotated
-- MLflow token (Projected ServiceAccountToken) — K8s auth for MLflow, auto-rotated (1h expiry)
+FIPS COMPLIANCE:
+- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, dynamic linking
+- TLS: MinVersion 1.2, MaxVersion 1.3; InsecureSkipVerify rejected in FIPS mode
+- Crypto: stdlib crypto/tls (FIPS via OpenSSL under strictfipsruntime)
+- No non-FIPS crypto (MD5/RC4/DES) detected in codebase
 
-FIPS Compliance:
-- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, dynamic linking, UBI9 base
-- Runtime: TLS 1.2–1.3 enforced, stdlib crypto/tls via OpenSSL
-- Guard: Server refuses InsecureSkipVerify when /proc/sys/crypto/fips_enabled is active
-
-No Ingress Defined:
-- eval-hub is an internal ClusterIP service
-- External access provided by platform operator via HTTPRoute (RHOAI 3.x) or Route (RHOAI 2.x)
+AUTHENTICATION FLOW:
+- External → kube-rbac-proxy: OAuth/Bearer Token → validated → X-Tenant + X-User injected
+- EvalHub validates: X-Tenant required in cluster mode; X-User required in cluster mode
+- Sidecar → EvalHub: K8s SA Token (projected, 5-min cache)
+- Sidecar → MLflow: File-based Bearer Token (from mounted secret, 5-min cache)
+- Sidecar → OCI: Docker config.json + challenge-response token exchange
+- Sidecar → Model: Ref token resolution (api-key:ref → secret lookup) / SA Token fallback

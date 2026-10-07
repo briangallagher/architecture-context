@@ -1,0 +1,52 @@
+graph LR
+    Kubeflow["Kubeflow Notebooks<br/>Operator"]
+
+    %% External Dependencies (Runtime)
+    Kubeflow -->|"runtime framework"| ControllerRuntime["controller-runtime 0.23.3"]
+    Kubeflow -->|"Go runtime"| Go["Go 1.26.5"]
+    Kubeflow -->|"routing"| GatewayAPI["Gateway API<br/>sigs.k8s.io/gateway-api 1.2.1"]
+    Kubeflow -->|"K8s client"| ClientGo["k8s.io/client-go 0.35.2"]
+
+    %% Observability
+    Kubeflow -->|"logging"| Zap["go.uber.org/zap 1.28.0"]
+    Kubeflow -->|"metrics"| Prometheus["prometheus/client_golang 1.23.2"]
+    Kubeflow -->|"tracing"| OTel["OpenTelemetry 1.44.0"]
+
+    %% Internal RHOAI Dependencies
+    Kubeflow -->|"pipeline integration<br/>(optional)"| DSPA["data-science-pipelines-operator"]
+    Kubeflow -->|"chaos testing"| OperatorChaos["operator-chaos"]
+    Kubeflow -->|"OpenShift APIs"| OpenshiftAPI["openshift/api"]
+    Kubeflow -->|"controller-runtime-common"| CRCommon["openshift/controller-runtime-common"]
+
+    %% Platform Dependencies
+    Kubeflow -->|"TLS profile"| APIServer["OpenShift APIServer<br/>config.openshift.io"]
+    Kubeflow -->|"image metadata"| ImageStreams["OpenShift Image Streams"]
+    Kubeflow -->|"route status"| Routes["OpenShift Routes"]
+
+    %% Integration Points (other components depend on Kubeflow)
+    Dashboard["ODH Dashboard"] -->|"UI management"| Kubeflow
+    Pipelines["Data Science Pipelines"] -.->|"Elyra integration"| Kubeflow
+
+    %% Kubernetes Resources
+    Kubeflow -->|"manages"| K8sResources["Kubernetes API<br/>StatefulSets, Services,<br/>NetworkPolicies, Secrets"]
+    Kubeflow -->|"manages"| GatewayResources["Gateway Resources<br/>HTTPRoutes, ReferenceGrants"]
+
+    style Kubeflow fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style ControllerRuntime fill:#999,stroke:#333,color:#fff
+    style Go fill:#999,stroke:#333,color:#fff
+    style GatewayAPI fill:#999,stroke:#333,color:#fff
+    style ClientGo fill:#999,stroke:#333,color:#fff
+    style Zap fill:#b8b8b8,stroke:#333
+    style Prometheus fill:#b8b8b8,stroke:#333
+    style OTel fill:#b8b8b8,stroke:#333
+    style DSPA fill:#7ed321,stroke:#333,color:#fff
+    style OperatorChaos fill:#7ed321,stroke:#333,color:#fff
+    style OpenshiftAPI fill:#7ed321,stroke:#333,color:#fff
+    style CRCommon fill:#7ed321,stroke:#333,color:#fff
+    style APIServer fill:#f5a623,stroke:#333,color:#fff
+    style ImageStreams fill:#f5a623,stroke:#333,color:#fff
+    style Routes fill:#f5a623,stroke:#333,color:#fff
+    style Dashboard fill:#7ed321,stroke:#333,color:#fff
+    style Pipelines fill:#7ed321,stroke:#333,color:#fff
+    style K8sResources fill:#f5a623,stroke:#333
+    style GatewayResources fill:#f5a623,stroke:#333

@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "component": "model-metadata-collection",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "model-metadata-collection-pattern-001",
+      "claim": "model-metadata-collection uses a data-only container pattern where CI/CD tools generate static YAML catalogs that ship as volume-mount data, completely separating the build-time collection pipeline from the runtime container.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/entrypoints"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:29"
+        }
+      ],
+      "reasoning": "Both Dockerfiles use CMD [\"sleep\", \"infinity\"] and the Go binaries are not copied into the container image. The container only packages pre-generated YAML files and exposes them via VOLUME mount point. This means the deployed container has zero attack surface (no network listeners, no application code) while the CI tools handle all external API interactions.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "model-metadata-collection-risk-001",
+      "claim": "The model-extractor CI tool authenticates to HuggingFace and GitHub APIs using optional environment-variable Bearer tokens with no credential rotation or secret management beyond the CI environment.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/huggingface/client.go:35-40"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/github/client.go:30-35"
+        }
+      ],
+      "reasoning": "Both HF_TOKEN and GITHUB_TOKEN are read from environment variables via sync.Once lazy initialization. There is no secret rotation, vault integration, or credential expiry handling. When tokens are absent, the tools fall back to unauthenticated requests which are subject to rate limiting. This is acceptable for a CI tool but represents a supply chain consideration since the generated catalogs inform platform-level model availability.",
+      "applicability": "component",
+      "confidence": "medium"
+    }
+  ]
+}

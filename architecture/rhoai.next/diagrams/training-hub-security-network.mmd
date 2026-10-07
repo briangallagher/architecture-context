@@ -1,69 +1,69 @@
 graph TB
-    subgraph UserEnv["USER ENVIRONMENT (Trusted)"]
-        UserScript["User Script / Notebook<br/>Env: HF_TOKEN, WANDB_API_KEY"]
-    end
-
-    subgraph Library["TRAINING-HUB LIBRARY (In-Process)"]
-        direction TB
-        Registry["AlgorithmRegistry<br/>Factory Pattern"]
-        AlgoBackend["Algorithm + Backend<br/>SFT / OSFT / LoRA+SFT /<br/>LoRA+GRPO / GRPO"]
-        Registry --> AlgoBackend
-    end
-
-    subgraph DistTraining["DISTRIBUTED TRAINING (Intra-Cluster, No Encryption)"]
+    subgraph TrainingHost["TRAINING HOST (Trusted - GPU Node / Pod)"]
         direction TB
 
-        subgraph TorchrunCluster["torchrun DDP/FSDP"]
-            Master["torchrun Master<br/>Port: dynamic/TCP<br/>No encryption<br/>No auth"]
-            Workers["GPU Worker Nodes<br/>NCCL gradient sync<br/>No encryption"]
-            Master -->|TCP/NCCL| Workers
-        end
+        subgraph Library["Training Hub Library<br/>(PyPI: training-hub)"]
+            direction TB
 
-        subgraph ARTProcess["ART Subprocess (Single-GPU)"]
-            VLLM_ART["vLLM Inference<br/>localhost/HTTP<br/>No encryption<br/>No auth"]
-            LoRATrainer["LoRA Trainer<br/>GRPO loss"]
-            VLLM_ART <-->|HTTP localhost| LoRATrainer
-        end
+            subgraph InProcess["In-Process Algorithms"]
+                SFT["SFT / OSFT / LoRA+SFT<br/>In-process backends"]
+                GEPA["GEPA<br/>Prompt Optimization"]
+            end
 
-        subgraph VeRLProcess["verl Subprocess (Multi-GPU)"]
-            VeRLWorkers["vLLM Rollout Workers<br/>TCP distributed<br/>No encryption"]
-            FSDPWorkers["FSDP Training Workers<br/>NCCL<br/>No encryption"]
-            VeRLWorkers <-->|TCP| FSDPWorkers
+            subgraph SubProcess["Subprocess-Isolated Algorithms"]
+                ART["LoRA GRPO (ART)<br/>subprocess + vLLM<br/>(thread safety isolation)"]
+                VeRL["LoRA GRPO (verl)<br/>subprocess + Ray/FSDP"]
+            end
         end
     end
 
-    subgraph ExternalServices["EGRESS - EXTERNAL SERVICES"]
+    subgraph DistributedTraining["INTER-NODE (Distributed Training)"]
+        direction TB
+        TorchWorkers["PyTorch torchrun Workers<br/>NCCL/Gloo<br/>TCP, No Encryption<br/>Auth: rdzv_id"]
+        RayCluster["Ray Cluster<br/>Object Store + GCS<br/>TCP, No Encryption<br/>Auth: None"]
+    end
+
+    subgraph EgressServices["EGRESS (Runtime-Dependent)"]
+        direction TB
         HFHub["HuggingFace Hub<br/>huggingface.co<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: HF_TOKEN (optional)"]
-        WandB["WandB API<br/>api.wandb.ai<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: WANDB_API_KEY"]
-        MLflow["MLflow Tracking<br/>User-configured<br/>HTTPS<br/>TLS 1.2+<br/>Auth: Token/None"]
+        vLLMEndpoint["vLLM Inference Endpoint<br/>configurable port<br/>HTTP, None/TLS<br/>Auth: API key (optional)"]
+        MLflowServer["MLflow Tracking Server<br/>configurable port<br/>HTTP/HTTPS<br/>Auth: Token (optional)"]
+        WandB["Weights & Biases<br/>api.wandb.ai<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: WANDB_API_KEY"]
+        LLMAPI["LLM API (via litellm)<br/>configurable<br/>HTTP/HTTPS<br/>Auth: API key<br/>NOTE: v1.82.7-8 excluded<br/>(supply chain attack)"]
     end
 
-    subgraph LocalFS["LOCAL FILESYSTEM (Trusted)"]
-        Checkpoints["Checkpoints & Metrics<br/>Model weights, LoRA adapters,<br/>metrics JSONL, trainer_state.json"]
-        TrainingData["Training Data<br/>JSONL, chat conversations<br/>(may contain sensitive data)"]
+    subgraph LocalIO["LOCAL I/O"]
+        Checkpoints["Checkpoint Directory<br/>safetensors format"]
+        TBLogs["TensorBoard Logs"]
+        MetricsJSON["training_metrics.jsonl"]
     end
 
-    %% Flows
-    UserScript -->|"Python API<br/>In-process"| Registry
-    AlgoBackend -->|"torchrun<br/>(SFT/OSFT)"| Master
-    AlgoBackend -->|"subprocess<br/>(LoRA+GRPO single-GPU)"| VLLM_ART
-    AlgoBackend -->|"subprocess<br/>(LoRA+GRPO/GRPO multi-GPU)"| VeRLWorkers
-    AlgoBackend -->|"HTTPS/443<br/>TLS 1.2+<br/>HF_TOKEN"| HFHub
-    AlgoBackend -.->|"HTTPS/443<br/>TLS 1.2+<br/>API Key"| WandB
-    AlgoBackend -.->|"HTTPS<br/>TLS 1.2+<br/>Token"| MLflow
-    AlgoBackend -->|"Write checkpoints"| Checkpoints
-    AlgoBackend -->|"Read training data"| TrainingData
+    %% In-process training flows
+    SFT -->|"torchrun launch<br/>TCP (NCCL/Gloo)<br/>No Encryption"| TorchWorkers
+    VeRL -->|"subprocess<br/>TCP (Ray)<br/>No Encryption"| RayCluster
+    ART -->|"HTTP<br/>rollout generation"| vLLMEndpoint
+
+    %% Egress flows
+    Library -->|"HTTPS/443<br/>TLS 1.2+<br/>HF_TOKEN"| HFHub
+    VeRL -->|"TCP (NCCL)<br/>rollout generation"| vLLMEndpoint
+    GEPA -->|"HTTPS<br/>API key"| LLMAPI
+    GEPA -->|"HTTP/HTTPS<br/>Token"| MLflowServer
+    Library -.->|"HTTPS/443<br/>WANDB_API_KEY<br/>(optional)"| WandB
+    Library -.->|"HTTP/HTTPS<br/>Token (optional)"| MLflowServer
+
+    %% Local I/O
+    Library -->|"File I/O"| Checkpoints
+    Library -->|"File I/O"| TBLogs
+    VeRL -->|"Log parsing"| MetricsJSON
 
     %% Styling
-    classDef userenv fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    classDef library fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    classDef disttraining fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    classDef external fill:#fff8e1,stroke:#f9a825,stroke-width:2px
-    classDef filesystem fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef noencrypt fill:#ffebee,stroke:#c62828,stroke-width:2px
+    classDef trusted fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef distributed fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef egress fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef localio fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef algorithm fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
 
-    class UserScript userenv
-    class Registry,AlgoBackend library
-    class Master,Workers,VLLM_ART,LoRATrainer,VeRLWorkers,FSDPWorkers noencrypt
-    class HFHub,WandB,MLflow external
-    class Checkpoints,TrainingData filesystem
+    class SFT,GEPA,ART,VeRL algorithm
+    class TorchWorkers,RayCluster distributed
+    class HFHub,vLLMEndpoint,MLflowServer,WandB,LLMAPI egress
+    class Checkpoints,TBLogs,MetricsJSON localio

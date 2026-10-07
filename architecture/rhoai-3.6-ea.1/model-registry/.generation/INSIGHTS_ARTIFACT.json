@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "component": "model-registry",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "model-registry-fips-strictruntime-001",
+      "claim": "Model Registry Go binaries are built with GOEXPERIMENT=strictfipsruntime and dynamic linking, enabling FIPS-validated crypto via OpenSSL on UBI9, while the TLS configuration enforces minimum TLS 1.2 and rejects insecure cipher suites at startup.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:23"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/platform/tls/config.go:64-68"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/platform/tls/config.go:121-125"
+        }
+      ],
+      "reasoning": "The Dockerfile.konflux build command uses CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime, and -tags strictfipsruntime, which forces Go to use OpenSSL for cryptographic operations rather than the Go stdlib crypto. The TLS config sets MinVersion to TLS 1.2 and the parseCipherSuites function explicitly checks each configured cipher against tls.InsecureCipherSuites() and returns an error if any insecure cipher is selected. This combination provides both build-time and application-level FIPS compliance for the Go components.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "model-registry-conditional-controller-002",
+      "claim": "The InferenceService controller is conditionally enabled via the INFERENCE_SERVICE_CONTROLLER=managed environment variable, making the KServe integration an opt-in platform feature rather than a required dependency.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/controller/main.go:138"
+        },
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/internal_dependencies"
+        }
+      ],
+      "reasoning": "The controller binary checks os.Getenv('INFERENCE_SERVICE_CONTROLLER') == 'managed' before setting up the InferenceService reconciler. When not set to 'managed', the controller runs without the InferenceService watch, reducing the dependency surface. This conditional activation means the KServe InferenceService dependency is structural but optional at deployment time.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "model-registry-no-grpc-003",
+      "claim": "Model Registry has fully transitioned away from gRPC to HTTP REST APIs; no proto files or gRPC server registrations exist in the current codebase.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "main.go:8"
+        },
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/grpc_services"
+        }
+      ],
+      "reasoning": "Historical versions of model-registry used ml_metadata's gRPC interface. The current codebase contains no .proto files and no gRPC server or service registration code. The hub binary serves HTTP via a proxy command, and the controller uses HTTP-based OpenAPI clients. This simplifies the network architecture but means gRPC-native clients must use the REST API instead.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

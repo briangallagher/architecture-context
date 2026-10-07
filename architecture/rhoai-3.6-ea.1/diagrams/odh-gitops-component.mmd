@@ -1,0 +1,66 @@
+graph TB
+    subgraph "odh-gitops Configuration Repository"
+        direction TB
+
+        subgraph HelmCharts["Helm Charts"]
+            direction LR
+            OCPChart["rhai-on-openshift-chart<br/>OLM-based deployment"]
+            XKSChart["rhai-on-xks-chart<br/>Non-OLM deployment<br/>(EKS, AKS, CoreWeave)"]
+        end
+
+        subgraph KustomizeTree["Kustomize Tree"]
+            direction LR
+            OpSubs["operator-subscriptions<br/>OLM Subscription manifests"]
+            OpConfigs["operator-configurations<br/>Post-install CRs"]
+        end
+    end
+
+    %% OpenShift Chart outputs
+    OCPChart -->|templates| DSC["DataScienceCluster CR"]
+    OCPChart -->|templates| DSCI["DSCInitialization CR"]
+    OCPChart -->|templates| GW_KServe["KServe Inference Gateway<br/>GatewayClass + Gateway"]
+    OCPChart -->|templates| GW_MaaS["MaaS Gateway<br/>GatewayClass + Gateway"]
+    OCPChart -->|templates| KuadrantCR["Kuadrant CR<br/>kuadrant-system"]
+
+    %% XKS Chart outputs
+    XKSChart -->|bundles| CertMgr_Helm["cert-manager<br/>(Helm sub-chart)"]
+    XKSChart -->|bundles| GatewayAPI_Helm["gateway-api<br/>(Helm sub-chart)"]
+    XKSChart -->|bundles| Sail_Helm["sail-operator<br/>(Helm sub-chart)"]
+    XKSChart -->|bundles| RHCL_Helm["rhcl-operator<br/>(Helm sub-chart)"]
+    XKSChart -->|bundles| LWS_Helm["lws-operator<br/>(Helm sub-chart)"]
+    XKSChart -->|bundles| RHAI_Op["rhai-operator<br/>(Helm sub-chart)"]
+
+    %% Kustomize outputs
+    OpSubs -->|manages| SubList["OLM Subscriptions<br/>cert-manager, kueue, jobset,<br/>observability, telemetry,<br/>tempo, RHCL, custom-metrics"]
+    OpConfigs -->|deploys| ConfigCRs["Configuration CRs<br/>Kueue, JobSet,<br/>LeaderWorkerSet, Kuadrant"]
+
+    %% Target
+    DSC --> Cluster["Target OpenShift Cluster"]
+    DSCI --> Cluster
+    GW_KServe --> Cluster
+    GW_MaaS --> Cluster
+    KuadrantCR --> Cluster
+    SubList --> Cluster
+    ConfigCRs --> Cluster
+    CertMgr_Helm --> XKSCluster["Target XKS Cluster"]
+    GatewayAPI_Helm --> XKSCluster
+    Sail_Helm --> XKSCluster
+    RHCL_Helm --> XKSCluster
+    LWS_Helm --> XKSCluster
+    RHAI_Op --> XKSCluster
+
+    %% Profiles
+    Profiles["Profile System<br/>default | rhaii"] -.->|controls managementState| OCPChart
+
+    style OCPChart fill:#4a90e2,stroke:#333,color:#fff
+    style XKSChart fill:#4a90e2,stroke:#333,color:#fff
+    style OpSubs fill:#7ed321,stroke:#333
+    style OpConfigs fill:#7ed321,stroke:#333
+    style DSC fill:#f5a623,stroke:#333
+    style DSCI fill:#f5a623,stroke:#333
+    style GW_KServe fill:#f5a623,stroke:#333
+    style GW_MaaS fill:#f5a623,stroke:#333
+    style KuadrantCR fill:#f5a623,stroke:#333
+    style Cluster fill:#e8e8e8,stroke:#333
+    style XKSCluster fill:#e8e8e8,stroke:#333
+    style Profiles fill:#d4a5f9,stroke:#333

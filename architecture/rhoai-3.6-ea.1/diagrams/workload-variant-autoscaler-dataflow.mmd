@@ -1,0 +1,57 @@
+sequenceDiagram
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS TLS 1.2+
+    participant CM as ConfigMap Controller
+    participant HPA as HPA Controller
+    participant IP as InferencePool Controller
+    participant SO as ScaledObject Controller
+    participant Coord as Coordinator /<br/>Optimization Engine
+    participant Kalman as Kalman Filter<br/>Predictor
+    participant Prom as Prometheus<br/>HTTPS TLS 1.2+
+    participant Actuator as Direct Actuator
+    participant Target as Deployment / LWS<br/>Scale Subresource
+
+    Note over CM,SO: Startup: Controller-runtime initializes informers
+
+    %% ConfigMap bootstrap
+    rect rgb(229, 232, 212)
+        Note over CM,K8sAPI: Configuration Bootstrap
+        K8sAPI->>CM: ConfigMap watch event<br/>SA: controller-manager
+        CM->>CM: Bootstrap initial state<br/>Propagate config to datastore
+        CM-->>K8sAPI: Status update
+    end
+
+    %% HPA/InferencePool/ScaledObject discovery
+    rect rgb(212, 232, 229)
+        Note over HPA,SO: Target Discovery (parallel loops)
+        K8sAPI->>HPA: HPA watch event<br/>autoscaling/v2
+        K8sAPI->>IP: InferencePool watch event<br/>inference.networking.k8s.io
+        K8sAPI->>SO: ScaledObject watch event<br/>keda.sh/v1alpha1 (conditional)
+        HPA->>Coord: Register scaling target
+        IP->>Coord: Register pool target
+        SO->>Coord: Register KEDA target
+    end
+
+    %% Metrics collection and scaling decision
+    rect rgb(255, 242, 204)
+        Note over Coord,Prom: Metrics Collection Loop
+        Coord->>Prom: Query saturation metrics<br/>Auth: Bearer Token / mTLS<br/>TLS 1.2+ minimum
+        Prom-->>Coord: Metric values<br/>(saturation data)
+        Coord->>Kalman: Feed metrics for prediction
+        Kalman-->>Coord: Predicted scaling action<br/>(Kalman filter output)
+    end
+
+    %% Scaling action
+    rect rgb(248, 206, 204)
+        Note over Coord,Target: Scaling Execution
+        Coord->>Actuator: Execute scaling decision
+        Actuator->>K8sAPI: PATCH autoscaling/v1/Scale<br/>SA: controller-manager<br/>RBAC: manager-role
+        K8sAPI->>Target: Update replica count
+        Target-->>K8sAPI: Scale confirmed
+        K8sAPI-->>Actuator: 200 OK
+    end
+
+    %% Observability
+    rect rgb(225, 213, 231)
+        Note over K8sAPI: Observability
+        Note right of Actuator: :8443/metrics (TokenReview + SAR)<br/>:8081/healthz (unauthenticated)<br/>:8081/readyz (unauthenticated)
+    end

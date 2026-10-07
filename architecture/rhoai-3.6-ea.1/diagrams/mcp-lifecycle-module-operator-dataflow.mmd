@@ -1,0 +1,50 @@
+sequenceDiagram
+    participant Admin as Cluster Admin
+    participant KubeAPI as Kubernetes API<br/>6443/TCP HTTPS TLS 1.2+
+    participant ModuleOp as MCP Lifecycle<br/>Module Operator<br/>controller-runtime
+    participant KustomizeProv as KustomizeProvider<br/>Embedded FS
+    participant SSA as SSA Deployer<br/>odh-platform-utilities
+    participant OperandDeploy as Operand Deployment<br/>mcp-lifecycle-operator
+    participant Prometheus as Prometheus<br/>8443/TCP
+
+    Note over Admin,OperandDeploy: Reconciliation Trigger Flow
+
+    Admin->>KubeAPI: Create/Update MCPLifecycleOperator CR<br/>(cluster-scoped)
+    KubeAPI-->>ModuleOp: Watch event (For)<br/>ServiceAccount token auth
+
+    Note over ModuleOp: Also triggered by drift<br/>detection on owned resources:<br/>Deployments, ConfigMaps,<br/>Services, RBAC, CRDs
+
+    ModuleOp->>KustomizeProv: Render operand manifests<br/>with runtime parameters
+    Note over KustomizeProv: Parameters:<br/>RELATED_IMAGE_ODH_MCP_LIFECYCLE_OPERATOR_IMAGE<br/>operator version, namespace
+
+    KustomizeProv-->>ModuleOp: Rendered manifests
+
+    ModuleOp->>SSA: Deploy with ordered sequencing<br/>Field owner: mcp-lifecycle-operator
+    Note over SSA: Caches applied manifests<br/>to skip unchanged resources
+
+    SSA->>KubeAPI: Server-Side Apply:<br/>1. CRD (MCPServer)<br/>2. ServiceAccount, RBAC<br/>3. NetworkPolicy<br/>4. Deployment<br/>5. ServiceMonitor, Service
+
+    KubeAPI-->>SSA: Applied
+
+    Note over OperandDeploy: Operand starts independently
+
+    SSA-->>ModuleOp: Deployment complete
+
+    Note over ModuleOp,OperandDeploy: Operand Lifecycle Monitoring
+
+    ModuleOp->>KubeAPI: Watch operand Deployment
+    KubeAPI-->>ModuleOp: Deployment status changes
+    ModuleOp->>KubeAPI: Update MCPLifecycleOperator status<br/>Conditions: Ready, ProvisioningSucceeded, Degraded
+
+    Note over OperandDeploy,Prometheus: Metrics Collection
+
+    OperandDeploy->>KubeAPI: Leader election<br/>(Lease in operand namespace)
+    Prometheus->>OperandDeploy: Scrape /metrics<br/>8443/TCP
+    Note over OperandDeploy: Auth: TokenReview +<br/>SubjectAccessReview validation
+    OperandDeploy-->>Prometheus: Metrics response
+
+    Note over OperandDeploy: MCPServer Reconciliation
+
+    OperandDeploy->>KubeAPI: Watch MCPServer CRs<br/>(user namespaces)
+    KubeAPI-->>OperandDeploy: MCPServer events
+    OperandDeploy->>KubeAPI: Reconcile MCPServer resources<br/>(Deployments, Services, NetworkPolicies)

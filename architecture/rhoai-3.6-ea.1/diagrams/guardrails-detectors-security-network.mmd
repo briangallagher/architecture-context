@@ -1,0 +1,49 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Orchestrator["FMS Guardrails Orchestrator"]
+    end
+
+    subgraph KServeInfra["KSERVE SERVING INFRASTRUCTURE (Internal)"]
+        direction TB
+
+        subgraph BuiltInZone["Built-in Detector"]
+            BuiltIn["Built-in Detector Pod<br/>Port: 8080/TCP HTTP<br/>Image: AIPCC base cpu:3.5.0<br/>Entrypoint: /app/bin/regex-detector<br/>Auth: None<br/>FIPS: AIPCC base (OpenSSL)"]
+        end
+
+        subgraph HFZone["HuggingFace Detector"]
+            HF["HuggingFace Detector Pod<br/>Port: 8000/TCP HTTP<br/>ServingRuntime: guardrails-detector-runtime-guardian<br/>uvicorn workers=1<br/>Auth: None"]
+        end
+
+        subgraph JudgeZone["LLM Judge Detector"]
+            Judge["LLM Judge Detector Pod<br/>Port: 8000/TCP HTTP<br/>ServingRuntime: guardrails-detector-runtime-judge<br/>uvicorn workers=4<br/>Auth: None"]
+        end
+
+        subgraph StorageZone["Model Storage"]
+            MinIO["MinIO<br/>minio-guardrails-guardian<br/>ClusterIP 9000/TCP<br/>S3-compatible<br/>Secret: aws-connection-minio-*"]
+        end
+    end
+
+    subgraph InferenceBackend["INFERENCE BACKEND (Internal)"]
+        vLLM["vLLM Inference Server<br/>e.g. qwen2-predictor<br/>8080/TCP HTTP<br/>Auth: None"]
+    end
+
+    %% Flows
+    Orchestrator -->|"HTTP/8080<br/>Plain HTTP<br/>No Auth<br/>POST /api/v1/text/contents"| BuiltIn
+    Orchestrator -->|"HTTP/8000<br/>Plain HTTP<br/>No Auth<br/>POST /api/v1/text/contents"| HF
+    Orchestrator -->|"HTTP/8000<br/>Plain HTTP<br/>No Auth<br/>POST /api/v1/text/contents<br/>POST /api/v1/text/generation"| Judge
+
+    HF -->|"S3/HTTP 9000<br/>AWS credentials<br/>(Opaque secret)"| MinIO
+
+    Judge -->|"HTTP/8080<br/>Plain HTTP<br/>VLLM_BASE_URL<br/>No Auth"| vLLM
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef detector fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef storage fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef backend fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef warning fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    class Orchestrator external
+    class BuiltIn,HF,Judge detector
+    class MinIO storage
+    class vLLM backend

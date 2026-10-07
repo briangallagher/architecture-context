@@ -1,46 +1,47 @@
 workspace {
     model {
-        user = person "Data Scientist" "Creates and manages distributed ML training jobs via kubectl or platform UI"
+        user = person "Data Scientist" "Creates and manages distributed AI/ML training jobs"
+        platformAdmin = person "Platform Admin" "Manages RHOAI platform and operator deployment"
 
-        trainingOperator = softwareSystem "Kubeflow Training Operator" "Kubernetes operator for orchestrating distributed ML training jobs across PyTorch, TensorFlow, XGBoost, JAX, MPI, and PaddlePaddle frameworks" {
-            pytorchController = container "PyTorchJob Controller" "Reconciles PyTorchJob CRs — creates pods, headless services, NetworkPolicy, HPA for elastic training" "Go Controller"
-            tfController = container "TFJob Controller" "Reconciles TFJob CRs — creates pods and headless services with TF_CONFIG cluster specification" "Go Controller"
-            xgboostController = container "XGBoostJob Controller" "Reconciles XGBoostJob CRs — creates pods and headless services with Rabit/LightGBM coordination" "Go Controller"
-            jaxController = container "JAXJob Controller" "Reconciles JAXJob CRs — creates pods and headless services with coordinator-based discovery" "Go Controller"
-            mpiController = container "MPIJob Controller" "Reconciles MPIJob CRs — creates pods, ConfigMaps, ServiceAccounts, Roles for SSH-based MPI execution" "Go Controller"
-            paddleController = container "PaddleJob Controller" "Reconciles PaddleJob CRs — creates pods and headless services for collective/PS training" "Go Controller"
-            jobController = container "JobController Base" "Shared reconciliation logic for pod/service lifecycle, status tracking, gang scheduling" "Go Library"
-            webhookServer = container "Webhook Server" "Validates training job CRDs on CREATE/UPDATE for 5 framework types" "Go HTTPS Server" "9443/TCP"
-            certManager = container "Cert Controller" "Automatic TLS certificate generation and rotation for webhook server" "Go Library"
-            metricsEndpoint = container "Metrics Endpoint" "Exposes Prometheus counters for training job lifecycle events" "Go HTTP Server" "8080/TCP"
+        trainingOperator = softwareSystem "Training Operator" "Kubernetes operator for managing distributed AI/ML training jobs across multiple frameworks (PyTorch, TensorFlow, XGBoost, MPI, PaddlePaddle, JAX)" {
+            controller = container "Training Operator Controller" "Manages training job CRD lifecycle, creates pods, services, and PodGroups" "Go (controller-runtime)" {
+                pytorchController = component "PyTorch Controller" "Handles PyTorchJob reconciliation with elastic scaling, HPA, and NetworkPolicy support" "Go"
+                tfController = component "TensorFlow Controller" "Handles TFJob reconciliation with parameter server and dynamic worker support" "Go"
+                xgboostController = component "XGBoost Controller" "Handles XGBoostJob reconciliation with master-worker topology" "Go"
+                mpiController = component "MPI Controller" "Handles MPIJob reconciliation with launcher-worker pattern and per-job RBAC" "Go"
+                paddleController = component "PaddlePaddle Controller" "Handles PaddleJob reconciliation with elastic scaling" "Go"
+                jaxController = component "JAX Controller" "Handles JAXJob reconciliation with coordinator-worker pattern" "Go"
+                jobControllerBase = component "JobController Base" "Shared pod lifecycle, service management, status tracking, cleanup, gang scheduling" "Go"
+            }
+            webhookServer = container "Webhook Server" "Validates training job CRs on CREATE/UPDATE with framework-specific constraints" "Go HTTPS Server" "9443/TCP"
+            metricsServer = container "Metrics Server" "Exposes Prometheus metrics for training job lifecycle events" "Go HTTP Server" "8080/TCP"
+            certController = container "OPA cert-controller" "Manages webhook TLS certificate rotation" "Go Library"
         }
 
-        k8sAPI = softwareSystem "Kubernetes API Server" "Cluster API server for resource CRUD and webhook admission" "External"
-        prometheus = softwareSystem "OpenShift Monitoring (Prometheus)" "Metrics collection and alerting via PodMonitor" "External"
-        volcano = softwareSystem "Volcano Scheduler" "Gang scheduling via PodGroup CRDs for coordinated pod placement" "External Optional"
-        schedulerPlugins = softwareSystem "Scheduler-Plugins" "Alternative gang scheduling via scheduler-plugins PodGroup CRDs" "External Optional"
-        kueue = softwareSystem "Kueue" "Job queuing and quota management — provides mutating/validating webhooks for training jobs" "Internal ODH Optional"
+        k8sAPI = softwareSystem "Kubernetes API Server" "Kubernetes control plane API" "External"
+        openShiftAPI = softwareSystem "OpenShift APIServer" "Provides TLS profile configuration for webhook/metrics TLS settings" "External"
+        volcano = softwareSystem "Volcano Scheduler" "Gang scheduling via PodGroup CRDs for colocated training pod execution" "External"
+        schedulerPlugins = softwareSystem "Scheduler-Plugins" "Alternative gang scheduling via scheduler-plugins PodGroups" "External"
+        prometheus = softwareSystem "Prometheus / OpenShift Monitoring" "Metrics collection and monitoring" "External"
+        rhodsOperator = softwareSystem "rhods-operator / opendatahub-operator" "Deploys and manages the Training Operator via kustomize manifests" "Internal RHOAI"
 
         # Relationships
-        user -> trainingOperator "Creates training jobs (PyTorchJob, TFJob, etc.) via kubectl" "HTTPS/443"
-        user -> k8sAPI "kubectl apply -f trainingjob.yaml" "HTTPS/443"
+        user -> trainingOperator "Creates training job CRDs (PyTorchJob, TFJob, etc.) via kubectl/Dashboard"
+        platformAdmin -> rhodsOperator "Configures operator deployment"
 
-        k8sAPI -> webhookServer "Admission validation for training CRDs" "HTTPS/9443"
-        trainingOperator -> k8sAPI "CRUD for Pods, Services, ConfigMaps, NetworkPolicies, RBAC, PodGroups, HPA" "HTTPS/443"
+        trainingOperator -> k8sAPI "CRUD pods, services, configmaps, RBAC, PodGroups" "HTTPS/443"
+        trainingOperator -> openShiftAPI "Reads TLS profile configuration (non-fatal if unavailable)" "HTTPS/443"
+        trainingOperator -> volcano "Creates PodGroups for gang scheduling (optional)" "HTTPS/443"
+        trainingOperator -> schedulerPlugins "Creates PodGroups for alternative gang scheduling (optional)" "HTTPS/443"
+        prometheus -> trainingOperator "Scrapes training_operator_jobs_* metrics via PodMonitor" "HTTP/8080"
+        rhodsOperator -> trainingOperator "Deploys via kustomize manifests (manifests/rhoai/)"
+        k8sAPI -> trainingOperator "Routes admission webhook validation requests" "HTTPS/9443"
 
-        pytorchController -> jobController "Extends shared reconciliation logic"
-        tfController -> jobController "Extends shared reconciliation logic"
-        xgboostController -> jobController "Extends shared reconciliation logic"
-        jaxController -> jobController "Extends shared reconciliation logic"
-        mpiController -> jobController "Extends shared reconciliation logic"
-        paddleController -> jobController "Extends shared reconciliation logic"
-
-        certManager -> webhookServer "Provisions and rotates TLS certificates"
-
-        prometheus -> trainingOperator "Scrapes training_operator_jobs_* metrics" "HTTP/8080"
-        trainingOperator -> volcano "Creates PodGroup CRs for gang scheduling" "HTTPS/443"
-        trainingOperator -> schedulerPlugins "Creates PodGroup CRs for gang scheduling" "HTTPS/443"
-        kueue -> k8sAPI "Mutating/validating webhooks for training job CRDs" "HTTPS"
+        # Internal container relationships
+        controller -> webhookServer "Validates CRs"
+        certController -> webhookServer "Rotates TLS certificates"
+        controller -> k8sAPI "Manages training workload resources" "HTTPS/443"
+        webhookServer -> k8sAPI "Receives admission requests" "HTTPS/9443"
     }
 
     views {
@@ -54,31 +55,36 @@ workspace {
             autoLayout
         }
 
+        component controller "Components" {
+            include *
+            autoLayout
+        }
+
         styles {
-            element "Software System" {
-                background #438DD5
-                color #ffffff
-            }
             element "External" {
                 background #999999
                 color #ffffff
             }
-            element "External Optional" {
-                background #bbbbbb
-                color #ffffff
-            }
-            element "Internal ODH Optional" {
+            element "Internal RHOAI" {
                 background #7ed321
                 color #ffffff
             }
             element "Person" {
                 shape person
-                background #08427B
+                background #4a90e2
+                color #ffffff
+            }
+            element "Software System" {
+                background #4a90e2
                 color #ffffff
             }
             element "Container" {
-                background #438DD5
+                background #5ba3d9
                 color #ffffff
+            }
+            element "Component" {
+                background #7bb8e0
+                color #333333
             }
         }
     }

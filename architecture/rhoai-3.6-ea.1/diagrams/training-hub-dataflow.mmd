@@ -1,0 +1,62 @@
+sequenceDiagram
+    participant Caller as Caller Process<br/>(Notebook / Job Pod)
+    participant Registry as AlgorithmRegistry
+    participant Algorithm as Algorithm Subclass
+    participant Backend as Backend Implementation
+
+    Note over Caller,Backend: Flow 1: Training Execution (SFT / LoRA / GRPO)
+
+    Caller->>Registry: sft() / lora_grpo() / gepa()
+    Registry->>Algorithm: dispatch to registered Algorithm
+    Algorithm->>Backend: delegate execution
+
+    alt SFT via InstructLab Training
+        Backend->>Backend: Launch torchrun workers<br/>(distributed SFT)
+        Backend-->>Algorithm: Checkpoints + metrics
+    else OSFT via Mini-Trainer
+        Backend->>Backend: Execute mini-trainer<br/>(optimized SFT)
+        Backend-->>Algorithm: Checkpoints + metrics
+    else LoRA via Unsloth
+        Backend->>Backend: In-process LoRA<br/>(memory-efficient)
+        Backend-->>Algorithm: Adapter weights
+    else GRPO via ART
+        participant vLLM as vLLM Inference<br/>(Co-located GPU)
+        Backend->>vLLM: Manage co-located inference<br/>(time-shared GPU)
+        vLLM-->>Backend: Reward signals
+        Backend-->>Algorithm: Trained model
+    else GRPO via VeRL
+        Backend->>Backend: Multi-node distributed<br/>GRPO execution
+        Backend-->>Algorithm: Trained model
+    end
+
+    Algorithm-->>Registry: Results
+    Registry-->>Caller: Checkpoints / metrics / optimized prompts
+
+    Note over Caller,Backend: Flow 2: GEPA Inference (Prompt Optimization)
+
+    participant LLM as OpenAI-compatible<br/>LLM Endpoint
+
+    Caller->>Registry: gepa()
+    Registry->>Algorithm: dispatch GEPA Algorithm
+    Algorithm->>Algorithm: Set OPENAI_API_BASE,<br/>OPENAI_API_KEY env vars
+    Algorithm->>Backend: delegate to GEPA Backend
+
+    Backend->>LLM: HTTP POST inference request<br/>(via litellm)
+    LLM-->>Backend: LLM response
+    Note over Backend,LLM: Iterative optimization loop
+
+    Backend-->>Algorithm: Optimized prompts
+    Algorithm->>Algorithm: Restore original env vars
+    Algorithm-->>Caller: Optimized prompts
+
+    Note over Caller,Backend: Flow 3: MLflow Tracking (Optional)
+
+    participant MLflow as MLflow Tracking<br/>Server
+
+    Caller->>Registry: gepa() with MLflow backend
+    Registry->>Algorithm: dispatch GEPA Algorithm
+    Algorithm->>Backend: delegate to MLflowGEPABackend
+
+    Backend->>MLflow: mlflow.genai.optimize_prompts()<br/>(HTTP via mlflow SDK)
+    MLflow-->>Backend: Experiment results +<br/>prompt registry entries
+    Backend-->>Caller: Optimized prompts + experiment IDs

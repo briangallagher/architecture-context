@@ -1,0 +1,59 @@
+sequenceDiagram
+    participant User as Data Scientist / Client
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant Webhook as Admission Webhooks<br/>HTTPS TLS
+    participant Operator as KubeRay Operator<br/>/manager
+    participant HeadPod as Ray Head Pod
+    participant KRBP as kube-rbac-proxy<br/>8443/TCP TLS
+    participant Gateway as Gateway API<br/>HTTPRoute
+    participant CertMgr as cert-manager
+    participant Prometheus as Prometheus<br/>8080/TCP HTTP
+
+    Note over User,Prometheus: Flow 1: Cluster Creation & Reconciliation
+
+    User->>K8sAPI: kubectl apply RayCluster CR
+    K8sAPI->>Webhook: Admission Review<br/>mutating + validating
+    Webhook-->>K8sAPI: Approved (mutated)
+    K8sAPI-->>User: RayCluster created
+
+    K8sAPI->>Operator: Watch event: RayCluster created
+    Operator->>K8sAPI: Create Head Pod, Worker Pods
+    Operator->>K8sAPI: Create Services, Secrets
+    Operator->>K8sAPI: Create NetworkPolicy (isolation)
+
+    Note over User,Prometheus: Flow 2: Authenticated Dashboard Access
+
+    Operator->>K8sAPI: Create ServiceAccount for cluster
+    Operator->>K8sAPI: Inject kube-rbac-proxy sidecar<br/>into Head Pod (port 8443)
+    Operator->>K8sAPI: Create HTTPRoute + ReferenceGrant
+
+    User->>Gateway: GET /dashboard<br/>Bearer Token (OIDC/OAuth)
+    Gateway->>KRBP: Forward via HTTPRoute<br/>TLS
+    KRBP->>K8sAPI: TokenReview + SubjectAccessReview
+    K8sAPI-->>KRBP: Authenticated & Authorized
+    KRBP->>HeadPod: Proxy to Ray Dashboard
+    HeadPod-->>KRBP: Dashboard Response
+    KRBP-->>Gateway: Response
+    Gateway-->>User: Dashboard HTML
+
+    Note over User,Prometheus: Flow 3: mTLS Certificate Lifecycle
+
+    Operator->>CertMgr: Create Issuer CR
+    Operator->>CertMgr: Create Certificate CR<br/>(inter-node mTLS)
+    CertMgr-->>K8sAPI: Issue TLS cert → Secret
+    K8sAPI-->>HeadPod: Mount TLS Secret
+
+    Note over User,Prometheus: Flow 4: Job Submission
+
+    User->>K8sAPI: kubectl apply RayJob CR
+    K8sAPI->>Webhook: Validate RayJob
+    Webhook-->>K8sAPI: Approved
+    K8sAPI->>Operator: Watch event: RayJob created
+    Operator->>K8sAPI: Create/reuse RayCluster
+    Operator->>K8sAPI: Create batch/v1 Job<br/>(submitter)
+    Operator->>HeadPod: Submit Ray job via dashboard API
+
+    Note over User,Prometheus: Flow 5: Metrics & Health
+
+    Prometheus->>Operator: GET /metrics<br/>8080/TCP HTTP
+    Operator-->>Prometheus: Prometheus metrics

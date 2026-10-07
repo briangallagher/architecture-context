@@ -1,57 +1,64 @@
 graph LR
-    SDK["CodeFlare SDK<br/>(Python Client Library)"]
-
-    %% Internal RHOAI Platform Dependencies
-    SDK -->|"CRD CRUD<br/>ray.io/v1 RayCluster"| KubeRay["KubeRay Operator"]
-    SDK -->|"CRD CRUD<br/>workload.codeflare.dev/v1beta2"| CFOperator["CodeFlare Operator<br/>AppWrapper Controller"]
-    SDK -->|"CRD Read<br/>kueue.x-k8s.io/v1beta1"| Kueue["Kueue"]
-    SDK -->|"Route Read<br/>route.openshift.io/v1"| OCPRouter["OpenShift Router"]
-    SDK -.->|"ConfigMap volume mount<br/>odh-trusted-ca-bundle"| ODHCA["ODH Trusted CA Bundle"]
+    SDK[CodeFlare SDK<br/>Python Client Library]
 
     %% External Python Dependencies
-    SDK -->|"Job Submission Client"| RayLib["ray 2.35.0"]
-    SDK -->|"K8s API Client"| K8sLib["kubernetes >=25.3, <27"]
-    SDK -->|"OpenShift Client"| OCPLib["openshift-client 1.0.18"]
-    SDK -->|"TLS cert generation"| CryptoLib["cryptography 40.0.2"]
-    SDK -->|"Status pretty-printing"| RichLib["rich ^12.5"]
-    SDK -->|"Notebook UI"| IPyWidgets["ipywidgets 8.1.2"]
+    SDK -->|job submission client| Ray["ray 2.55.1"]
+    SDK -->|K8s API client| K8sClient["kubernetes >= 27.2.0"]
+    SDK -->|authentication| KubeAuthKit["kube-authkit >= 0.4.0"]
+    SDK -->|TLS cert generation<br/>RSA-3072, SHA-256| Cryptography["cryptography >= 46.0.7"]
+    SDK -->|OpenShift API| OCPClient["openshift-client 1.0.18"]
+    SDK -->|data validation| Pydantic["pydantic >= 2.10.6"]
+    SDK -->|terminal output| Rich["rich >= 12.5, < 15.0"]
+    SDK -->|Jupyter UI| IPyWidgets["ipywidgets 8.1.2"]
 
-    %% Infrastructure Dependencies
-    SDK -->|"All CRUD operations<br/>6443/TCP HTTPS"| K8sAPI["Kubernetes API Server"]
+    %% Internal Platform Dependencies (CRD interactions)
+    SDK -->|"RayCluster/RayJob CRDs<br/>(ray.io/v1)"| KubeRay[KubeRay Operator]
+    SDK -->|"LocalQueue/WorkloadPriorityClass<br/>(kueue.x-k8s.io/v1beta1)"| Kueue[Kueue Controller]
+    SDK -->|"HTTPRoute/Gateway<br/>(gateway.networking.k8s.io/v1)"| GatewayAPI[RHOAI Gateway<br/>Gateway API]
+    SDK -->|"Route<br/>(route.openshift.io/v1)"| OCPRoutes[OpenShift Routes]
+    SDK -->|"GatewayConfig CR<br/>(services.platform.opendatahub.io)"| GatewayConfig[GatewayConfig CR]
+    SDK -.->|CA bundle mount| TrustedCA[ODH Trusted CA Bundle<br/>ConfigMap]
 
-    %% Runtime Dependencies (created by operators)
-    SDK -->|"Dashboard + Job API<br/>8265/TCP or 443/TCP"| RayDashboard["Ray Dashboard"]
-    SDK -->|"Client connections<br/>10001/TCP"| RayClient["Ray Client Endpoint"]
+    %% Runtime environment
+    Workbench[RHOAI/ODH Workbench] -->|runs| SDK
 
-    %% Integration (other components that use SDK)
-    Notebooks["RHOAI Workbenches<br/>(Jupyter)"] -->|"imports SDK"| SDK
-    DSPipelines["Data Science Pipelines"] -.->|"optional usage"| SDK
+    %% Distribution
+    SDK -.->|version synced to| Notebooks[opendatahub-io/notebooks<br/>Workbench Images]
+
+    %% Integration Points (components that use the SDK's output)
+    KubeRay -->|reconciles CRs<br/>creates| RayCluster[Ray Cluster<br/>Head + Workers]
+    Kueue -->|admission control<br/>quota enforcement| RayCluster
+
+    %% External services accessed at runtime
+    SDK -->|"CRD CRUD, Secrets<br/>6443/TCP HTTPS"| K8sAPI[Kubernetes API Server]
+    SDK -->|"job submission<br/>10001/TCP mTLS"| RayHead[Ray Head Node]
+    SDK -->|"dashboard check<br/>8265/TCP HTTPS"| RayDashboard[Ray Dashboard]
 
     %% Styling
     style SDK fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
-    %% Internal RHOAI - green
+    %% External Python deps
+    style Ray fill:#e8e8e8,stroke:#333
+    style K8sClient fill:#e8e8e8,stroke:#333
+    style KubeAuthKit fill:#e8e8e8,stroke:#333
+    style Cryptography fill:#e8e8e8,stroke:#333
+    style OCPClient fill:#e8e8e8,stroke:#333
+    style Pydantic fill:#e8e8e8,stroke:#333
+    style Rich fill:#e8e8e8,stroke:#333
+    style IPyWidgets fill:#e8e8e8,stroke:#333
+
+    %% Internal platform deps
     style KubeRay fill:#7ed321,stroke:#333,color:#fff
-    style CFOperator fill:#7ed321,stroke:#333,color:#fff
     style Kueue fill:#7ed321,stroke:#333,color:#fff
-    style OCPRouter fill:#7ed321,stroke:#333,color:#fff
-    style ODHCA fill:#7ed321,stroke:#333,color:#fff
+    style GatewayAPI fill:#7ed321,stroke:#333,color:#fff
+    style OCPRoutes fill:#7ed321,stroke:#333,color:#fff
+    style GatewayConfig fill:#7ed321,stroke:#333,color:#fff
+    style TrustedCA fill:#7ed321,stroke:#333,color:#fff
+    style Workbench fill:#7ed321,stroke:#333,color:#fff
+    style Notebooks fill:#7ed321,stroke:#333,color:#fff
 
-    %% Python libraries - light blue
-    style RayLib fill:#90caf9,stroke:#333
-    style K8sLib fill:#90caf9,stroke:#333
-    style OCPLib fill:#90caf9,stroke:#333
-    style CryptoLib fill:#90caf9,stroke:#333
-    style RichLib fill:#90caf9,stroke:#333
-    style IPyWidgets fill:#90caf9,stroke:#333
-
-    %% Infrastructure - gray
-    style K8sAPI fill:#999,stroke:#333,color:#fff
-
-    %% Runtime - orange
-    style RayDashboard fill:#f5a623,stroke:#333
-    style RayClient fill:#f5a623,stroke:#333
-
-    %% Consumers - purple
-    style Notebooks fill:#ce93d8,stroke:#333
-    style DSPipelines fill:#ce93d8,stroke:#333
+    %% Runtime targets
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style RayHead fill:#f5a623,stroke:#333,color:#fff
+    style RayDashboard fill:#f5a623,stroke:#333,color:#fff
+    style RayCluster fill:#f5a623,stroke:#333,color:#fff

@@ -1,0 +1,52 @@
+sequenceDiagram
+    participant User as User / Client
+    participant KubeAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant Webhook as odh-model-controller<br/>Webhook Server<br/>9443/TCP HTTPS
+    participant Controller as odh-model-controller<br/>Operator
+    participant MSAPI as model-serving-api<br/>8443/TCP HTTPS
+    participant OCP as OpenShift APIs<br/>(Routes, APIServer)
+
+    rect rgb(230, 240, 255)
+        Note over KubeAPI,Controller: Flow 1: Model Serving Resource Reconciliation
+        User->>KubeAPI: kubectl apply InferenceService
+        KubeAPI->>Webhook: POST /mutate-serving-kserve-io-v1beta1-inferenceservice<br/>TLS, Kubernetes Admission
+        Webhook-->>KubeAPI: Mutated AdmissionReview
+        KubeAPI->>Webhook: POST /validate-serving-kserve-io-v1beta1-inferenceservice<br/>TLS, Kubernetes Admission
+        Webhook-->>KubeAPI: Validated AdmissionReview
+        KubeAPI-->>User: InferenceService created
+
+        KubeAPI-)Controller: Watch event: InferenceService<br/>HTTPS/6443, ServiceAccount token
+        Controller->>KubeAPI: Create Service, ServiceAccount<br/>HTTPS/6443, ServiceAccount token
+        Controller->>KubeAPI: Create NetworkPolicy, ClusterRoleBinding<br/>HTTPS/6443, ServiceAccount token
+        Controller->>KubeAPI: Create KEDA TriggerAuthentication<br/>HTTPS/6443, ServiceAccount token
+        Controller->>OCP: Create OpenShift Route<br/>HTTPS/6443, ServiceAccount token
+        Controller->>KubeAPI: Create PodMonitor, ServiceMonitor<br/>HTTPS/6443, ServiceAccount token
+    end
+
+    rect rgb(230, 255, 230)
+        Note over User,MSAPI: Flow 2: Gateway Discovery API
+        User->>MSAPI: GET /api/v1/gateways<br/>HTTPS/8443, Bearer Token
+        MSAPI->>MSAPI: Auth Middleware validates Bearer token
+        MSAPI->>KubeAPI: SelfSubjectAccessReview<br/>HTTPS/6443, ServiceAccount token
+        KubeAPI-->>MSAPI: Access decision
+        MSAPI->>KubeAPI: List Gateway resources<br/>HTTPS/6443, ServiceAccount token
+        KubeAPI-->>MSAPI: Gateway list
+        MSAPI-->>User: JSON gateway response
+    end
+
+    rect rgb(255, 240, 230)
+        Note over User,Controller: Flow 3: Admission Webhook Processing
+        User->>KubeAPI: kubectl apply LLMInferenceService
+        KubeAPI->>Webhook: POST /mutate-serving-kserve-io-v1alpha2-llminferenceservice<br/>TLS, Kubernetes Admission
+        Webhook->>KubeAPI: Lookup referenced resources<br/>HTTPS/6443, ServiceAccount token
+        KubeAPI-->>Webhook: Resource data
+        Webhook-->>KubeAPI: Mutated AdmissionReview (defaults set)
+        KubeAPI-->>User: LLMInferenceService created
+    end
+
+    rect rgb(245, 230, 255)
+        Note over Controller,OCP: Flow 4: TLS Profile Watch
+        OCP-)Controller: Watch event: APIServer TLS profile change
+        Controller->>Controller: Resolve new TLS config<br/>(cipher suites, min version)
+        Controller->>Controller: Graceful shutdown & restart
+    end

@@ -1,0 +1,80 @@
+graph TB
+    subgraph External["External Access"]
+        User[Platform Operator / User]
+    end
+
+    subgraph Routes["OpenShift Routes (TLS Termination)"]
+        RouteUI["Route: planner<br/>HTTPS → 8501"]
+        RouteBackend["Route: planner-backend<br/>HTTPS → 8000"]
+    end
+
+    subgraph Planner["llm-d-planner (Namespace: planner)"]
+        subgraph UIDeployment["UI Deployment"]
+            StreamlitUI["Streamlit UI<br/>Port: 8501<br/>quay.io/llm-d-planner/<br/>llm-d-planner-ui:latest"]
+        end
+
+        subgraph BackendDeployment["Backend Deployment"]
+            FastAPI["FastAPI Backend<br/>Port: 8000<br/>uvicorn (2 workers)<br/>quay.io/llm-d-planner/<br/>llm-d-planner-backend:latest"]
+            SQLite["SQLite DB<br/>/app/db/planner.db"]
+            PVC["PVC: planner-data-pvc<br/>1Gi"]
+        end
+
+        subgraph OllamaDeployment["Ollama Deployment"]
+            Ollama["Ollama<br/>Port: 11434<br/>ollama/ollama:latest"]
+        end
+
+        FastAPI -->|reads/writes| SQLite
+        SQLite -->|stored on| PVC
+    end
+
+    subgraph ExternalLLM["External LLM Providers"]
+        OpenAIAPI["OpenAI-compatible API<br/>(configurable OPENAI_BASE_URL)"]
+        VertexAI["Google Vertex AI"]
+    end
+
+    subgraph K8sCluster["Kubernetes Cluster"]
+        K8sAPI["Kubernetes API<br/>Port: 6443"]
+        Nodes["Cluster Nodes<br/>nvidia.com/gpu.product labels"]
+    end
+
+    subgraph Secrets["Secrets (planner-secrets)"]
+        SecretStore["HF_TOKEN<br/>OPENAI_API_KEY<br/>DB_ADMIN_PASSWORD<br/>MODEL_CATALOG_TOKEN<br/>AA_API_KEY"]
+    end
+
+    subgraph ServiceCA["OpenShift Service CA"]
+        CABundle["CA Bundle<br/>/etc/pki/service-ca"]
+    end
+
+    %% User flows
+    User -->|HTTPS| RouteUI
+    User -->|HTTPS| RouteBackend
+    RouteUI -->|HTTP/8501| StreamlitUI
+    RouteBackend -->|HTTP/8000| FastAPI
+    StreamlitUI -->|HTTP/8000<br/>ClusterIP| FastAPI
+
+    %% LLM provider flows
+    FastAPI -->|HTTP/11434<br/>ClusterIP| Ollama
+    FastAPI -->|HTTPS<br/>OpenAI SDK| OpenAIAPI
+    FastAPI -->|HTTPS<br/>GCP credentials| VertexAI
+
+    %% Kubernetes flows
+    FastAPI -->|HTTPS/6443<br/>list nodes| K8sAPI
+    K8sAPI -->|GPU labels| Nodes
+
+    %% Config flows
+    SecretStore -.->|env vars| FastAPI
+    CABundle -.->|volume mount| FastAPI
+
+    %% Styling
+    style FastAPI fill:#4a90e2,stroke:#333,color:#fff
+    style StreamlitUI fill:#4a90e2,stroke:#333,color:#fff
+    style Ollama fill:#4a90e2,stroke:#333,color:#fff
+    style SQLite fill:#f5a623,stroke:#333,color:#fff
+    style PVC fill:#f5a623,stroke:#333
+    style RouteUI fill:#7ed321,stroke:#333
+    style RouteBackend fill:#7ed321,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style OpenAIAPI fill:#e8e8e8,stroke:#333
+    style VertexAI fill:#e8e8e8,stroke:#333
+    style SecretStore fill:#d5415a,stroke:#333,color:#fff
+    style CABundle fill:#9b59b6,stroke:#333,color:#fff

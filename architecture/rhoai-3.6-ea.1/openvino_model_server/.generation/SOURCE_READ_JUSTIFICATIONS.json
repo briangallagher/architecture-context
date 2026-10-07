@@ -1,0 +1,176 @@
+{
+  "component": "openvino_model_server",
+  "reads": [
+    {
+      "expected_signal": "Container port definitions, protocol versions, model format list, metrics annotations",
+      "gap_category": [
+        "integration_points",
+        "http_endpoints",
+        "services"
+      ],
+      "line_range": "1-61",
+      "outcome": "resolved",
+      "path": "extras/openshift_AI/ServingRuntime.yaml",
+      "question": "What ports, protocols, and model formats does the RHOAI serving runtime configure for OVMS?",
+      "sections": [
+        "Integration Points",
+        "HTTP Endpoints",
+        "Architectural Analysis",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "Container port definitions, protocol versions, security context",
+      "gap_category": [
+        "integration_points",
+        "http_endpoints"
+      ],
+      "line_range": "1-63",
+      "outcome": "resolved",
+      "path": "extras/kserve/kserve-openvino.yaml",
+      "question": "What ports and protocols does the upstream kserve-openvino ClusterServingRuntime configure?",
+      "sections": [
+        "Integration Points",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "GOEXPERIMENT, CGO_ENABLED, FIPS-specific compile flags, openssl configuration",
+      "gap_category": [
+        "fips_compliance"
+      ],
+      "line_range": "1-50",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux",
+      "question": "Does the Konflux Dockerfile include FIPS build flags or crypto configuration?",
+      "sections": [
+        "Security",
+        "FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "ENTRYPOINT, LABEL with component description, base image reference",
+      "gap_category": [
+        "fips_compliance"
+      ],
+      "line_range": "440-467",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux",
+      "question": "What is the final entrypoint and image labels for the OVMS container?",
+      "sections": [
+        "Purpose",
+        "FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "nginx installation, certificate directory setup, entrypoint wrapper",
+      "gap_category": [
+        "authentication"
+      ],
+      "line_range": "1-40",
+      "outcome": "resolved",
+      "path": "extras/nginx-mtls-auth/Dockerfile.redhat",
+      "question": "How is the nginx-mtls-auth sidecar built and what does it install?",
+      "sections": [
+        "Authentication & Authorization",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "ssl_protocols, ssl_ciphers, ssl_verify_client, ssl_certificate directives",
+      "gap_category": [
+        "authentication"
+      ],
+      "line_range": "1-81",
+      "outcome": "resolved",
+      "path": "extras/nginx-mtls-auth/model_server.conf.template",
+      "question": "What TLS configuration and cipher suites does the nginx mTLS proxy use?",
+      "sections": [
+        "Authentication & Authorization",
+        "Architectural Analysis",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "Port argument parsing, nginx config substitution, OVMS process management",
+      "gap_category": [
+        "authentication",
+        "services"
+      ],
+      "line_range": "1-208",
+      "outcome": "resolved",
+      "path": "extras/nginx-mtls-auth/ovms_wrapper",
+      "question": "How does the nginx mTLS wrapper intercept and reassign OVMS ports?",
+      "scope_reason": "Full wrapper script needed to understand port reassignment logic, signal handling, and process lifecycle; no single function or section is sufficient",
+      "sections": [
+        "Authentication & Authorization",
+        "Architectural Analysis",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "RequestType enum, regex pattern declarations, handler method signatures, isAuthorized method",
+      "gap_category": [
+        "http_endpoints",
+        "authentication"
+      ],
+      "line_range": "1-285",
+      "outcome": "resolved",
+      "path": "src/http_rest_api_handler.hpp",
+      "question": "What REST API request types and endpoint patterns does OVMS define?",
+      "scope_reason": "Header file defines the complete REST API surface: RequestType enum, regex patterns, handler methods, and auth interface; narrower read would miss the API surface inventory",
+      "sections": [
+        "HTTP Endpoints",
+        "Authentication & Authorization",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "Static const regex strings for V1, V2, V3, and metrics endpoints",
+      "gap_category": [
+        "http_endpoints"
+      ],
+      "line_range": "100-200",
+      "outcome": "resolved",
+      "path": "src/http_rest_api_handler.cpp",
+      "question": "What are the exact regex patterns for each REST API endpoint?",
+      "sections": [
+        "HTTP Endpoints",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "service definition, rpc methods (ModelInfer, ServerLive, ServerReady, etc.)",
+      "gap_category": [
+        "services"
+      ],
+      "line_range": "1-80",
+      "outcome": "resolved",
+      "path": "src/kfserving_api/grpc_predict_v2.proto",
+      "question": "What gRPC service RPCs does OVMS define for the KServe V2 inference protocol?",
+      "sections": [
+        "Architectural Analysis",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance",
+        "http_endpoints",
+        "services"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "src/grpcservermodule.cpp",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    }
+  ],
+  "schema_version": 1
+}

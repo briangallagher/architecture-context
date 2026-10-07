@@ -1,0 +1,64 @@
+graph LR
+    KServe["KServe AutoGluon<br/>Server"]
+
+    %% Platform Dependencies
+    KServe -->|"CRD reconciliation<br/>6443/TCP"| K8sAPI["Kubernetes API"]
+    KServe -->|"traffic routing"| Istio["Istio<br/>(VirtualServices)"]
+    KServe -->|"serverless scaling"| Knative["Knative Serving"]
+    KServe -->|"advanced routing<br/>(conditional)"| GatewayAPI["Gateway API<br/>(HTTPRoutes)"]
+    KServe -->|"autoscaling"| KEDA["KEDA<br/>(ScaledObjects)"]
+    KServe -->|"multi-node inference"| LWS["LeaderWorkerSet"]
+    KServe -->|"TLS termination<br/>token auth"| KubeRBACProxy["kube-rbac-proxy<br/>v0.18.0"]
+
+    %% Go Framework Dependencies
+    KServe -->|"operator framework"| ControllerRuntime["controller-runtime<br/>v0.22.5"]
+    KServe -->|"protobuf"| Protobuf["google/protobuf<br/>v1.36.11"]
+
+    %% Python Framework Dependencies
+    KServe -->|"model serving"| FastAPI["FastAPI<br/>(uvicorn)"]
+    KServe -->|"V2 protocol<br/>gRPC"| gRPC["gRPC<br/>v1.73.0+"]
+    KServe -->|"ML framework"| AutoGluon["AutoGluon<br/>v1.5.0+rhaiv.3"]
+
+    %% Model Storage
+    KServe -->|"model artifacts<br/>HTTPS/443"| S3["AWS S3"]
+    KServe -->|"model artifacts<br/>HTTPS/443"| GCS["Google Cloud<br/>Storage"]
+    KServe -->|"model artifacts<br/>HTTPS/443"| AzureBlob["Azure Blob<br/>Storage"]
+    KServe -->|"model artifacts"| HDFS["HDFS"]
+
+    %% Monitoring
+    Prometheus["Prometheus"] -->|"scrapes :8443"| KServe
+
+    %% Go Library Dependencies
+    KServe -->|"inference routing"| GatewayAPIInfExt["gateway-api-inference<br/>-extension v1.3.1"]
+    KServe -->|"LLM autoscaling"| LLMD["llm-d-workload-variant<br/>-autoscaler v0.7.0"]
+    KServe -->|"cloud events"| CloudEvents["cloudevents/sdk-go<br/>v2.16.2"]
+
+    %% Base Image
+    KServe -->|"FIPS/crypto"| AIPCC["AIPCC Base Image<br/>base-image-cpu-rhel9"]
+
+    %% Styling
+    style KServe fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+
+    style K8sAPI fill:#e1d5e7,stroke:#9673a6
+    style Istio fill:#e1d5e7,stroke:#9673a6
+    style Knative fill:#e1d5e7,stroke:#9673a6
+    style GatewayAPI fill:#e1d5e7,stroke:#9673a6
+    style KEDA fill:#e1d5e7,stroke:#9673a6
+    style LWS fill:#e1d5e7,stroke:#9673a6
+    style KubeRBACProxy fill:#e1d5e7,stroke:#9673a6
+    style Prometheus fill:#e1d5e7,stroke:#9673a6
+
+    style ControllerRuntime fill:#d5e8d4,stroke:#82b366
+    style Protobuf fill:#d5e8d4,stroke:#82b366
+    style FastAPI fill:#d5e8d4,stroke:#82b366
+    style gRPC fill:#d5e8d4,stroke:#82b366
+    style AutoGluon fill:#d5e8d4,stroke:#82b366
+    style GatewayAPIInfExt fill:#d5e8d4,stroke:#82b366
+    style LLMD fill:#d5e8d4,stroke:#82b366
+    style CloudEvents fill:#d5e8d4,stroke:#82b366
+    style AIPCC fill:#d5e8d4,stroke:#82b366
+
+    style S3 fill:#fff2cc,stroke:#d6b656
+    style GCS fill:#fff2cc,stroke:#d6b656
+    style AzureBlob fill:#fff2cc,stroke:#d6b656
+    style HDFS fill:#fff2cc,stroke:#d6b656

@@ -1,0 +1,55 @@
+graph TB
+    subgraph UserZone["USER WORKSTATION (Trusted)"]
+        User["User / SRE<br/>Runs: oc adm must-gather"]
+    end
+
+    subgraph Cluster["CLUSTER (Kubernetes/OpenShift)"]
+        subgraph MustGatherPod["must-gather Pod (Ephemeral, Read-Only)"]
+            direction TB
+            GatherProcess["gather.sh<br/>SA: cluster-reader<br/>Image: ose-must-gather-rhel9<br/>No persistent state<br/>No network services"]
+        end
+
+        K8sAPI["Kubernetes API Server<br/>443/TCP"]
+
+        subgraph CollectedResources["Resources Accessed (Read-Only)"]
+            direction LR
+            DSCI["DSCInitialization CRs"]
+            DSC["DataScienceCluster CRs"]
+            CSV["ClusterServiceVersions"]
+            PodLogs["Pod Logs"]
+            NSRes["Namespace Resources"]
+            HelmData["Helm Releases"]
+            GatewayAPI["Gateway API Resources"]
+            IstioRes["Istio Resources"]
+        end
+
+        subgraph Output["Output (Pod-Local)"]
+            LocalFS["/must-gather<br/>Diagnostic Data"]
+        end
+    end
+
+    %% Flows
+    User -->|"oc adm must-gather<br/>Launches ephemeral pod"| MustGatherPod
+    GatherProcess -->|"HTTPS/443<br/>TLS<br/>ServiceAccount token<br/>(cluster-reader)"| K8sAPI
+    K8sAPI --> CollectedResources
+    GatherProcess -->|"Write diagnostic data<br/>(local filesystem only)"| LocalFS
+    LocalFS -->|"Copied by framework<br/>to user workstation"| User
+
+    %% No external egress
+    NoEgress["No External Egress<br/>No data sent outside cluster"]
+
+    %% Styling
+    classDef userzone fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef cluster fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef pod fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef apiserver fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef resources fill:#e8e8e8,stroke:#999
+    classDef output fill:#d5e8d4,stroke:#82b366
+    classDef warning fill:#f8cecc,stroke:#b85450,stroke-dasharray:5
+
+    class User userzone
+    class GatherProcess pod
+    class K8sAPI apiserver
+    class DSCI,DSC,CSV,PodLogs,NSRes,HelmData,GatewayAPI,IstioRes resources
+    class LocalFS output
+    class NoEgress warning

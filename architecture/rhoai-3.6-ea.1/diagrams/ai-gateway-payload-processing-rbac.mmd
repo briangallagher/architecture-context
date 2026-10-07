@@ -1,0 +1,57 @@
+graph TD
+    subgraph "Operator Service Account"
+        SA["ai-gateway-payload-processing<br/>ServiceAccount"]
+    end
+
+    subgraph "CRD API Resources"
+        ExternalModel["inference.opendatahub.io<br/>ExternalModel<br/>(watch, get, list, create, update)"]
+        ExternalProvider["inference.opendatahub.io<br/>ExternalProvider<br/>(watch, get, list, create, update)"]
+    end
+
+    subgraph "Core API Resources"
+        Services["core/v1<br/>Service<br/>(watch, get, create, update)"]
+        Secrets["core/v1<br/>Secret<br/>(get)"]
+    end
+
+    subgraph "Gateway API Resources"
+        HTTPRoute["gateway.networking.k8s.io/v1<br/>HTTPRoute<br/>(watch, get, create, update)"]
+    end
+
+    subgraph "Istio Networking Resources"
+        ServiceEntry["networking.istio.io/v1<br/>ServiceEntry<br/>(watch, get, create, update)"]
+        DestinationRule["networking.istio.io/v1<br/>DestinationRule<br/>(watch, get, create, update)"]
+    end
+
+    SA -->|"ExternalProvider Controller"| ExternalProvider
+    SA -->|"ExternalModel Controller"| ExternalModel
+    SA -->|"creates ExternalName Services"| Services
+    SA -->|"validates credentials"| Secrets
+    SA -->|"model→provider routing"| HTTPRoute
+    SA -->|"MESH_EXTERNAL endpoints"| ServiceEntry
+    SA -->|"SIMPLE TLS origination"| DestinationRule
+
+    %% Auth Configuration (declarative, not RBAC)
+    subgraph "Auth Configuration (CRD-declared)"
+        AuthConfig["AuthConfig on ExternalProvider"]
+        APIKey["apikey<br/>(Secret ref)"]
+        SigV4["sigv4<br/>(Secret ref)"]
+        OAuth2["oauth2<br/>(Secret ref)"]
+    end
+
+    AuthConfig --> APIKey
+    AuthConfig --> SigV4
+    AuthConfig --> OAuth2
+
+    %% Styling
+    style SA fill:#4a90e2,color:#fff
+    style ExternalModel fill:#7ed321,color:#000
+    style ExternalProvider fill:#7ed321,color:#000
+    style Services fill:#f5a623,color:#000
+    style Secrets fill:#f5a623,color:#000
+    style HTTPRoute fill:#f5a623,color:#000
+    style ServiceEntry fill:#f5a623,color:#000
+    style DestinationRule fill:#f5a623,color:#000
+    style AuthConfig fill:#e8e8e8,color:#000
+    style APIKey fill:#e8e8e8,color:#000
+    style SigV4 fill:#e8e8e8,color:#000
+    style OAuth2 fill:#e8e8e8,color:#000

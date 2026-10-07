@@ -49,6 +49,9 @@ var componentCmd = &cobra.Command{
 		}
 
 		if outputFormat == OutputRaw {
+			if doc.FileName == "" {
+				return fmt.Errorf("rendered Markdown is unavailable for %s/%s; accepted facts remain available as typed output", version, name)
+			}
 			path := version + "/" + doc.FileName
 			raw, err := fs.ReadFile(archFS, path)
 			if err != nil {
@@ -144,7 +147,11 @@ var componentCmd = &cobra.Command{
 			}
 		}
 
-		fmt.Printf("\nFull doc: %s/%s\n", version, doc.FileName)
+		if doc.FileName != "" {
+			fmt.Printf("\nFull doc: %s/%s\n", version, doc.FileName)
+		} else {
+			fmt.Printf("\nAccepted document: %s/%s/document.json (Markdown unavailable)\n", version, name)
+		}
 		return nil
 	},
 }

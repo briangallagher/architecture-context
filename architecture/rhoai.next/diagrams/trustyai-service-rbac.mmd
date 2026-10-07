@@ -1,0 +1,60 @@
+graph TD
+    subgraph ExternalAccess["External Access Path"]
+        Caller["Caller<br/>(KServe Agent / Dashboard / Prometheus)"]
+    end
+
+    subgraph AuthEnforcement["Authentication & Authorization"]
+        KubeRBAC["kube-rbac-proxy sidecar<br/>Port: 8443/TCP (HTTPS)<br/>TLS Termination"]
+        SAR["SubjectAccessReview<br/>(Kubernetes API Server)"]
+        KubeRBAC -->|"validates caller identity"| SAR
+        SAR -->|"approved"| Forward["Forward to<br/>127.0.0.1:8080"]
+    end
+
+    subgraph TLSAccess["Direct TLS Access Path (optional)"]
+        TLSClient["TLS Client"]
+        TLSListener["HTTPS Listener<br/>Port: 4443/TCP<br/>TLS 1.2+"]
+        CertValidation["Client Certificate<br/>Validation"]
+        TLSClient -->|"mTLS"| TLSListener
+        TLSListener --> CertValidation
+    end
+
+    subgraph OperatorManaged["Operator-Managed RBAC (not in service repo)"]
+        direction TB
+        SA["ServiceAccount<br/>trustyai-service<br/>(operator-provisioned)"]
+        Note1["RBAC ClusterRoles and<br/>RoleBindings are defined<br/>and managed by the<br/>TrustyAI Operator"]
+    end
+
+    subgraph Secrets["Secrets"]
+        TLSSecret["TLS Certificate<br/>kubernetes.io/tls<br/>Provisioned: Operator/cert-manager<br/>Auto-Rotate: Yes"]
+        MariaDBCreds["MariaDB Credentials<br/>Opaque<br/>DATABASE_USERNAME<br/>DATABASE_PASSWORD<br/>Auto-Rotate: No"]
+        MariaDBCA["MariaDB TLS CA<br/>Opaque<br/>/etc/tls/db/ca.crt<br/>Auto-Rotate: No"]
+    end
+
+    subgraph AppSecurity["Application-Level Security"]
+        EnvFilter["_env_security.py<br/>Blocks: LD_PRELOAD, PYTHONPATH,<br/>PATH, proxy vars<br/>(CWE-426/427)"]
+        JsonSerializer["JSON+gzip Serializer<br/>No pickle deserialization<br/>(CWE-502)"]
+        SQLProtect["SQL Injection Prevention<br/>Integer-indexed tables<br/>Parameterized queries"]
+    end
+
+    %% Flows
+    Caller -->|"HTTPS/8443<br/>Bearer/RBAC"| KubeRBAC
+    SA -.->|"identity for"| KubeRBAC
+    TLSSecret -.->|"cert for"| TLSListener
+    MariaDBCreds -.->|"credentials for"| SQLProtect
+    MariaDBCA -.->|"CA cert for"| SQLProtect
+
+    %% Styling
+    style Caller fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style KubeRBAC fill:#e74c3c,color:#fff
+    style SAR fill:#e74c3c,color:#fff
+    style Forward fill:#27ae60,color:#fff
+    style TLSListener fill:#e74c3c,color:#fff
+    style CertValidation fill:#e74c3c,color:#fff
+    style SA fill:#4a90e2,color:#fff
+    style Note1 fill:#f0f0f0,stroke:#999
+    style TLSSecret fill:#f5a623,color:#fff
+    style MariaDBCreds fill:#f5a623,color:#fff
+    style MariaDBCA fill:#f5a623,color:#fff
+    style EnvFilter fill:#9b59b6,color:#fff
+    style JsonSerializer fill:#9b59b6,color:#fff
+    style SQLProtect fill:#9b59b6,color:#fff

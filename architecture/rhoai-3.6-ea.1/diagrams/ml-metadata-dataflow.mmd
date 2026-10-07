@@ -1,0 +1,41 @@
+sequenceDiagram
+    participant DSPOperator as Data Science Pipelines<br/>Operator
+    participant PipelineComp as Pipeline Component<br/>(e.g. Argo step)
+    participant MLMD as MLMD gRPC Server<br/>8080/TCP HTTP/2
+    participant MySQL as MySQL/MariaDB<br/>3306/TCP
+    participant Consumer as Metadata Consumer<br/>(UI / Pipeline Client)
+
+    Note over DSPOperator,MLMD: Deployment Phase
+    DSPOperator->>MLMD: Deploy as companion service<br/>(sidecar or standalone pod)
+
+    Note over PipelineComp,MySQL: Metadata Ingestion Flow
+    PipelineComp->>MLMD: PutArtifactType(ArtifactType)<br/>gRPC :8080
+    MLMD->>MySQL: INSERT INTO Type<br/>MySQL :3306 (SSL optional)
+    MySQL-->>MLMD: type_id
+    MLMD-->>PipelineComp: PutArtifactTypeResponse
+
+    PipelineComp->>MLMD: PutExecution(Execution, ArtifactAndEvent[])<br/>gRPC :8080
+    MLMD->>MySQL: INSERT INTO Execution, Artifact, Event<br/>MySQL :3306
+    MySQL-->>MLMD: execution_id, artifact_ids
+    MLMD-->>PipelineComp: PutExecutionResponse
+
+    PipelineComp->>MLMD: PutContexts(Context[])<br/>gRPC :8080
+    MLMD->>MySQL: INSERT INTO Context<br/>MySQL :3306
+    MySQL-->>MLMD: context_ids
+    MLMD-->>PipelineComp: PutContextsResponse
+
+    PipelineComp->>MLMD: PutAttributionsAndAssociations<br/>gRPC :8080
+    MLMD->>MySQL: INSERT INTO Attribution, Association<br/>MySQL :3306
+    MySQL-->>MLMD: OK
+    MLMD-->>PipelineComp: PutAttributionsAndAssociationsResponse
+
+    Note over Consumer,MySQL: Metadata Retrieval & Lineage Flow
+    Consumer->>MLMD: GetArtifactsByContext(context_id)<br/>gRPC :8080
+    MLMD->>MySQL: SELECT FROM Artifact JOIN Attribution<br/>MySQL :3306
+    MySQL-->>MLMD: artifact rows
+    MLMD-->>Consumer: GetArtifactsByContextResponse
+
+    Consumer->>MLMD: GetLineageSubgraph(query)<br/>gRPC :8080
+    MLMD->>MySQL: Recursive lineage query<br/>MySQL :3306
+    MySQL-->>MLMD: lineage graph rows
+    MLMD-->>Consumer: GetLineageSubgraphResponse<br/>(artifacts, executions, contexts, events)

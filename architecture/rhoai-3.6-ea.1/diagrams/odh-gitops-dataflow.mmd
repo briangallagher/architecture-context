@@ -1,0 +1,48 @@
+sequenceDiagram
+    participant Admin as Platform Admin
+    participant Values as Helm Values<br/>(values.yaml)
+    participant Helm as Helm Engine
+    participant Kustomize as Kustomize Engine
+    participant OLM as OLM<br/>(Operator Lifecycle Manager)
+    participant Cluster as Target Cluster<br/>(OpenShift / XKS)
+    participant Operators as Platform Operators<br/>(cert-manager, kueue, etc.)
+
+    rect rgb(230, 245, 255)
+        Note over Admin,Cluster: OpenShift Deployment Path (Helm + OLM)
+        Admin->>Values: Configure profile (default/rhaii)<br/>Set component managementState overrides
+        Values->>Helm: helm install rhai-on-openshift-chart
+        Helm->>Cluster: Template & apply DSCInitialization CR
+        Helm->>Cluster: Template & apply DataScienceCluster CR<br/>(KServe, Dashboard, Ray, Kueue, etc.)
+        Helm->>Cluster: Template & apply KServe Inference Gateway<br/>(GatewayClass + Gateway)
+        Helm->>Cluster: Template & apply MaaS Gateway<br/>(GatewayClass + Gateway)
+        Helm->>Cluster: Template & apply Kuadrant CR<br/>(kuadrant-system namespace)
+    end
+
+    rect rgb(255, 245, 230)
+        Note over Admin,Cluster: Kustomize Subscription Path (OpenShift)
+        Admin->>Kustomize: kubectl apply -k dependencies/operators/
+        Kustomize->>Cluster: Apply OLM Subscription manifests<br/>(cert-manager, kueue, jobset, observability,<br/>telemetry, tempo, RHCL, custom-metrics)
+        Cluster->>OLM: Process Subscriptions
+        OLM->>Operators: Install & manage operator lifecycle
+        Admin->>Kustomize: kubectl apply -k configurations/
+        Kustomize->>Cluster: Apply post-install configuration CRs<br/>(Kueue, JobSet, LeaderWorkerSet, Kuadrant)
+    end
+
+    rect rgb(230, 255, 230)
+        Note over Admin,Cluster: Non-OpenShift (XKS) Deployment Path
+        Admin->>Values: Configure cloud-specific values<br/>(Azure, CoreWeave, AWS sections)
+        Values->>Helm: helm install rhai-on-xks-chart<br/>(--set install-with-helm-dependencies)
+        Helm->>Cluster: Install cert-manager (Helm sub-chart)
+        Helm->>Cluster: Install gateway-api CRDs (Helm sub-chart)
+        Helm->>Cluster: Install sail-operator (Helm sub-chart)
+        Helm->>Cluster: Install rhcl-operator (Helm sub-chart)
+        Helm->>Cluster: Install lws-operator (Helm sub-chart)
+        Helm->>Cluster: Install rhai-operator (Helm sub-chart)
+    end
+
+    rect rgb(245, 230, 255)
+        Note over Admin,Cluster: ArgoCD Path (Alternative)
+        Admin->>Cluster: ArgoCD Application pointing to odh-gitops repo
+        Cluster->>Helm: ArgoCD renders Helm chart
+        Helm->>Cluster: Apply rendered manifests
+    end

@@ -1,0 +1,78 @@
+graph TB
+    subgraph DSPO["Data Science Pipelines Operator"]
+        direction TB
+        Controller["DSPAReconciler<br/>(controller-runtime)"]
+        Webhook["Webhook Server<br/>(admission webhooks)"]
+        TLSWatcher["SecurityProfileWatcher<br/>(TLS profile monitor)"]
+        Manifests["Manifestival Engine<br/>(template rendering)"]
+
+        Controller -->|"validates/mutates"| Webhook
+        Controller -->|"renders templates"| Manifests
+        TLSWatcher -->|"restarts on change"| Controller
+    end
+
+    User["Data Scientist / Admin"] -->|"creates"| DSPACR["DataSciencePipelinesApplication CR"]
+    DSPACR -->|"watched by"| Controller
+
+    subgraph OwnedResources["Owned Resources (per namespace)"]
+        direction TB
+        ArgoWorkflow["Argo Workflow CRDs<br/>(Workflow, CronWorkflow,<br/>WorkflowTemplate, ...)"]
+        PipelineAPI["Pipeline API Server<br/>(Deployment)"]
+        DBConfig["Database Config<br/>(ConfigMaps, Secrets)"]
+        StorageConfig["Object Storage Config<br/>(ConfigMaps, Secrets)"]
+        RBAC["RBAC Resources<br/>(Roles, RoleBindings, SAs)"]
+        NetPol["NetworkPolicies"]
+        Routes["OpenShift Routes"]
+        SvcMon["ServiceMonitors"]
+    end
+
+    Controller -->|"creates/manages"| ArgoWorkflow
+    Controller -->|"creates/manages"| PipelineAPI
+    Controller -->|"creates/manages"| DBConfig
+    Controller -->|"creates/manages"| StorageConfig
+    Controller -->|"creates/manages"| RBAC
+    Controller -->|"creates/manages"| NetPol
+    Controller -->|"creates/manages"| Routes
+    Controller -->|"creates/manages"| SvcMon
+
+    subgraph PlatformIntegrations["Platform Integrations"]
+        MLflow["MLflow CR<br/>(CRD Watch)"]
+        KServe["KServe InferenceService<br/>(CRD Watch)"]
+        KubeflowNB["Kubeflow Notebooks<br/>(CRD CRUD)"]
+        PromOperator["prometheus-operator<br/>(CRD CRUD)"]
+    end
+
+    Controller -->|"reads state"| MLflow
+    Controller -->|"reads state"| KServe
+    Controller -->|"manages"| KubeflowNB
+    Controller -->|"creates ServiceMonitors"| PromOperator
+
+    K8sAPI["Kubernetes API Server<br/>6443/HTTPS"] -->|"watches/CRUD"| Controller
+
+    subgraph AdditionalCRDs["Additional CRDs Managed"]
+        Pipeline["Pipeline CR<br/>(pipelines.kubeflow.org)"]
+        PipelineVer["PipelineVersion CR"]
+        SchedWF["ScheduledWorkflow CR"]
+        AppCR["Application CR<br/>(app.k8s.io)"]
+    end
+
+    Controller -->|"manages"| Pipeline
+    Controller -->|"manages"| PipelineVer
+    Controller -->|"manages"| SchedWF
+    Controller -->|"manages"| AppCR
+
+    style Controller fill:#4a90e2,stroke:#333,color:#fff
+    style Webhook fill:#4a90e2,stroke:#333,color:#fff
+    style TLSWatcher fill:#4a90e2,stroke:#333,color:#fff
+    style Manifests fill:#4a90e2,stroke:#333,color:#fff
+    style DSPACR fill:#f5a623,stroke:#333,color:#fff
+    style Pipeline fill:#f5a623,stroke:#333
+    style PipelineVer fill:#f5a623,stroke:#333
+    style SchedWF fill:#f5a623,stroke:#333
+    style AppCR fill:#f5a623,stroke:#333
+    style ArgoWorkflow fill:#f5a623,stroke:#333
+    style MLflow fill:#7ed321,stroke:#333
+    style KServe fill:#7ed321,stroke:#333
+    style KubeflowNB fill:#7ed321,stroke:#333
+    style PromOperator fill:#7ed321,stroke:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333

@@ -1,7 +1,7 @@
 ---
 name: generate-platform-diagrams
 description: Generate platform-level diagrams (dependency graphs, network topology, cross-component workflows) from aggregated PLATFORM.md file. Creates visualizations for architects, security teams, and platform engineers.
-allowed-tools: Read, Write, Bash(mkdir *), Bash(python scripts/generate_diagram_pngs.py *)
+allowed-tools: Read, Write, Bash(mkdir *), Bash(python scripts/generate_diagram_pngs.py *), Bash(python scripts/lint_mermaid_labels.py *)
 disable-model-invocation: true
 ---
 
@@ -84,6 +84,10 @@ mkdir -p {output-dir}
 ```
 
 ### Step 4: Generate Diagrams
+
+Follow this GitHub rendering rule for flowcharts:
+
+- Quote the complete square-node label when its text contains parentheses. For example, use `BasicAuth["Basic Auth<br/>(htpasswd)"]`; unquoted parentheses inside `ID[...]` can be parsed as Mermaid shape syntax by GitHub.
 
 Generate the requested diagram formats:
 
@@ -676,6 +680,16 @@ graph TB
 - Include auth mechanism for each metrics endpoint (None, kube-rbac-proxy, Bearer Token)
 
 ---
+
+### Validate GitHub-sensitive Mermaid labels
+
+After writing the Mermaid files, check the output directory for this rule:
+
+```bash
+python scripts/lint_mermaid_labels.py {output-dir}
+```
+
+Fix every reported label before reporting diagram generation as complete.
 
 ### Step 5: Generate Index/README
 

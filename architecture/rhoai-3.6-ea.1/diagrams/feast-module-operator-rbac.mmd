@@ -1,0 +1,122 @@
+graph TD
+    subgraph "Service Accounts"
+        SA_Feast["opendatahub-feast-operator<br/>(primary operator SA)"]
+    end
+
+    subgraph "ClusterRole Bindings"
+        CRB_Manager["opendatahub-feast-<br/>manager-rolebinding"]
+        CRB_Metrics["opendatahub-feast-<br/>metrics-auth-rolebinding"]
+    end
+
+    subgraph "Role Bindings"
+        RB_Leader["opendatahub-feast-<br/>leader-election-rolebinding<br/>(ns: opendatahub-feast-system)"]
+    end
+
+    subgraph "ClusterRoles"
+        CR_Manager["opendatahub-feast-<br/>manager-role"]
+        CR_Metrics["opendatahub-feast-<br/>metrics-auth-role"]
+    end
+
+    subgraph "Roles"
+        R_Leader["opendatahub-feast-<br/>leader-election-role<br/>(ns: opendatahub-feast-system)"]
+    end
+
+    subgraph "Core API Resources"
+        ConfigMaps["ConfigMaps<br/>ServiceAccounts<br/>Services"]
+        Pods["Pods, Pods/exec<br/>Pods/log"]
+        PVCs["PersistentVolumeClaims"]
+        Secrets["Namespaces<br/>Secrets"]
+        Events["Events"]
+    end
+
+    subgraph "Apps / Batch / Autoscaling"
+        Deployments["apps: Deployments"]
+        Jobs["batch: Jobs<br/>CronJobs"]
+        HPAs["autoscaling:<br/>HorizontalPodAutoscalers"]
+        PDBs["policy:<br/>PodDisruptionBudgets"]
+    end
+
+    subgraph "RBAC Resources"
+        RBACRes["rbac: Roles<br/>ClusterRoles<br/>RoleBindings<br/>ClusterRoleBindings"]
+    end
+
+    subgraph "Platform CRDs"
+        FeastOpCR["components.platform.opendatahub.io<br/>FeastOperators<br/>+ /finalizers + /status"]
+        FeastDevCR["feast.dev<br/>FeatureStores<br/>+ /finalizers + /status"]
+    end
+
+    subgraph "Integration CRDs"
+        Notebooks["kubeflow.org<br/>Notebooks"]
+        Routes["route.openshift.io<br/>Routes"]
+        ServiceMonitors["monitoring.coreos.com<br/>ServiceMonitors"]
+        SparkApps["sparkoperator.k8s.io<br/>SparkApplications"]
+        CRDs["apiextensions.k8s.io<br/>CustomResourceDefinitions"]
+    end
+
+    subgraph "Auth Resources"
+        TokenReviews["authentication.k8s.io<br/>TokenReviews"]
+        SAR["authorization.k8s.io<br/>SubjectAccessReviews"]
+        Leases["coordination.k8s.io<br/>Leases"]
+    end
+
+    subgraph "Aggregate Roles (User-Facing)"
+        AdminRole["feastoperator-admin-role<br/>full CRUD + status"]
+        EditorRole["feastoperator-editor-role<br/>full CRUD + status"]
+        ViewerRole["feastoperator-viewer-role<br/>get, list, watch + status"]
+    end
+
+    %% Bindings
+    SA_Feast -->|bound via| CRB_Manager
+    SA_Feast -->|bound via| CRB_Metrics
+    SA_Feast -->|bound via| RB_Leader
+
+    CRB_Manager -->|grants| CR_Manager
+    CRB_Metrics -->|grants| CR_Metrics
+    RB_Leader -->|grants| R_Leader
+
+    %% Manager role permissions
+    CR_Manager -->|"create,delete,get,list,<br/>patch,update,watch"| ConfigMaps
+    CR_Manager -->|"create,delete,get,<br/>list,watch"| Pods
+    CR_Manager -->|"get,list,patch,<br/>update,watch"| Secrets
+    CR_Manager -->|"create,patch"| Events
+    CR_Manager -->|"create,delete,get,list,<br/>update,watch"| PVCs
+    CR_Manager -->|"full CRUD"| Deployments
+    CR_Manager -->|"full CRUD"| Jobs
+    CR_Manager -->|"full CRUD"| HPAs
+    CR_Manager -->|"full CRUD"| PDBs
+    CR_Manager -->|"full CRUD"| RBACRes
+    CR_Manager -->|"full CRUD +<br/>finalizers + status"| FeastOpCR
+    CR_Manager -->|"full CRUD +<br/>finalizers + status"| FeastDevCR
+    CR_Manager -->|"get,list,watch"| Notebooks
+    CR_Manager -->|"create,delete,get,<br/>list,update,watch"| Routes
+    CR_Manager -->|"full CRUD"| ServiceMonitors
+    CR_Manager -->|"create,delete,get"| SparkApps
+    CR_Manager -->|"full CRUD"| CRDs
+    CR_Manager -->|"create"| TokenReviews
+    CR_Manager -->|"create"| SAR
+    CR_Manager -->|"full CRUD"| Leases
+
+    %% Metrics auth role
+    CR_Metrics -->|"create"| TokenReviews
+    CR_Metrics -->|"create"| SAR
+
+    %% Leader election role
+    R_Leader -->|"full CRUD"| ConfigMaps
+    R_Leader -->|"create,patch"| Events
+    R_Leader -->|"full CRUD"| Leases
+
+    %% Aggregate roles
+    AdminRole -->|"full CRUD + status"| FeastOpCR
+    EditorRole -->|"full CRUD + status"| FeastOpCR
+    ViewerRole -->|"get,list,watch + status"| FeastOpCR
+
+    %% Styling
+    style SA_Feast fill:#4a90e2,stroke:#333,color:#fff
+    style CR_Manager fill:#f5a623,stroke:#333
+    style CR_Metrics fill:#f5a623,stroke:#333
+    style R_Leader fill:#f5a623,stroke:#333
+    style FeastOpCR fill:#7ed321,stroke:#333
+    style FeastDevCR fill:#7ed321,stroke:#333
+    style AdminRole fill:#e8e8e8,stroke:#333
+    style EditorRole fill:#e8e8e8,stroke:#333
+    style ViewerRole fill:#e8e8e8,stroke:#333

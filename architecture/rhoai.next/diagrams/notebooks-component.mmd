@@ -1,104 +1,101 @@
 graph TB
-    subgraph NotebooksRepo["Notebooks Repository (Container Image Factory)"]
+    subgraph ImageFactory["Notebooks Image Factory"]
         direction TB
 
-        subgraph BuildSystem["Build System"]
-            Makefile["Makefile Build Orchestration"]
-            Buildinputs["buildinputs (Go CLI)<br/>Dockerfile dependency parser"]
-            NTB["ntb (Python Library)<br/>Test/CI utilities"]
-        end
-
-        subgraph BaseImages["Base Images"]
-            BaseCPU["Base CPU<br/>c9s + Python 3.12"]
-            BaseCUDA129["Base CUDA 12.9<br/>c9s + CUDA 12.9.1 + cuDNN 9.14"]
-            BaseCUDA130["Base CUDA 13.0<br/>c9s + CUDA 13.0.2 + cuDNN 9.14"]
-            BaseROCm64["Base ROCm 6.4<br/>c9s + ROCm 6.4.3"]
-            BaseROCm71["Base ROCm 7.1<br/>c9s + ROCm 7.1.1"]
-        end
-
-        subgraph JupyterImages["Jupyter Workbench Images"]
-            Minimal["Jupyter Minimal<br/>JupyterLab + PDF Export<br/>:8888/TCP"]
-            DataScience["Jupyter DataScience<br/>NumPy, Pandas, SciPy,<br/>scikit-learn, Elyra"]
-            PyTorch["Jupyter PyTorch<br/>PyTorch ML Framework"]
-            PyTorchLLM["Jupyter PyTorch+LLMCompressor<br/>Model Optimization"]
-            TensorFlow["Jupyter TensorFlow<br/>TensorFlow ML Framework"]
-            TrustyAI["Jupyter TrustyAI<br/>Fairness/Explainability<br/>+ Java 17"]
+        subgraph JupyterImages["Jupyter Workbench Images (11 variants)"]
+            Minimal["jupyter-minimal<br/>CPU / CUDA / ROCm"]
+            DataScience["jupyter-datascience<br/>CPU"]
+            PyTorch["jupyter-pytorch<br/>CUDA"]
+            PyTorchLLM["jupyter-pytorch+llmcompressor<br/>CUDA"]
+            TensorFlow["jupyter-tensorflow<br/>CUDA"]
+            RocmPT["jupyter-rocm-pytorch<br/>ROCm"]
+            RocmTF["jupyter-rocm-tensorflow<br/>ROCm"]
+            TrustyAI["jupyter-trustyai<br/>CPU"]
         end
 
         subgraph CodeServerImage["Code-Server Workbench"]
-            CodeServer["Code-Server<br/>VS Code in Browser"]
-            Nginx["nginx Proxy<br/>:80/TCP"]
-            Httpd["httpd CGI<br/>:8080/TCP"]
-            CodeServerProc["code-server Process<br/>:8787/TCP"]
+            CodeServer["codeserver<br/>CPU"]
+            Nginx["nginx :80"] -->|proxy| HTTPD["httpd :8080"]
+            HTTPD -->|CGI| AccessCGI["access.cgi<br/>bash"]
+            AccessCGI -->|healthz| CS_Process["code-server :8888"]
         end
 
-        subgraph RuntimeImages["Pipeline Runtime Images"]
-            RTMinimal["Runtime Minimal<br/>Elyra Bootstrapper"]
-            RTDataScience["Runtime DataScience"]
-            RTPyTorch["Runtime PyTorch"]
-            RTPyTorchLLM["Runtime PyTorch+LLMCompressor"]
-            RTTensorFlow["Runtime TensorFlow"]
+        subgraph RuntimeImages["Pipeline Runtime Images (7 variants)"]
+            RTMinimal["runtime-minimal<br/>CPU"]
+            RTDataSci["runtime-datascience<br/>CPU"]
+            RTPyTorch["runtime-pytorch<br/>CUDA"]
+            RTPyTorchLLM["runtime-pytorch+llmcompressor<br/>CUDA"]
+            RTTensorFlow["runtime-tensorflow<br/>CUDA"]
+            RTRocmPT["runtime-rocm-pytorch<br/>ROCm"]
+            RTRocmTF["runtime-rocm-tensorflow<br/>ROCm"]
         end
 
-        subgraph Manifests["ImageStream Manifests"]
-            ISManifests["Kustomize ImageStreams<br/>manifests/rhoai/base/<br/>manifests/odh/base/"]
+        subgraph BuildToolchain["Build Toolchain"]
+            Lockfiles["Dependency Lockfiles<br/>pylock.toml / rpms.lock.yaml"]
+            BuildArgs["Build Args<br/>konflux.*.conf"]
+            CVEConstraints["CVE Constraints<br/>cve-constraints.txt"]
+        end
+
+        subgraph Manifests["Kustomize Manifests"]
+            ODHManifests["ODH Base<br/>18 ImageStreams"]
+            RHOAIManifests["RHOAI Base<br/>25 ImageStreams"]
         end
     end
 
-    %% Image inheritance chain
-    BaseCPU -->|base| Minimal
-    BaseCUDA129 -->|base| PyTorch
-    BaseCUDA130 -->|base| PyTorch
-    BaseCUDA129 -->|base| TensorFlow
-    BaseROCm64 -->|base| PyTorch
-    BaseROCm71 -->|base| PyTorch
-    BaseROCm64 -->|base| TensorFlow
-    BaseROCm71 -->|base| TensorFlow
+    subgraph BaseImages["Base Images"]
+        AIPCC["AIPCC Base Images<br/>RHEL 9.6 EUS"]
+        ODHBase["ODH Base Images<br/>CentOS Stream 9"]
+    end
 
-    Minimal -->|extends| DataScience
-    DataScience -->|extends| PyTorch
-    DataScience -->|extends| TensorFlow
-    DataScience -->|extends| TrustyAI
-    PyTorch -->|extends| PyTorchLLM
+    subgraph Consumers["Consumers"]
+        NotebookController["ODH Notebook Controller<br/>creates pods from Notebook CR"]
+        Dashboard["ODH Dashboard<br/>discovers via ImageStream annotations"]
+        ElyraEngine["Elyra Pipeline Engine<br/>executes pipeline nodes"]
+        Operator["ODH/RHOAI Operator<br/>deploys ImageStream manifests"]
+    end
 
-    Minimal -->|extends| RTMinimal
-    DataScience -->|extends| RTDataScience
-    PyTorch -->|extends| RTPyTorch
-    RTPyTorch -->|extends| RTPyTorchLLM
-    TensorFlow -->|extends| RTTensorFlow
+    %% Base image relationships
+    AIPCC -->|"${BASE_IMAGE} (RHOAI)"| JupyterImages
+    AIPCC -->|"${BASE_IMAGE} (RHOAI)"| RuntimeImages
+    AIPCC -->|"${BASE_IMAGE} (RHOAI)"| CodeServerImage
+    ODHBase -->|"${BASE_IMAGE} (ODH)"| JupyterImages
+    ODHBase -->|"${BASE_IMAGE} (ODH)"| RuntimeImages
+    ODHBase -->|"${BASE_IMAGE} (ODH)"| CodeServerImage
 
-    %% Code-Server internal
-    Nginx -->|proxy| CodeServerProc
-    Httpd -->|CGI healthz| CodeServerProc
+    %% Consumer relationships
+    NotebookController -->|instantiates| JupyterImages
+    NotebookController -->|instantiates| CodeServerImage
+    Dashboard -->|discovers| Manifests
+    ElyraEngine -->|pulls| RuntimeImages
+    Operator -->|deploys| Manifests
 
-    %% Build system
-    Makefile -->|builds| BaseImages
-    Makefile -->|builds| JupyterImages
-    Makefile -->|builds| CodeServerImage
-    Makefile -->|builds| RuntimeImages
+    %% Conceptual image hierarchy (within Jupyter)
+    Minimal -.->|"conceptual base"| DataScience
+    DataScience -.->|"conceptual base"| PyTorch
+    DataScience -.->|"conceptual base"| TensorFlow
+    DataScience -.->|"conceptual base"| TrustyAI
+    DataScience -.->|"conceptual base"| PyTorchLLM
 
-    %% External consumers
-    Operator["rhods-operator /<br/>opendatahub-operator"]
-    Dashboard["ODH Dashboard"]
-    Registry["Container Registry<br/>(registry.redhat.io / quay.io)"]
-    Konflux["Konflux Build System"]
-
-    Konflux -->|builds hermetically| NotebooksRepo
-    NotebooksRepo -->|pushes images| Registry
-    ISManifests -->|consumed by| Operator
-    Operator -->|deploys ImageStreams| Dashboard
-    Dashboard -->|displays workbenches| User["Data Scientist"]
+    %% Build toolchain feeds
+    BuildArgs -->|"configures"| JupyterImages
+    BuildArgs -->|"configures"| RuntimeImages
+    Lockfiles -->|"pins deps"| JupyterImages
+    Lockfiles -->|"pins deps"| RuntimeImages
+    CVEConstraints -->|"minimum versions"| Lockfiles
 
     %% Styling
-    style NotebooksRepo fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
-    style BuildSystem fill:#f0f0f0,stroke:#666
-    style BaseImages fill:#fff3e0,stroke:#f5a623
-    style JupyterImages fill:#e8f5e9,stroke:#4caf50
-    style CodeServerImage fill:#fce4ec,stroke:#e91e63
-    style RuntimeImages fill:#e3f2fd,stroke:#2196f3
-    style Manifests fill:#f3e5f5,stroke:#9c27b0
-    style Operator fill:#e8e8e8,stroke:#333
-    style Dashboard fill:#7ed321,stroke:#333
-    style Registry fill:#f5a623,stroke:#333
-    style Konflux fill:#e8e8e8,stroke:#333
-    style User fill:#4a90e2,stroke:#333,color:#fff
+    style ImageFactory fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style JupyterImages fill:#dcedc8,stroke:#689f38,stroke-width:1px
+    style CodeServerImage fill:#fff3e0,stroke:#f57c00,stroke-width:1px
+    style RuntimeImages fill:#e1bee7,stroke:#8e24aa,stroke-width:1px
+    style BuildToolchain fill:#f5f5f5,stroke:#616161,stroke-width:1px
+    style Manifests fill:#fff9c4,stroke:#f9a825,stroke-width:1px
+    style BaseImages fill:#e0e0e0,stroke:#424242,stroke-width:2px
+    style Consumers fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+
+    style AIPCC fill:#bbdefb,stroke:#1565c0
+    style ODHBase fill:#bbdefb,stroke:#1565c0
+    style NotebookController fill:#a5d6a7,stroke:#2e7d32
+    style Dashboard fill:#a5d6a7,stroke:#2e7d32
+    style ElyraEngine fill:#a5d6a7,stroke:#2e7d32
+    style Operator fill:#a5d6a7,stroke:#2e7d32

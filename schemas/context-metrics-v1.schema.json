@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jctanner/odh.architecture-context/schemas/context-metrics-v1.schema.json",
+  "title": "Architecture Context Metrics",
+  "description": "Stable context-access metric contract used by architecture agent telemetry.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "context_fetches": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Number of context fetch operations (reads + queries)."
+    },
+    "useful_reads": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Reads that contributed to the final answer."
+    },
+    "navigation_reads": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Reads used for navigation or discovery."
+    },
+    "queries_issued": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Number of arch-query invocations."
+    },
+    "missing_context_detected": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Whether missing architecture context was detected."
+    },
+    "stale_context_detected": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Whether stale architecture context was detected."
+    },
+    "unsupported_inference_detected": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Whether an inference exceeded available context."
+    }
+  }
+}
+

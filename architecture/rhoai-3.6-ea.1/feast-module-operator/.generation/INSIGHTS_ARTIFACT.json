@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "component": "feast-module-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "feast-module-operator-pattern-001",
+      "claim": "The operator implements the ODH module operator pattern with a platform version handshake protocol via ConfigMap, enabling coordinated upgrades between the module and the RHOAI platform operator.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/feastoperator/feastoperator_platform_version.go:50-93"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/feastoperator/feastoperator_controller.go:88-135"
+        }
+      ],
+      "reasoning": "The reconciler watches a ConfigMap (odh-feastoperator-config) and compares its platformVersion value against the version stored in the FeastOperator CR status. This handshake ensures the module and platform operator stay version-synchronized, with a migration hook for version-gated upgrade logic.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "feast-module-operator-pattern-002",
+      "claim": "The operator delegates its entire reconciliation pipeline to the opendatahub-operator framework, using a declarative action chain (initialize → render → deploy → gc) rather than custom reconciliation logic.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/feastoperator/feastoperator_controller.go:88-135"
+        },
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/internal_dependencies"
+        }
+      ],
+      "reasoning": "The reconciler is built entirely from opendatahub-operator/v2 packages: reconciler.ReconcilerFor, kustomize.NewAction, deploy.NewAction, deployments.NewAction, gc.NewAction, and releases.NewAction. This means the operator's behavior is largely determined by the framework version, and changes to the framework affect all module operators uniformly.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "feast-module-operator-risk-001",
+      "claim": "The operator's broad RBAC scope (26 rules including pods/exec, secrets, CRD management, and Spark applications) creates a large attack surface if the operator's service account is compromised.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/rbac"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/feastoperator/feastoperator_controller.go:50-75"
+        }
+      ],
+      "reasoning": "The manager-role ClusterRole has verbs including create/delete on pods, pods/exec, secrets, deployments, CRDs, RBAC resources, and Spark applications. This is architecturally justified by the operator's responsibility for deploying the full Feast stack, but it represents a concentration of privilege in a single service account.",
+      "applicability": "component",
+      "confidence": "medium"
+    }
+  ]
+}

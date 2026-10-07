@@ -1,0 +1,145 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [ML Client / SDK]                                                       │
+│  [MLflow UI User]                                                        │
+│         │                                                                │
+│         │ Port: 5000/TCP                                                 │
+│         │ Protocol: HTTP/HTTPS                                           │
+│         │ Encryption: Configurable (TLS via cryptography/OpenSSL)        │
+│         │ Auth: Kubernetes SA Bearer Token (Authorization header)        │
+│         │ Headers: X-MLFLOW-WORKSPACE (namespace routing)                │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  APPLICATION LAYER (MLflow Tracking Server)                              │
+│                                                                          │
+│  [Gunicorn / Uvicorn ASGI/WSGI Server]                                   │
+│  - Port: 5000/TCP (bound to 0.0.0.0)                                    │
+│  - Base Image: UBI9-minimal                                              │
+│  - Runtime: Python 3.12                                                  │
+│         │                                                                │
+│         │ In-process                                                     │
+│         ▼                                                                │
+│  [kubernetes-auth Plugin]                                                │
+│  - Package: mlflow-kubernetes-plugins v1.5.0                             │
+│  - Token Source: /var/run/secrets/kubernetes.io/serviceaccount/token     │
+│  - Fallback: kubeconfig (out-of-cluster)                                 │
+│         │                                                                │
+│         │ In-process                                                     │
+│         ▼                                                                │
+│  [RBAC Authorization Module]                                             │
+│  - Module: mlflow/server/auth                                            │
+│  - Enforcement: Per-resource role-based permissions                      │
+│  - Scope: experiments, registered_models, gateway, workspaces            │
+│         │                                                                │
+│         │ In-process                                                     │
+│         ▼                                                                │
+│  [Workspace Store]                                                       │
+│  - URI: kubernetes://                                                    │
+│  - Isolation: Namespace-scoped workspace mapping                         │
+│         │                                                                │
+│         ├─── [Tracking API]   /ajax-api/3.0/mlflow/*                     │
+│         ├─── [Model Registry] /{name}/versions/*                         │
+│         ├─── [Artifact Proxy] --serve-artifacts                          │
+│         └─── [Health/Version] /health, /version                          │
+│                                                                          │
+│  Disabled Features (RHOAI defaults):                                     │
+│  ✗ AI Gateway      (MLFLOW_ENABLE_AI_GATEWAY=false)                      │
+│  ✗ Assistant        (MLFLOW_ENABLE_ASSISTANT=false)                      │
+│  ✗ Job Execution    (MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false)           │
+│  ✗ Telemetry        (MLFLOW_DISABLE_TELEMETRY=true)                     │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INTERNAL PLATFORM SERVICES                                              │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Purpose: SA token validation, workspace namespace lookup,             │
+│             optional Job creation for project execution                  │
+│  - Auth: Service Account Token                                           │
+│  - Token: /var/run/secrets/kubernetes.io/serviceaccount/token            │
+│  - Encryption: TLS (in-cluster)                                          │
+│         ▲                                                                │
+│         │ Port: 443/TCP (in-cluster API)                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Auth: SA Bearer Token                                          │
+│         │                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  DATA LAYER                                                              │
+│                                                                          │
+│  [SQL Backend - PostgreSQL / SQLite]                                     │
+│  - Purpose: Experiment metadata, model registry, RBAC data              │
+│  - Driver: psycopg2 (PostgreSQL) or sqlite3                             │
+│  - Encryption: Configurable (PostgreSQL supports TLS)                    │
+│  - Auth: Database credentials                                            │
+│         ▲                                                                │
+│         │ Protocol: PostgreSQL wire protocol / SQLite file               │
+│         │ Driver: SQLAlchemy + psycopg2                                  │
+│         │                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES (Egress)                                              │
+│                                                                          │
+│  [S3-Compatible Storage]                                                 │
+│  - Purpose: Model artifact storage                                       │
+│  - Client: boto3                                                         │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS                                                       │
+│  - Auth: AWS IAM credentials (AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN)  │
+│                                                                          │
+│  [Google Cloud Storage]                                                  │
+│  - Purpose: Model artifact storage (alternative)                         │
+│  - Client: google-cloud-storage SDK                                      │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS                                                       │
+│  - Auth: GCP credentials                                                 │
+│                                                                          │
+│  [api.openai.com] (disabled by default - AI Gateway off)                 │
+│  - Purpose: LLM provider integration                                     │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS                                                       │
+│  - Auth: OPENAI_API_KEY environment variable                             │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No Kubernetes ClusterRoles or RoleBindings defined in this component.
+- Application-level RBAC is enforced by mlflow/server/auth module:
+  - Roles: Defined per workspace
+  - Permissions: Per-resource (experiments, registered_models, gateway, workspaces)
+  - Enforcement: Flask middleware in kubernetes-auth plugin
+
+Authentication & Authorization:
+- Auth Mechanism: kubernetes-auth plugin (Kubernetes SA bearer token)
+- Enforcement Point: Flask application via mlflow-kubernetes-plugins entry point
+- Policy: RBAC with role-based per-resource permissions
+- Token Source: /var/run/secrets/kubernetes.io/serviceaccount/token
+- Workspace Routing: X-MLFLOW-WORKSPACE header → namespace isolation
+
+Secrets (Environment Variables):
+- DATABRICKS_TOKEN              - Databricks auth token
+- DATABRICKS_PASSWORD           - Databricks password
+- DATABRICKS_REFRESH_TOKEN      - Databricks OAuth refresh token
+- DATABRICKS_CLIENT_SECRET      - Databricks OAuth client secret
+- OPENAI_API_KEY                - OpenAI API key (gateway - disabled)
+- ANTHROPIC_API_KEY             - Anthropic API key (gateway - disabled)
+- AWS_BEARER_TOKEN_BEDROCK      - AWS Bedrock bearer token
+- AWS_SECRET_ACCESS_KEY         - AWS secret access key (S3 storage)
+- AWS_SESSION_TOKEN             - AWS session token
+- COHERE_API_KEY                - Cohere API key (gateway - disabled)
+- MISTRAL_API_KEY               - Mistral API key (gateway - disabled)
+- TOGETHERAI_API_KEY            - Together AI API key (gateway - disabled)
+- GROQ_API_KEY                  - Groq API key (gateway - disabled)
+- DEEPSEEK_API_KEY              - DeepSeek API key (gateway - disabled)
+- XAI_API_KEY                   - xAI API key (gateway - disabled)
+- OPENROUTER_API_KEY            - OpenRouter API key (gateway - disabled)
+- OLLAMA_API_KEY                - Ollama API key (gateway - disabled)
+- AZURE_STORAGE_SAS_TOKEN       - Azure Storage SAS token
+- JUPYTERHUB_API_TOKEN          - JupyterHub API token
+
+FIPS Compliance:
+- Base Image: UBI9-minimal (OpenSSL with FIPS support when host enables it)
+- Crypto Library: Python cryptography >=43.0.0 (OpenSSL backend on Linux)
+- FIPS Mode: Not explicitly activated (no OPENSSL_FIPS env var detected)
+- Risk: FIPS not enforced; inherits host FIPS policy when available

@@ -1,0 +1,147 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Clients["External Clients<br/>Data Scientists, API Consumers"]
+    end
+
+    subgraph Ingress["INGRESS — Gateway API (openshift-ingress namespace)"]
+        direction TB
+        DSGateway["data-science-gateway<br/>Central Platform Gateway<br/>Owner: rhods-operator Gateway controller<br/>GatewayClass: platform"]
+        MaaSGateway["maas-default-gateway<br/>MaaS Capability Gateway<br/>Owner: models-as-a-service<br/>GatewayClass: platform"]
+        OSRoutes["OpenShift Routes<br/>Legacy Ingress Path<br/>HAProxy Router<br/>TLS termination at router"]
+    end
+
+    subgraph AuthLayer["AUTHENTICATION LAYER"]
+        direction TB
+        KubeAuth["kube-auth-proxy<br/>Port 4180<br/>OAuth2/OIDC + K8s TokenReview<br/>Session management"]
+        EnvoyFilter["EnvoyFilter ext_authz<br/>Conditional: when Istio CRDs present<br/>Routes dashboard traffic to kube-auth-proxy"]
+        KuadrantAuth["Kuadrant / Authorino AuthPolicy<br/>API key (sk-oai-*) extraction<br/>K8s TokenReview<br/>Optional OIDC JWT<br/>OPA Rego authorization"]
+        KRBPSidecar["kube-rbac-proxy sidecars<br/>SubjectAccessReview enforcement<br/>TLS-terminating proxy"]
+    end
+
+    subgraph OperatorNS["OPERATOR NAMESPACE (redhat-ods-operator)"]
+        RhodsOp["rhods-operator<br/>SA: rhods-operator-controller-manager<br/>Auth + Gateway + Monitoring controllers"]
+    end
+
+    subgraph AppsNS["APPLICATIONS NAMESPACE (redhat-ods-applications)"]
+        direction TB
+        DashboardPod["odh-dashboard<br/>SA: odh-dashboard<br/>BFF sidecars: TokenReview + SAR<br/>Node.js backend + kube-rbac-proxy"]
+        ODHModelCtrl2["odh-model-controller<br/>SA: odh-model-controller<br/>InferenceService, AuthPolicy,<br/>NetworkPolicy, ServiceMonitor"]
+        DSPipelines2["data-science-pipelines-operator<br/>SA: data-science-pipelines-operator<br/>API server, persistence agent"]
+        Workbenches2["workbenches-operator<br/>SA: workbenches-operator<br/>Notebook lifecycle"]
+        ModelRegOp["model-registry-operator<br/>SA: model-registry-operator<br/>Dual ingress: HTTPRoute + Route<br/>kube-rbac-proxy sidecar"]
+        TrainerOp["trainer-operator<br/>SA: trainer-operator"]
+        KueueOp["kueue-operator<br/>SA: kueue-controller-manager"]
+        Monitoring["Monitoring Proxies<br/>SA: monitoring-proxies<br/>kube-rbac-proxy sidecars<br/>cluster-monitoring-view ClusterRole"]
+    end
+
+    subgraph KServeNS["KSERVE NAMESPACE"]
+        direction TB
+        KServeMgr["kserve-controller-manager<br/>SA: kserve-controller-manager<br/>InferenceService reconciler"]
+        LLMISVCCtrl["kserve llmisvc controller<br/>SA: kserve-llmisvc-controller<br/>LLMInferenceService reconciler<br/>13 resource types"]
+        LocalModel["kserve localmodel controllers<br/>SA: kserve-localmodel-controller<br/>Local model caching"]
+        KServeModule["kserve-module operator<br/>SA: kserve-module<br/>ODH module pattern"]
+    end
+
+    subgraph MaaSNS["MODELS-AS-A-SERVICE NAMESPACE"]
+        direction TB
+        MaaSAPI["maas-api<br/>SA: maas-api<br/>Port 8443<br/>OpenAI-compatible REST API"]
+        MaaSCtrl["maas-controller<br/>SA: maas-controller<br/>MaaSModelRefReconciler<br/>HTTPRoute management"]
+        MaaSDB["PostgreSQL<br/>Tenant state, subscriptions,<br/>API key storage"]
+    end
+
+    subgraph KuadrantNS["KUADRANT-SYSTEM NAMESPACE"]
+        KuadrantCtrl["Kuadrant / Authorino Controllers<br/>AuthPolicy enforcement<br/>TokenRateLimitPolicy"]
+    end
+
+    subgraph UserNS["USER NAMESPACES"]
+        direction TB
+        InferencePods["InferenceService Pods<br/>vLLM, OpenVINO, MLServer<br/>Model server containers"]
+        LLMdPods["llm-d Pods<br/>Prefill + Decode Deployments<br/>Envoy sidecar, EPP router<br/>mTLS STRICT (ModelExpress gRPC)"]
+        NotebookPods["Notebook Pods<br/>Jupyter StatefulSets<br/>Data connection secrets"]
+        PipelinePods["Pipeline Workflow Pods<br/>Argo Workflow steps<br/>SeaweedFS/S3 artifact storage"]
+        TrainingPods["Training Job Pods<br/>Ray clusters, Spark jobs<br/>Kubeflow training"]
+    end
+
+    subgraph Egress["EGRESS (External Services)"]
+        direction TB
+        ContainerReg["Container Registries<br/>quay.io, registry.redhat.io<br/>443/TCP HTTPS<br/>Pull secrets"]
+        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>ServiceAccount tokens<br/>TokenReview, SubjectAccessReview"]
+        S3Storage["Object Storage (S3-compatible)<br/>443/TCP HTTPS<br/>Model artifacts, pipeline artifacts<br/>AWS IAM or static credentials"]
+    end
+
+    %% External to Ingress
+    Clients -->|"HTTPS/443"| DSGateway
+    Clients -->|"HTTPS/443"| MaaSGateway
+    Clients -->|"HTTPS/443"| OSRoutes
+
+    %% Ingress to Auth Layer
+    DSGateway -->|"dashboard path"| EnvoyFilter
+    EnvoyFilter -->|"ext_authz"| KubeAuth
+    MaaSGateway -->|"MaaS API path"| KuadrantAuth
+    OSRoutes -->|"model-registry, monitoring"| KRBPSidecar
+
+    %% Auth Layer to Applications
+    KubeAuth -->|"authenticated"| DashboardPod
+    KuadrantAuth -->|"authorized"| MaaSAPI
+    KRBPSidecar -->|"SAR validated"| ModelRegOp
+    KRBPSidecar -->|"SAR validated"| Monitoring
+
+    %% Gateway direct routes (non-dashboard)
+    DSGateway -->|"HTTPRoute: model-registry"| ModelRegOp
+    DSGateway -->|"HTTPRoute: kserve llmisvc"| LLMISVCCtrl
+    DSGateway -->|"HTTPRoute: odh-model-controller"| ODHModelCtrl2
+
+    %% Operator to control plane
+    RhodsOp -->|"reconciles DSC/DSCI"| AppsNS
+    RhodsOp -->|"provisions gateway"| DSGateway
+    RhodsOp -->|"watches"| MaaSNS
+    RhodsOp -->|"watches"| KuadrantNS
+
+    %% Application namespace internal
+    DashboardPod -->|"K8s API"| K8sAPI
+    ODHModelCtrl2 -->|"K8s API"| K8sAPI
+    DSPipelines2 -->|"K8s API"| K8sAPI
+
+    %% KServe namespace to user workloads
+    KServeMgr -->|"creates Deployment, Service,<br/>HTTPRoute, HPA"| InferencePods
+    LLMISVCCtrl -->|"creates prefill/decode<br/>Deployments, InferencePool"| LLMdPods
+
+    %% MaaS internal
+    MaaSAPI -->|"queries"| MaaSDB
+    MaaSCtrl -->|"watches LLMInferenceService"| KServeMgr
+    MaaSCtrl -->|"creates HTTPRoutes"| DSGateway
+
+    %% User namespace to egress
+    InferencePods -->|"model download"| S3Storage
+    InferencePods -->|"image pull"| ContainerReg
+    LLMdPods -->|"model download"| S3Storage
+    NotebookPods -->|"training data"| S3Storage
+    PipelinePods -->|"artifacts"| S3Storage
+
+    %% Workbenches to notebooks
+    Workbenches2 -->|"creates StatefulSet"| NotebookPods
+    DSPipelines2 -->|"creates Argo Workflows"| PipelinePods
+    TrainerOp -->|"creates training jobs"| TrainingPods
+    KueueOp -->|"schedules"| TrainingPods
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef auth fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef operator fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef apps fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef kserve fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef maas fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef user fill:#d5e8d4,stroke:#82b366,stroke-width:1px
+    classDef egress fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+
+    class Clients external
+    class DSGateway,MaaSGateway,OSRoutes ingress
+    class KubeAuth,EnvoyFilter,KuadrantAuth,KRBPSidecar auth
+    class RhodsOp operator
+    class DashboardPod,ODHModelCtrl2,DSPipelines2,Workbenches2,ModelRegOp,TrainerOp,KueueOp,Monitoring apps
+    class KServeMgr,LLMISVCCtrl,LocalModel,KServeModule kserve
+    class MaaSAPI,MaaSCtrl,MaaSDB maas
+    class InferencePods,LLMdPods,NotebookPods,PipelinePods,TrainingPods user
+    class ContainerReg,K8sAPI,S3Storage egress
+    class KuadrantCtrl maas

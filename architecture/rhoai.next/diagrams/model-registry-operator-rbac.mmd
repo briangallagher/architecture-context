@@ -1,118 +1,147 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA_CM["controller-manager<br/>(operator namespace)"]
-        SA_REG["{name}<br/>(per-registry namespace)"]
+        OperatorSA["model-registry-operator-<br/>controller-manager<br/>(Operator SA)"]
+        RegistrySA["{name}<br/>(Per-Registry SA)"]
+        CatalogSA["model-catalog<br/>(Catalog SA)"]
     end
 
     subgraph ClusterRoleBindings["ClusterRole Bindings"]
-        CRB_MGR["manager-rolebinding"]
-        CRB_AUTH["{name}-auth-delegator<br/>(per registry)"]
+        ManagerCRB["manager-rolebinding"]
+        AuthDelegatorCRB["{name}-auth-delegator<br/>(per registry)"]
+        CatalogAuthCRB["model-catalog-<br/>auth-delegator"]
     end
 
-    subgraph RoleBindings["Role Bindings (namespace-scoped)"]
-        RB_LEADER["leader-election-rolebinding<br/>(operator namespace)"]
+    subgraph ClusterRoles["ClusterRoles"]
+        ManagerRole["manager-role"]
+        AuthDelegator["system:auth-delegator"]
     end
 
-    subgraph ClusterRoles["Cluster Roles"]
-        CR_MGR["manager-role"]
-        CR_AUTH["system:auth-delegator"]
+    subgraph PerRegistryRBAC["Per-Registry RBAC (Namespaced)"]
+        RegistryRole["registry-user-{name}<br/>(Role)"]
+        RegistryRB["{name}-users<br/>(RoleBinding)"]
+        RegistryGroup["{name}-users<br/>(OpenShift Group)"]
     end
 
-    subgraph Roles["Roles (namespace-scoped)"]
-        R_LEADER["leader-election-role"]
-    end
+    subgraph ManagerRoleResources["manager-role API Resources"]
+        direction TB
 
-    subgraph CoreResources["Core API Resources"]
-        ConfigMaps["core<br/>configmaps<br/>CRUD"]
-        PVCs["core<br/>persistentvolumeclaims<br/>CRUD"]
-        Secrets["core<br/>secrets<br/>CRUD"]
-        SvcAccounts["core<br/>serviceaccounts<br/>CRUD"]
-        Services["core<br/>services<br/>CRUD"]
-        Endpoints["core<br/>endpoints<br/>read-only"]
-        Pods["core<br/>pods, pods/log<br/>read-only"]
-        Events["core, events.k8s.io<br/>events<br/>create, patch"]
-    end
+        subgraph ModelRegistryCRDs["modelregistry.opendatahub.io"]
+            MR_CRD["modelregistries<br/>get, list, watch,<br/>create, update, patch, delete"]
+            MR_Status["modelregistries/status<br/>get, update, patch"]
+            MR_Finalizers["modelregistries/finalizers<br/>update"]
+        end
 
-    subgraph AppsResources["Apps API Resources"]
-        Deployments["apps<br/>deployments<br/>CRUD"]
-    end
+        subgraph CoreAPIs["Core APIs"]
+            Pods["pods, pods/log<br/>get, list, watch"]
+            Services["services, serviceaccounts<br/>get, list, watch,<br/>create, update, patch, delete"]
+            ConfigSecrets["configmaps, secrets<br/>create, get, list, watch,<br/>update, patch, delete"]
+            PVCs["persistentvolumeclaims<br/>get, list, watch,<br/>create, update, patch, delete"]
+        end
 
-    subgraph AuthResources["Auth API Resources"]
-        TokenReviews["authentication.k8s.io<br/>tokenreviews<br/>create"]
-        SAR["authorization.k8s.io<br/>subjectaccessreviews<br/>create"]
-    end
+        subgraph AppsAPIs["apps"]
+            Deployments["deployments<br/>get, list, watch,<br/>create, update, patch, delete"]
+        end
 
-    subgraph CRDResources["CRD / Custom Resources"]
-        CRDs["apiextensions.k8s.io<br/>customresourcedefinitions<br/>read-only"]
-        ModelRegistries["modelregistry.opendatahub.io<br/>modelregistries<br/>CRUD + finalizers + status"]
-        SVM["migration.k8s.io<br/>storageversionmigrations<br/>CRUD"]
-    end
+        subgraph OpenShiftAPIs["OpenShift APIs"]
+            Routes["route.openshift.io<br/>routes, routes/custom-host<br/>get, list, watch, create,<br/>update, patch, delete"]
+            Groups["user.openshift.io<br/>groups<br/>get, list, watch,<br/>create, update, delete"]
+            OSIngress["config.openshift.io<br/>ingresses, apiservers<br/>get, list, watch"]
+        end
 
-    subgraph NetworkResources["Network Resources"]
-        NetworkPolicies["networking.k8s.io<br/>networkpolicies<br/>CRUD"]
-    end
+        subgraph RBACAPIs["rbac.authorization.k8s.io"]
+            Roles["roles, rolebindings,<br/>clusterrolebindings<br/>get, list, watch,<br/>create, update, patch, delete"]
+        end
 
-    subgraph RBACResources["RBAC Resources"]
-        CRBindings["rbac.authorization.k8s.io<br/>clusterrolebindings<br/>CRUD"]
-        RoleBindingsRes["rbac.authorization.k8s.io<br/>rolebindings, roles<br/>CRUD"]
-    end
+        subgraph AuthAPIs["Authentication / Authorization"]
+            TokenReviews["authentication.k8s.io<br/>tokenreviews<br/>create"]
+            SAR["authorization.k8s.io<br/>subjectaccessreviews<br/>create"]
+        end
 
-    subgraph OpenShiftResources["OpenShift Resources"]
-        Routes["route.openshift.io<br/>routes, routes/custom-host<br/>CRUD"]
-        Groups["user.openshift.io<br/>groups<br/>CRUD"]
-        Ingresses["config.openshift.io<br/>ingresses<br/>read-only"]
-    end
+        subgraph NetworkAPIs["Networking"]
+            NetPolicies["networking.k8s.io<br/>networkpolicies<br/>get, list, watch,<br/>create, update, patch, delete"]
+            HTTPRoutes["gateway.networking.k8s.io<br/>httproutes<br/>get, list, watch,<br/>create, update, patch, delete"]
+            RefGrants["gateway.networking.k8s.io<br/>referencegrants<br/>get, list, watch, create"]
+        end
 
-    subgraph PlatformResources["Platform Resources (read-only)"]
-        PlatformMR["components.platform<br/>.opendatahub.io<br/>modelregistries<br/>read-only"]
-        PlatformAuth["services.platform<br/>.opendatahub.io<br/>auths<br/>read-only"]
+        subgraph PlatformAPIs["Platform APIs"]
+            PlatformMR["components.platform.<br/>opendatahub.io<br/>modelregistries<br/>get, list, watch"]
+            PlatformAuth["services.platform.<br/>opendatahub.io<br/>auths<br/>get, list, watch"]
+        end
+
+        subgraph MigrationAPIs["Migration"]
+            SVM["migration.k8s.io<br/>storageversionmigrations<br/>get, list, watch,<br/>create, update, patch, delete"]
+            CRDs["apiextensions.k8s.io<br/>customresourcedefinitions<br/>get, list, watch"]
+        end
     end
 
     %% Operator SA bindings
-    SA_CM -->|"bound via"| CRB_MGR
-    CRB_MGR -->|"grants"| CR_MGR
-    SA_CM -->|"bound via"| RB_LEADER
-    RB_LEADER -->|"grants"| R_LEADER
+    OperatorSA -->|"bound via"| ManagerCRB
+    ManagerCRB -->|"grants"| ManagerRole
 
-    %% Per-registry SA bindings
-    SA_REG -->|"bound via"| CRB_AUTH
-    CRB_AUTH -->|"grants"| CR_AUTH
+    %% Manager role to resources
+    ManagerRole -->|"permits"| MR_CRD
+    ManagerRole -->|"permits"| MR_Status
+    ManagerRole -->|"permits"| MR_Finalizers
+    ManagerRole -->|"permits"| Pods
+    ManagerRole -->|"permits"| Services
+    ManagerRole -->|"permits"| ConfigSecrets
+    ManagerRole -->|"permits"| PVCs
+    ManagerRole -->|"permits"| Deployments
+    ManagerRole -->|"permits"| Routes
+    ManagerRole -->|"permits"| Groups
+    ManagerRole -->|"permits"| OSIngress
+    ManagerRole -->|"permits"| Roles
+    ManagerRole -->|"permits"| TokenReviews
+    ManagerRole -->|"permits"| SAR
+    ManagerRole -->|"permits"| NetPolicies
+    ManagerRole -->|"permits"| HTTPRoutes
+    ManagerRole -->|"permits"| RefGrants
+    ManagerRole -->|"permits"| PlatformMR
+    ManagerRole -->|"permits"| PlatformAuth
+    ManagerRole -->|"permits"| SVM
+    ManagerRole -->|"permits"| CRDs
 
-    %% manager-role permissions
-    CR_MGR -->|"CRUD"| ConfigMaps
-    CR_MGR -->|"CRUD"| PVCs
-    CR_MGR -->|"CRUD"| Secrets
-    CR_MGR -->|"CRUD"| SvcAccounts
-    CR_MGR -->|"CRUD"| Services
-    CR_MGR -->|"read"| Endpoints
-    CR_MGR -->|"read"| Pods
-    CR_MGR -->|"create,patch"| Events
-    CR_MGR -->|"CRUD"| Deployments
-    CR_MGR -->|"create"| TokenReviews
-    CR_MGR -->|"create"| SAR
-    CR_MGR -->|"read"| CRDs
-    CR_MGR -->|"CRUD"| ModelRegistries
-    CR_MGR -->|"CRUD"| SVM
-    CR_MGR -->|"CRUD"| NetworkPolicies
-    CR_MGR -->|"CRUD"| CRBindings
-    CR_MGR -->|"CRUD"| RoleBindingsRes
-    CR_MGR -->|"CRUD"| Routes
-    CR_MGR -->|"CRUD"| Groups
-    CR_MGR -->|"read"| Ingresses
-    CR_MGR -->|"read"| PlatformMR
-    CR_MGR -->|"read"| PlatformAuth
+    %% Per-registry auth delegation
+    RegistrySA -->|"bound via"| AuthDelegatorCRB
+    AuthDelegatorCRB -->|"grants"| AuthDelegator
+    CatalogSA -->|"bound via"| CatalogAuthCRB
+    CatalogAuthCRB -->|"grants"| AuthDelegator
+
+    %% Per-registry user access
+    RegistryGroup -->|"bound via"| RegistryRB
+    RegistryRB -->|"grants"| RegistryRole
+    RegistryRole -->|"services/{name} get<br/>(access control)"| Services
 
     %% Styling
-    style SA_CM fill:#4a90e2,color:#fff
-    style SA_REG fill:#4a90e2,color:#fff
-    style CR_MGR fill:#f5a623,color:#fff
-    style CR_AUTH fill:#f5a623,color:#fff
-    style R_LEADER fill:#f5a623,color:#fff
-    style CRB_MGR fill:#bd10e0,color:#fff
-    style CRB_AUTH fill:#bd10e0,color:#fff
-    style RB_LEADER fill:#bd10e0,color:#fff
-    style ModelRegistries fill:#7ed321,color:#fff
-    style PlatformMR fill:#7ed321,color:#fff
-    style PlatformAuth fill:#7ed321,color:#fff
-    style TokenReviews fill:#d0021b,color:#fff
-    style SAR fill:#d0021b,color:#fff
+    style OperatorSA fill:#4a90e2,stroke:#333,color:#fff
+    style RegistrySA fill:#4a90e2,stroke:#333,color:#fff
+    style CatalogSA fill:#4a90e2,stroke:#333,color:#fff
+    style ManagerRole fill:#f5a623,stroke:#333
+    style AuthDelegator fill:#f5a623,stroke:#333
+    style RegistryRole fill:#f5a623,stroke:#333
+    style ManagerCRB fill:#50c8ff,stroke:#333
+    style AuthDelegatorCRB fill:#50c8ff,stroke:#333
+    style CatalogAuthCRB fill:#50c8ff,stroke:#333
+    style RegistryRB fill:#50c8ff,stroke:#333
+    style RegistryGroup fill:#9b59b6,stroke:#333,color:#fff
+    style MR_CRD fill:#7ed321,stroke:#333
+    style MR_Status fill:#7ed321,stroke:#333
+    style MR_Finalizers fill:#7ed321,stroke:#333
+    style Pods fill:#7ed321,stroke:#333
+    style Services fill:#7ed321,stroke:#333
+    style ConfigSecrets fill:#7ed321,stroke:#333
+    style PVCs fill:#7ed321,stroke:#333
+    style Deployments fill:#7ed321,stroke:#333
+    style Routes fill:#7ed321,stroke:#333
+    style Groups fill:#7ed321,stroke:#333
+    style OSIngress fill:#7ed321,stroke:#333
+    style Roles fill:#7ed321,stroke:#333
+    style TokenReviews fill:#7ed321,stroke:#333
+    style SAR fill:#7ed321,stroke:#333
+    style NetPolicies fill:#7ed321,stroke:#333
+    style HTTPRoutes fill:#7ed321,stroke:#333
+    style RefGrants fill:#7ed321,stroke:#333
+    style PlatformMR fill:#7ed321,stroke:#333
+    style PlatformAuth fill:#7ed321,stroke:#333
+    style SVM fill:#7ed321,stroke:#333
+    style CRDs fill:#7ed321,stroke:#333

@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jctanner/odh.architecture-context/schemas/structured-component-private-run-record-v1.schema.json",
+  "title": "Private completed structured component run record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_kind", "record_identity", "state", "acceptance",
+    "route", "snapshot_id", "version_scope", "component", "identity", "inputs",
+    "compatibility", "dependencies", "source_state", "response_identity",
+    "document_integrity", "artifacts", "target_rebindings", "migration"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "record_kind": {"const": "structured-component-private-run/v1"},
+    "record_identity": {"$ref": "#/$defs/hash"},
+    "state": {"const": "completed"},
+    "acceptance": {"const": "validated-private-assembly"},
+    "route": {"const": "structured-component/v1"},
+    "snapshot_id": {"$ref": "#/$defs/hash"},
+    "version_scope": {"$ref": "#/$defs/name"},
+    "component": {"$ref": "#/$defs/name"},
+    "identity": {"$ref": "#/$defs/identity"},
+    "inputs": {"$ref": "#/$defs/inputs"},
+    "compatibility": {"$ref": "#/$defs/compatibility"},
+    "dependencies": {"$ref": "#/$defs/dependencies"},
+    "source_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"$ref": "#/$defs/sourceSnapshot"},
+        "end": {"$ref": "#/$defs/sourceSnapshot"}
+      }
+    },
+    "response_identity": {"type": "string", "minLength": 1},
+    "document_integrity": {"$ref": "#/$defs/hash"},
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_bundle", "synthesis_bundle", "synthesis", "document", "markdown"],
+      "properties": {
+        "evidence_bundle": {"$ref": "#/$defs/artifact"},
+        "synthesis_bundle": {"$ref": "#/$defs/artifact"},
+        "synthesis": {"$ref": "#/$defs/artifact"},
+        "document": {"$ref": "#/$defs/artifact"},
+        "markdown": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "target_rebindings": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "obligation"],
+      "properties": {
+        "phase": {"const": "P4"},
+        "obligation": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "stringArray": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "content_hash"],
+      "properties": {
+        "path": {
+          "enum": ["evidence-bundle.json", "synthesis-evidence-bundle.json", "synthesis.json", "document.json", "candidate.md"]
+        },
+        "content_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "repository", "aliases"],
+      "properties": {
+        "component": {"$ref": "#/$defs/name"},
+        "repository": {"type": "string", "minLength": 1},
+        "aliases": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exact", "semantic", "semantic_payload", "analyzer_binding", "recent_changes"],
+      "properties": {
+        "exact": {"$ref": "#/$defs/hash"},
+        "semantic": {"$ref": "#/$defs/hash"},
+        "semantic_payload": {"type": "object"},
+        "analyzer_binding": {"type": "object"},
+        "recent_changes": {"type": "array"}
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analyzer_schema_version", "analyzer_version", "analyzer_build_identity", "normalizer_version", "synthesis_contract_version"],
+      "properties": {
+        "analyzer_schema_version": {"type": "string", "minLength": 1},
+        "analyzer_version": {"type": "string", "minLength": 1},
+        "analyzer_build_identity": {"$ref": "#/$defs/hash"},
+        "normalizer_version": {"const": "structured-component-normalizer/v1"},
+        "synthesis_contract_version": {"const": "structured-component-synthesis/v1"}
+      }
+    },
+    "fileDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "content_hash", "kind"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "content_hash": {"$ref": "#/$defs/hash"},
+        "kind": {"type": "string", "minLength": 1}
+      }
+    },
+    "read": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "outcome", "offset", "limit"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "outcome": {"type": "string", "minLength": 1},
+        "offset": {"type": ["integer", "null"]},
+        "limit": {"type": ["integer", "null"]}
+      }
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "resolved_root", "pattern", "options", "tree_identity", "tool", "justification", "outcome", "tracked_clean", "replay_result_identity", "replay_context_identity", "observed_result_identity", "execution_cwd"],
+      "properties": {
+        "root": {"type": "string"},
+        "resolved_root": {"type": "string"},
+        "pattern": {"type": "string"},
+        "options": {"type": "object"},
+        "tree_identity": {"type": "string"},
+        "tool": {"type": "string", "minLength": 1},
+        "justification": {"type": "string", "minLength": 1},
+        "outcome": {"type": "string", "minLength": 1},
+        "tracked_clean": {"type": "boolean"},
+        "replay_result_identity": {"type": "string"},
+        "replay_context_identity": {"type": "string"},
+        "observed_result_identity": {"type": "string"},
+        "execution_cwd": {"type": "string", "minLength": 1}
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "harness", "complete", "reads", "supplied_reads", "justifications", "files", "searches", "unclassified_source_commands", "accounted_untracked", "generated_inputs", "external_inputs"],
+      "properties": {
+        "schema_version": {"const": "structured-component-dependencies/v1"},
+        "harness": {"enum": ["claude", "codex"]},
+        "complete": {"type": "boolean"},
+        "reads": {"type": "array", "items": {"$ref": "#/$defs/read"}},
+        "supplied_reads": {"$ref": "#/$defs/stringArray"},
+        "justifications": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+        "files": {"type": "array", "items": {"$ref": "#/$defs/fileDependency"}},
+        "searches": {"type": "array", "items": {"$ref": "#/$defs/search"}},
+        "unclassified_source_commands": {"$ref": "#/$defs/stringArray"},
+        "accounted_untracked": {"$ref": "#/$defs/stringArray"},
+        "generated_inputs": {"type": "array", "items": {"$ref": "#/$defs/fileDependency"}},
+        "external_inputs": {"type": "array", "items": {"$ref": "#/$defs/fileDependency"}}
+      }
+    },
+    "sourceSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head", "working_tree_identity", "tracked_tree_identity", "dirty_paths", "untracked_paths"],
+      "properties": {
+        "head": {"type": "string", "minLength": 1},
+        "working_tree_identity": {"$ref": "#/$defs/hash"},
+        "tracked_tree_identity": {"$ref": "#/$defs/hash"},
+        "dirty_paths": {"$ref": "#/$defs/stringArray"},
+        "untracked_paths": {"$ref": "#/$defs/stringArray"}
+      }
+    }
+  }
+}

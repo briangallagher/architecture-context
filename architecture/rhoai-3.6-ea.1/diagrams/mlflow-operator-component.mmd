@@ -1,0 +1,85 @@
+graph TB
+    subgraph MLflowOperator["mlflow-operator"]
+        direction TB
+
+        subgraph Controllers["Controllers"]
+            MLflowCtrl["MLflow Controller<br/>(MLflowReconciler)"]
+            MLflowOpCtrl["MLflowOperator Controller<br/>(MLflowOperatorReconciler)"]
+            NSRBACCtrl["Namespace RBAC Controller<br/>(NamespaceRBACReconciler)"]
+        end
+
+        subgraph HelmEngine["Helm Rendering"]
+            Helm["Helm Chart Renderer"]
+        end
+
+        subgraph Discovery["Cluster Discovery"]
+            DiscoveryAPI["Discovery API Probe"]
+        end
+
+        subgraph Endpoints["Endpoints"]
+            Metrics[":8443/metrics<br/>TLS + TokenReview"]
+            Health[":8081/healthz"]
+            Ready[":8081/readyz"]
+        end
+
+        MLflowCtrl --> Helm
+        MLflowCtrl --> DiscoveryAPI
+    end
+
+    %% CRDs watched/managed
+    MLflowCR["MLflow CR<br/>(mlflow.opendatahub.io/v1)"]
+    MLflowOpCR["MLflowOperator CR<br/>(components.platform.opendatahub.io/v1alpha1)"]
+    MLflowConfigCR["MLflowConfig CR<br/>(mlflow.kubeflow.org/v1)"]
+    AuthCR["Auth CR<br/>(services.platform.opendatahub.io/v1alpha1)"]
+
+    %% Resources created by Helm
+    subgraph ManagedResources["Managed Resources (via Helm)"]
+        Deploy["Deployment"]
+        Svc["Service"]
+        SA["ServiceAccount"]
+        PVC["PersistentVolumeClaim"]
+        CronJob["CronJob"]
+        NetPol["NetworkPolicy"]
+        Secret["Secret"]
+    end
+
+    %% Conditional resources
+    subgraph ConditionalResources["Conditional Resources (discovery-gated)"]
+        HTTPRoute["HTTPRoute<br/>(Gateway API)"]
+        ConsoleLink["ConsoleLink<br/>(OpenShift)"]
+        ServiceMonitor["ServiceMonitor<br/>(Prometheus)"]
+    end
+
+    %% RBAC resources
+    RoleBindings["RoleBindings<br/>(workspace RBAC)"]
+
+    %% Flows
+    MLflowCR -->|"watched by"| MLflowCtrl
+    MLflowOpCR -->|"watched by"| MLflowOpCtrl
+    MLflowConfigCR -->|"watched by"| MLflowCtrl
+    AuthCR -->|"watched by"| NSRBACCtrl
+    MLflowCR -->|"watched by"| NSRBACCtrl
+
+    Helm -->|"renders"| ManagedResources
+    DiscoveryAPI -->|"enables"| ConditionalResources
+    NSRBACCtrl -->|"creates"| RoleBindings
+
+    MLflowCtrl -->|"server-side apply"| K8sAPI["Kubernetes API<br/>6443/TCP TLS"]
+
+    %% Styling
+    style MLflowCtrl fill:#4a90e2,color:#fff
+    style MLflowOpCtrl fill:#4a90e2,color:#fff
+    style NSRBACCtrl fill:#4a90e2,color:#fff
+    style MLflowCR fill:#f5a623,color:#fff
+    style MLflowOpCR fill:#f5a623,color:#fff
+    style MLflowConfigCR fill:#f5a623,color:#fff
+    style AuthCR fill:#f5a623,color:#fff
+    style Helm fill:#50c878,color:#fff
+    style DiscoveryAPI fill:#50c878,color:#fff
+    style Metrics fill:#9b59b6,color:#fff
+    style Health fill:#9b59b6,color:#fff
+    style Ready fill:#9b59b6,color:#fff
+    style HTTPRoute fill:#e8e8e8,stroke:#999
+    style ConsoleLink fill:#e8e8e8,stroke:#999
+    style ServiceMonitor fill:#e8e8e8,stroke:#999
+    style K8sAPI fill:#e74c3c,color:#fff

@@ -1,89 +1,87 @@
 workspace {
     model {
-        # Actors
-        datascientist = person "Data Scientist" "Deploys and queries ML models for inference"
-        application = person "Application / Client" "Sends inference requests to deployed models"
-        platformAdmin = person "Platform Admin" "Manages RHOAI platform and model serving infrastructure"
+        dataScientist = person "Data Scientist" "Deploys and queries ML models via InferenceService"
+        mlEngineer = person "ML Engineer" "Configures serving runtimes and model pipelines"
+        sre = person "SRE / Platform Admin" "Monitors inference workloads and platform health"
 
-        # Core System
-        ovms = softwareSystem "OpenVINO Model Server" "High-performance C++ inference server for AI models via gRPC and REST APIs, optimized for Intel architectures" {
-            drogonServer = container "Drogon HTTP Server" "REST API frontend serving TFS v1, KServe v2, and OpenAI v3 endpoints" "C++ / Drogon Framework" "WebBrowser"
-            grpcServer = container "gRPC Server" "gRPC frontend for KServe v2 and TFS inference protocols" "C++ / gRPC"
-            tfsHandler = container "TFS v1 Handler" "TensorFlow Serving compatible predict and metadata API" "C++"
-            kfsHandler = container "KServe v2 Handler" "KServe inference protocol handler (infer, metadata, health)" "C++"
-            v3Handler = container "OpenAI v3 Handler" "OpenAI-compatible API for chat completions, embeddings, reranking, image gen, audio" "C++"
-            mediapipeEngine = container "MediaPipe Graph Executor" "Graph-based pipeline execution for composing inference workflows" "C++ / MediaPipe"
-            servableManager = container "Servable Manager" "Model lifecycle management, loading, versioning" "C++"
-            hfPullModule = container "HuggingFace Pull Module" "Downloads models from HuggingFace Hub via libgit2" "C++ / libgit2"
-            metricsModule = container "Metrics Module" "Prometheus metrics collection and exposition" "C++ / Prometheus Client"
-            pythonBinding = container "Python Binding" "pybind11 module for Jinja2 chat template rendering" "Python 3.12 / pybind11"
+        ovms = softwareSystem "OpenVINO Model Server" "High-performance C++ inference server for serving AI models via OpenAI-compatible, KServe v2, and TFS APIs using Intel OpenVINO" {
+            httpFrontend = container "HTTP/REST Frontend" "Drogon-based HTTP server handling /v1/*, /v2/*, /v3/* API families" "C++ (Drogon)" "Port 8888/TCP"
+            grpcFrontend = container "gRPC Frontend" "gRPC server for KServe v2 and TFS inference protocols" "C++ (gRPC)" "Port 8001/TCP"
+            llmModule = container "LLM Module" "OpenAI-compatible chat/completions with continuous batching" "C++ MediaPipe Calculator"
+            embeddingsModule = container "Embeddings Module" "OpenAI-compatible text embeddings" "C++ MediaPipe Calculator"
+            rerankModule = container "Rerank Module" "Cohere-compatible document reranking" "C++ MediaPipe Calculator"
+            imageGenModule = container "Image Generation Module" "OpenAI-compatible image generation" "C++ MediaPipe Calculator"
+            audioModules = container "Audio Modules" "Speech-to-text and text-to-speech" "C++ MediaPipe Calculators"
+            servableManager = container "Servable Manager" "Model loading, lifecycle management, and hot-reloading" "C++"
+            dagScheduler = container "DAG Scheduler" "Directed Acyclic Graph inference pipeline engine" "C++"
+            mediapipe = container "MediaPipe Integration" "Graph-based orchestration for GenAI workloads" "C++ (MediaPipe)"
+            metricsModule = container "Metrics Module" "Prometheus-compatible metrics collection and exposition" "C++ (Prometheus Client)"
+            storageBackends = container "Storage Backends" "Model storage abstraction for local, S3, GCS, Azure, HuggingFace" "C++ (AWS SDK, Azure SDK, GCS SDK, libgit2)"
+            openvinoRuntime = container "OpenVINO Runtime" "Core inference engine for model compilation and execution" "C++ Library" "v2026.2"
+            openvinoGenAI = container "OpenVINO GenAI" "LLM, VLM, embeddings, image gen, speech pipelines" "C++ Library" "v2026.2"
         }
 
-        # Platform Dependencies
-        kserve = softwareSystem "KServe" "Manages InferenceService lifecycle, deploys OVMS pods" "Internal RHOAI"
-        kubeRbacProxy = softwareSystem "kube-rbac-proxy" "Authentication proxy sidecar in RHOAI deployments" "Internal RHOAI"
-        prometheus = softwareSystem "OpenShift Monitoring" "Metrics collection and alerting platform" "Internal Platform"
-        kubernetes = softwareSystem "Kubernetes API" "Container orchestration, health probes, pod management" "Internal Platform"
+        kserve = softwareSystem "KServe" "Kubernetes-native model serving controller that deploys OVMS as a ServingRuntime" "Internal RHOAI"
+        kubeRBACProxy = softwareSystem "kube-rbac-proxy" "Auth enforcement sidecar for RHOAI 3.x deployments" "Internal RHOAI"
+        rhoaiDashboard = softwareSystem "OpenShift AI Dashboard" "UI for managing ServingRuntimes and InferenceServices" "Internal RHOAI"
+        prometheus = softwareSystem "Prometheus" "Metrics collection and monitoring" "Internal Platform"
 
-        # Runtime Libraries (linked, not networked)
-        openvinoRuntime = softwareSystem "OpenVINO Runtime" "Neural network inference engine optimized for Intel hardware" "Intel Library"
-        openvinoGenAI = softwareSystem "OpenVINO GenAI" "LLM/VLM inference pipelines with continuous batching" "Intel Library"
+        s3 = softwareSystem "S3-Compatible Storage" "Object storage for ML model artifacts" "External"
+        gcs = softwareSystem "Google Cloud Storage" "Object storage for ML model artifacts" "External"
+        azureBlob = softwareSystem "Azure Blob Storage" "Object storage for ML model artifacts" "External"
+        huggingface = softwareSystem "HuggingFace Hub" "Model repository for downloading pre-trained models" "External"
+        openvinoUpstream = softwareSystem "OpenVINO Toolkit" "Intel's inference optimization toolkit (upstream)" "External"
 
-        # External Services
-        huggingface = softwareSystem "HuggingFace Hub" "Model repository for downloading pre-trained models" "External Service"
-        s3 = softwareSystem "AWS S3" "Cloud object storage for model artifacts" "External Service"
-        azureBlob = softwareSystem "Azure Blob Storage" "Cloud object storage for model artifacts" "External Service"
-        gcs = softwareSystem "Google Cloud Storage" "Cloud object storage for model artifacts" "External Service"
-        localStorage = softwareSystem "PVC / Local Storage" "Kubernetes persistent volumes for model artifacts" "Internal Storage"
+        # User interactions
+        dataScientist -> ovms "Sends inference requests via REST/gRPC"
+        mlEngineer -> kserve "Creates InferenceService with OVMS ServingRuntime"
+        sre -> prometheus "Monitors OVMS metrics"
 
-        # Relationships - Actors
-        datascientist -> kserve "Creates InferenceService CR" "kubectl / ODH Dashboard"
-        application -> ovms "Sends inference requests" "REST/gRPC over HTTPS"
-        platformAdmin -> kserve "Configures serving runtimes" "kubectl / RHOAI Dashboard"
+        # Platform interactions
+        kserve -> ovms "Deploys as ServingRuntime container in InferenceService pods"
+        kubeRBACProxy -> ovms "Proxies authenticated requests to REST endpoint" "HTTPS/8443 → HTTP/8888"
+        rhoaiDashboard -> kserve "Lists OVMS as available ServingRuntime"
+        prometheus -> ovms "Scrapes /metrics endpoint" "HTTP/8888"
 
-        # Relationships - Platform
-        kserve -> ovms "Deploys as inference container in InferenceService pods"
-        kubeRbacProxy -> ovms "Proxies authenticated requests" "HTTPS/8443 → HTTP/8080,8085"
-        application -> kubeRbacProxy "Sends requests through auth proxy" "HTTPS/8443"
-        prometheus -> ovms "Scrapes metrics" "HTTP GET /metrics"
-        kubernetes -> ovms "Health probes" "HTTP GET /v2/health/*"
+        # External service interactions
+        ovms -> s3 "Loads model artifacts" "HTTPS/443, AWS IAM"
+        ovms -> gcs "Loads model artifacts" "HTTPS/443, GCP SA"
+        ovms -> azureBlob "Loads model artifacts" "HTTPS/443, Azure Key/SAS"
+        ovms -> huggingface "Downloads models via git clone" "HTTPS/443, HF_TOKEN"
 
-        # Relationships - Internal containers
-        drogonServer -> tfsHandler "Routes /v1/** requests"
-        drogonServer -> kfsHandler "Routes /v2/** requests"
-        drogonServer -> v3Handler "Routes /v3/** requests"
-        drogonServer -> metricsModule "Routes /metrics requests"
-        grpcServer -> kfsHandler "Dispatches KServe v2 RPCs"
-        grpcServer -> tfsHandler "Dispatches TFS RPCs"
-        v3Handler -> mediapipeEngine "Executes LLM inference graphs"
-        tfsHandler -> servableManager "Executes model inference"
-        kfsHandler -> servableManager "Executes model inference"
-        mediapipeEngine -> openvinoGenAI "LLM/VLM pipeline execution" "C++ API"
-        servableManager -> openvinoRuntime "Neural network inference" "C++ API"
-        v3Handler -> pythonBinding "Jinja2 chat template rendering" "pybind11"
-
-        # Relationships - External
-        hfPullModule -> huggingface "Downloads model artifacts" "HTTPS/443, HF Token"
-        servableManager -> s3 "Loads model artifacts" "HTTPS/443, AWS IAM"
-        servableManager -> azureBlob "Loads model artifacts" "HTTPS/443, Connection String"
-        servableManager -> gcs "Loads model artifacts" "HTTPS/443, GCP Credentials"
-        servableManager -> localStorage "Loads model artifacts" "Filesystem"
+        # Internal container relationships
+        httpFrontend -> servableManager "Routes inference requests"
+        httpFrontend -> llmModule "Routes OpenAI chat/completions"
+        httpFrontend -> embeddingsModule "Routes embeddings requests"
+        httpFrontend -> rerankModule "Routes reranking requests"
+        httpFrontend -> imageGenModule "Routes image generation requests"
+        httpFrontend -> audioModules "Routes audio requests"
+        grpcFrontend -> servableManager "Routes gRPC inference"
+        llmModule -> mediapipe "Executes via MediaPipe graph"
+        embeddingsModule -> mediapipe "Executes via MediaPipe graph"
+        rerankModule -> mediapipe "Executes via MediaPipe graph"
+        imageGenModule -> mediapipe "Executes via MediaPipe graph"
+        audioModules -> mediapipe "Executes via MediaPipe graph"
+        mediapipe -> openvinoGenAI "Calls GenAI pipelines"
+        servableManager -> dagScheduler "Executes DAG pipelines"
+        servableManager -> openvinoRuntime "Compiles and runs models"
+        openvinoGenAI -> openvinoRuntime "Uses for inference execution"
+        servableManager -> storageBackends "Loads models from storage"
     }
 
     views {
-        systemContext ovms "SystemContext" "System context diagram for OpenVINO Model Server" {
+        systemContext ovms "SystemContext" {
             include *
-            exclude openvinoRuntime openvinoGenAI
             autoLayout
         }
 
-        container ovms "Containers" "Container diagram showing OVMS internal structure" {
+        container ovms "Containers" {
             include *
             autoLayout
         }
 
         styles {
-            element "External Service" {
+            element "External" {
                 background #999999
                 color #ffffff
             }
@@ -92,29 +90,21 @@ workspace {
                 color #ffffff
             }
             element "Internal Platform" {
-                background #4a90d9
+                background #4a90e2
                 color #ffffff
-            }
-            element "Intel Library" {
-                background #0071c5
-                color #ffffff
-            }
-            element "Internal Storage" {
-                background #e1d5e7
-                color #333333
-            }
-            element "Person" {
-                background #08427b
-                color #ffffff
-                shape Person
             }
             element "Software System" {
-                background #1168bd
+                background #438dd5
                 color #ffffff
             }
             element "Container" {
                 background #438dd5
                 color #ffffff
+            }
+            element "Person" {
+                background #08427b
+                color #ffffff
+                shape Person
             }
         }
     }

@@ -1,0 +1,137 @@
+┌──────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                    │
+│                                                                          │
+│  [External Client]                                                       │
+│         │                                                                │
+│         │ Port: 8443/TCP (via Service 443/TCP → 8443)                    │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS (per-instance kubernetes.io/tls Secret)        │
+│         │ Auth: SubjectAccessReview via kube-rbac-proxy                  │
+│         ▼                                                                │
+├──────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (OpenShift Route / Istio VirtualService)                        │
+│                                                                          │
+│  [Route: {registry-name}]                                                │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS                                                       │
+│  - Exposure: External                                                    │
+│                                                                          │
+│  [VirtualService: {template-value}]                                      │
+│  - Hosts: {registry-name}.{namespace}.svc.cluster.local                  │
+│  - Protocol: HTTP                                                        │
+│  - Exposure: External                                                    │
+│         │                                                                │
+│         ▼                                                                │
+├──────────────────────────────────────────────────────────────────────────┤
+│  SERVICE (ClusterIP)                                                     │
+│                                                                          │
+│  [{registry-name} Service]                                               │
+│  - Type: ClusterIP                                                       │
+│  - Port: 443/TCP → Target 8443                                          │
+│         │                                                                │
+│         ▼                                                                │
+├──────────────────────────────────────────────────────────────────────────┤
+│  POD (TrustyAI Service Workload)                                         │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐     │
+│  │  [kube-rbac-proxy sidecar]                                      │     │
+│  │  - Port: 8443/TCP (external API, TLS)                           │     │
+│  │  - Port: 9443/TCP (health, HTTPS, unauthenticated)              │     │
+│  │  - Auth: SubjectAccessReview (Kubernetes RBAC)                   │     │
+│  │  - TLS: Per-instance Secret ({template-value}-tls)              │     │
+│  │  - Config: Per-instance ConfigMap                                │     │
+│  │         │                                                        │     │
+│  │         │ Port: 8080/TCP (localhost only)                        │     │
+│  │         │ Protocol: HTTP                                         │     │
+│  │         │ Encryption: None (localhost loopback)                   │     │
+│  │         │ Auth: Pre-authenticated by proxy                       │     │
+│  │         ▼                                                        │     │
+│  │  [TrustyAI Quarkus Service]                                     │     │
+│  │  - Port: 8080/TCP (localhost, not externally exposed)            │     │
+│  │  - Liveness: GET /q/health/live :8080                            │     │
+│  │  - Readiness: GET /q/health/ready :8080                          │     │
+│  │  - Metrics: GET /q/metrics :8080 (Prometheus scrape)             │     │
+│  └─────────────────────────────────────────────────────────────────┘     │
+│                                                                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│  OPERATOR NAMESPACE                                                      │
+│                                                                          │
+│  [Operator Manager]                                                      │
+│  - Readiness: GET /readyz :8081 (HTTP, unauthenticated)                 │
+│  - Healthiness: GET /healthz :8081 (HTTP, unauthenticated)              │
+│  - Webhook: POST /convert (HTTPS, Kubernetes admission)                  │
+│  - Controllers: TrustyAIService, EvalHub, GuardrailsOrchestrator,       │
+│    NemoGuardrails, LMEvalJob, Job, Workload                              │
+│         │                                                                │
+│  [trustyai-operator-module]                                              │
+│  - SA: trustyai-operator-module-controller-manager                       │
+│  - Manages: TrustyAI platform component CR                              │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS/WSS                                            │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token (in-cluster)                        │
+│         ▼                                                                │
+├──────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER SERVICES                                                        │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 6443/TCP                                                        │
+│  - Protocol: HTTPS/WSS                                                   │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: ServiceAccount token                                            │
+│  - Purpose: CRD watches, resource CRUD, SubjectAccessReview              │
+│                                                                          │
+│  [OpenShift APIServer]                                                   │
+│  - Purpose: TLS security profile configuration                           │
+│  - Read at startup: apiservers.config.openshift.io/cluster               │
+│  - Fallback: Mozilla Intermediate (TLS 1.2+, FIPS ciphers)              │
+│                                                                          │
+│  [prometheus-operator] (conditional)                                     │
+│  - Purpose: ServiceMonitor CRD management                                │
+│  - Conditional: Only if prometheus-operator API available                 │
+│                                                                          │
+│  [Kueue] (conditional)                                                   │
+│  - Purpose: Workload reconciliation                                      │
+│  - Conditional: Only if kueue.x-k8s.io/v1beta1 API detected            │
+│                                                                          │
+│  [KServe]                                                                │
+│  - Purpose: InferenceService watch for model serving state               │
+│  - Protocol: HTTPS, TLS 1.2+                                            │
+└──────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- ClusterRole: manager-role
+  - API Groups: (core), apps, components.platform.opendatahub.io, coordination.k8s.io,
+    serving.kserve.io, monitoring.coreos.com, rbac.authorization.k8s.io
+  - Key Resources: configmaps, deployments, trustyais, inferenceservices, prometheuses, leases
+  - Verbs: get, list, watch, create, update, patch, delete (varies by resource)
+
+- ClusterRole: trustyai-operator-module-manager-role
+  - Same permissions as manager-role (parallel structure)
+  - SA: trustyai-operator-module-controller-manager
+
+- Dynamic RoleBindings:
+  - {name}-{namespace}-auth-reviewer-crb → evalhub-auth-reviewer-role
+  - {name}-{namespace}-proxy-rolebinding → proxy-role
+
+TLS Configuration:
+- Cluster profile: Reads OpenShift APIServer TLS security profile at startup
+- Fallback: Mozilla Intermediate (TLS 1.2+, FIPS-compatible ciphers)
+- Cipher suites: AES-GCM, ChaCha20-Poly1305 (all FIPS 140-3 approved)
+- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
+
+Secrets:
+- {template-value}-tls (kubernetes.io/tls) - Per-instance TLS cert for kube-rbac-proxy
+- {template-value}-internal (referenced) - Internal service credentials
+- {template-value}-db-ca (referenced) - Database TLS CA certificate
+- {template-value} (referenced) - TrustyAI service secret
+
+Admission Webhooks:
+- evalhubs.trustyai.opendatahub.io conversion webhook at /convert (HTTPS)
+
+Authentication Summary:
+- External API: SubjectAccessReview via kube-rbac-proxy on :8443
+- Operator → K8s API: ServiceAccount token (in-cluster) over TLS
+- Health probes: Unauthenticated by design (:8081/healthz, :8081/readyz, :9443/healthz)
+- Proxy health: HTTPS :9443, unauthenticated

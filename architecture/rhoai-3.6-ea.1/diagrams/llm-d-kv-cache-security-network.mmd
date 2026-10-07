@@ -1,0 +1,56 @@
+graph TB
+    subgraph External["EXTERNAL SERVICES"]
+        OTel["OpenTelemetry Collector<br/>OTLP/gRPC<br/>Encryption: runtime-configured"]
+        HFHub["HuggingFace Hub<br/>HTTPS<br/>Model tokenizer download"]
+    end
+
+    subgraph Cluster["INTERNAL CLUSTER NETWORK"]
+        direction TB
+
+        subgraph KVCachePod["llm-d-kv-cache Pod"]
+            direction TB
+
+            OnlineService["Online Service<br/>(kv-cache-manager)<br/>8080/TCP HTTP<br/>Auth: None<br/>Encryption: None"]
+            TokenizerUDS["UDS Tokenizer<br/>gRPC over Unix Domain Socket<br/>/tmp/tokenizer/tokenizer-uds.socket<br/>Auth: Filesystem perms (0700)"]
+            TokenizerProbe["Tokenizer Probe<br/>8082/TCP HTTP<br/>Auth: None"]
+            PodRecon["PodReconciler<br/>(controller-runtime)<br/>Auth: ServiceAccount"]
+        end
+
+        subgraph DataStores["DATA STORES"]
+            Redis["Redis/Valkey<br/>TCP (redis:// / rediss://)<br/>TLS: Optional via URL scheme<br/>Auth: Runtime-configured"]
+        end
+
+        subgraph InferencePods["INFERENCE PODS"]
+            vLLM["vLLM Engines<br/>ZMQ Publisher<br/>5557/TCP ZMQ<br/>Topic: kv@<br/>Auth: None<br/>Encryption: None"]
+        end
+
+        K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>Auth: ServiceAccount"]
+
+        EPP["llm-d EPP<br/>(Routing Layer)"]
+        ColocSvc["Co-located Services"]
+    end
+
+    %% Flows with security details
+    EPP -->|"HTTP POST /score_*<br/>8080/TCP<br/>No Encryption<br/>No Auth"| OnlineService
+    OnlineService -->|"TCP<br/>TLS optional (URL scheme)<br/>Auth: runtime-configured"| Redis
+    vLLM -->|"ZMQ/TCP 5557<br/>No Encryption<br/>No Auth<br/>Topic: kv@"| OnlineService
+    PodRecon -->|"HTTPS 6443<br/>TLS 1.2+<br/>ServiceAccount Token"| K8sAPI
+    PodRecon -->|"TCP<br/>TLS optional"| Redis
+    ColocSvc -->|"gRPC over UDS<br/>No Encryption<br/>Filesystem perms 0700"| TokenizerUDS
+    TokenizerUDS -->|"HTTPS<br/>Model download"| HFHub
+    OnlineService -->|"OTLP/gRPC<br/>Encryption: runtime-configured"| OTel
+
+    %% Styling
+    classDef pod fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef datastore fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef k8s fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef noauth fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef inference fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+
+    class OnlineService,TokenizerUDS,TokenizerProbe,PodRecon pod
+    class Redis datastore
+    class K8sAPI k8s
+    class OTel,HFHub external
+    class vLLM inference
+    class EPP,ColocSvc noauth

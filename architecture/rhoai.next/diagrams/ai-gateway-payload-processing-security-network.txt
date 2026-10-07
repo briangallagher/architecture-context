@@ -1,154 +1,151 @@
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  EXTERNAL (Untrusted)                                                        │
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                       │
 │                                                                              │
 │  [External Client]                                                           │
 │         │                                                                    │
 │         │ Port: 443/TCP                                                      │
 │         │ Protocol: HTTPS                                                    │
 │         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: Client-provided (passthrough)                                │
+│         │ Auth: Bearer Token (via platform auth)                             │
 │         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  INGRESS (Gateway)                                                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (DMZ) — AI Gateway                                                 │
 │                                                                              │
-│  [Istio Gateway (Envoy)]                                                     │
-│  - Port: 443/TCP (external) → routes via HTTPRoute                          │
-│  - TLS Termination: TLS 1.2+ (SIMPLE mode)                                  │
-│  - Routing: HTTPRoute per ExternalModel                                      │
-│    - Path match: /{namespace}/{model-name}                                   │
-│    - Header match: X-Gateway-Model-Name                                      │
+│  [AI Gateway (Envoy + Istio EnvoyFilter)]                                    │
+│  - Port: 443/TCP (external) → routes via HTTPRoute per ExternalModel        │
+│  - TLS Termination: TLS 1.2+                                                │
+│  - AuthN: Platform auth (Bearer Token)                                       │
+│  - Routing: HTTPRoute path /{namespace}/{model-name}/*                      │
+│  - Provider selection: x-ipp-selected-provider header match                  │
 │         │                                                                    │
 │         │ Port: 9004/TCP                                                     │
 │         │ Protocol: gRPC (ext_proc)                                          │
-│         │ Encryption: plaintext (mesh-internal mTLS via Istio sidecar)       │
-│         │ Auth: None (Envoy-to-sidecar localhost)                            │
+│         │ Encryption: Istio mTLS (PeerAuthentication STRICT)                 │
+│         │ Auth: Service Identity (Istio)                                     │
 │         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  SERVICE MESH (Trusted - Istio mTLS)                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  SERVICE MESH (Trusted — mTLS STRICT)                                        │
 │                                                                              │
-│  [AI Gateway Payload Processing (BBR Plugin Host)]                           │
-│  - Namespace: same as Gateway (required for EnvoyFilter targeting)           │
+│  [Payload Processing Service]                                                │
+│  - Namespace: {gateway-namespace}                                            │
 │  - ServiceAccount: payload-processing-{release}                              │
 │  - Image: odh-ai-gateway-payload-processing-rhel9                            │
 │  - Ports:                                                                    │
-│    - 9004/TCP gRPC (ext_proc listener)                                       │
-│    - 9005/TCP HTTP (health check)                                            │
-│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, UBI9 OpenSSL         │
+│    - 9004/TCP (gRPC ext_proc — Envoy filter attachment)                     │
+│    - 9005/TCP (HTTP health check — /healthz, /readyz)                       │
+│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                      │
 │                                                                              │
-│    Plugin Pipeline (Request Phase):                                          │
-│    ┌─────────────────────────────────────────────────────────────────┐       │
-│    │ 1. model-provider-resolver → in-memory cache (ExternalModel)    │       │
-│    │ 2. api-translation → in-process body mutation                   │       │
-│    │ 3. apikey-injection → in-memory cache (Secrets)                 │       │
-│    │ 4. nemo-request-guard → HTTP POST to NeMo (optional)            │       │
-│    └─────────────────────────────────────────────────────────────────┘       │
+│  Plugin Pipeline (per-request processing):                                   │
+│    maas-headers-guard → model-provider-resolver →                           │
+│    stream-usage-enforcer → api-translation → apikey-injection               │
 │                                                                              │
-│    Plugin Pipeline (Response Phase):                                         │
-│    ┌─────────────────────────────────────────────────────────────────┐       │
-│    │ 1. api-translation → in-process body reverse-translation        │       │
-│    │ 2. nemo-response-guard → HTTP POST to NeMo (optional)           │       │
-│    └─────────────────────────────────────────────────────────────────┘       │
+│  Optional Plugins:                                                           │
+│    external-metering, nemo-request-guard, nemo-response-guard               │
 │         │                                                                    │
-│         │ (Controller watches)                                               │
 │         │ Port: 443/TCP                                                      │
 │         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: ServiceAccount token                                         │
+│         │ Encryption: TLS 1.2+ (ServiceAccount Bearer Token)                │
+│         │ Auth: ServiceAccount Token                                         │
 │         ▼                                                                    │
 │  [Kubernetes API Server]                                                     │
-│  - Watches: ExternalModel, ExternalProvider, Secret CRs                      │
-│  - Creates: HTTPRoute, Service, ServiceEntry, DestinationRule                │
+│  - Purpose: CRD watches (ExternalModel, ExternalProvider, Secret)           │
+│  - Purpose: Resource creation (HTTPRoute, Service, ServiceEntry,            │
+│             DestinationRule)                                                 │
+│  - Auth: RBAC ClusterRole ({release}-externalmodels-reader)                 │
 │                                                                              │
-│  [NeMo Guardrails (optional)]                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  MESH EGRESS (Istio-managed TLS origination)                                 │
+│                                                                              │
+│  Traffic path: Envoy sidecar → ServiceEntry → DestinationRule (SIMPLE)      │
+│                                                                              │
+│  [External LLM Providers]                                                    │
+│         │                                                                    │
+│         ├── api.openai.com                                                   │
+│         │   Port: 443/TCP | HTTPS | TLS 1.2+ | API Key header              │
+│         │                                                                    │
+│         ├── api.anthropic.com                                                │
+│         │   Port: 443/TCP | HTTPS | TLS 1.2+ | API Key header              │
+│         │                                                                    │
+│         ├── bedrock.*.amazonaws.com                                          │
+│         │   Port: 443/TCP | HTTPS | TLS 1.2+ | AWS SigV4 signature         │
+│         │                                                                    │
+│         ├── *-aiplatform.googleapis.com (Vertex AI)                          │
+│         │   Port: 443/TCP | HTTPS | TLS 1.2+ | GCP OAuth2 Bearer           │
+│         │                                                                    │
+│         └── *.openai.azure.com (Azure OpenAI)                               │
+│             Port: 443/TCP | HTTPS | TLS 1.2+ | API Key header              │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  OPTIONAL EXTERNAL SERVICES                                                  │
+│                                                                              │
+│  [External Metering Service]                                                 │
 │  - Port: configurable                                                        │
 │  - Protocol: HTTP/HTTPS                                                      │
-│  - Encryption: configurable                                                  │
 │  - Auth: None                                                                │
-│  - Endpoint: /v1/guardrail/checks                                            │
+│  - Purpose: Token balance checks and usage event reporting                  │
 │                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  EGRESS (External LLM Providers via Istio Mesh)                              │
+│  [NeMo Guardrails Service]                                                   │
+│  - Port: configurable                                                        │
+│  - Protocol: HTTP/HTTPS                                                      │
+│  - Endpoint: /v1/guardrail/checks                                           │
+│  - Auth: None                                                                │
+│  - Purpose: Content safety evaluation for input/output rails               │
 │                                                                              │
-│  Traffic routed via: ExternalName Service → ServiceEntry → DestinationRule   │
-│  TLS: Istio DestinationRule SIMPLE mode (TLS origination by mesh)            │
-│                                                                              │
-│  [api.openai.com]                                                            │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+ (DestinationRule SIMPLE)                             │
-│  - Auth: Bearer token (Authorization header)                                 │
-│  - Path: /v1/chat/completions                                                │
-│                                                                              │
-│  [api.anthropic.com]                                                         │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+ (DestinationRule SIMPLE)                             │
-│  - Auth: API key (x-api-key header)                                          │
-│  - Path: /v1/messages                                                        │
-│                                                                              │
-│  [{azure-endpoint}.openai.azure.com]                                         │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+ (DestinationRule SIMPLE)                             │
-│  - Auth: API key (api-key header)                                            │
-│  - Path: /openai/v1/chat/completions                                         │
-│                                                                              │
-│  [bedrock.amazonaws.com]                                                     │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+ (DestinationRule SIMPLE)                             │
-│  - Auth: Bearer token (Authorization header)                                 │
-│  - Path: /v1/chat/completions                                                │
-│                                                                              │
-│  [{location}-aiplatform.googleapis.com]                                      │
-│  - Port: 443/TCP                                                             │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+ (DestinationRule SIMPLE)                             │
-│  - Auth: Bearer token (Authorization header)                                 │
-│  - Path: /v1/projects/{p}/locations/{l}/endpoints/{e}/chat/completions       │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────────────────────┘
 
 RBAC Summary:
 - ClusterRole: {release}-externalmodels-reader
-  - API Groups: "" (core), maas.opendatahub.io
-  - Resources: secrets (get, list, watch); externalmodels (get, list, watch)
-  - Bound to: SA payload-processing-{release}
-
-- Controller RBAC (kubebuilder markers):
-  - API Groups: inference.opendatahub.io
-    - Resources: externalmodels (get, list, watch)
-    - Resources: externalmodels/status (get, update, patch)
-    - Resources: externalmodels/finalizers (update)
-    - Resources: externalproviders (get, list, watch)
-    - Resources: externalproviders/status (get, update, patch)
-    - Resources: externalproviders/finalizers (update)
   - API Groups: "" (core)
-    - Resources: secrets (get, list, watch)
-    - Resources: services (get, list, watch, create, update, delete)
-  - API Groups: networking.istio.io
-    - Resources: serviceentries (get, list, watch, create, update, delete)
-    - Resources: destinationrules (get, list, watch, create, update, delete)
+    - Resources: secrets
+    - Verbs: get, list, watch
+  - API Groups: "" (core)
+    - Resources: services
+    - Verbs: get, list, watch, create, update, delete
+  - API Groups: maas.opendatahub.io
+    - Resources: externalmodels
+    - Verbs: get, list, watch
+  - API Groups: inference.opendatahub.io
+    - Resources: externalproviders, externalmodels
+    - Verbs: get, list, watch, create, update
+  - API Groups: inference.opendatahub.io
+    - Resources: externalproviders/status, externalmodels/status
+    - Verbs: get, update, patch
+  - API Groups: inference.opendatahub.io
+    - Resources: externalproviders/finalizers, externalmodels/finalizers
+    - Verbs: update
   - API Groups: gateway.networking.k8s.io
-    - Resources: httproutes (get, list, watch, create, update, delete)
+    - Resources: httproutes
+    - Verbs: get, list, watch, create, update, delete
+  - API Groups: networking.istio.io
+    - Resources: serviceentries, destinationrules
+    - Verbs: get, list, watch, create, update, delete
+
+- ClusterRoleBinding: {release}-externalmodels-reader
+  - Role: {release}-externalmodels-reader
+  - ServiceAccount: payload-processing-{release} (cluster-wide or release namespace)
 
 Service Mesh Configuration:
-- EnvoyFilter: Attached to Gateway (INSERT_AFTER Kuadrant WASM plugin anchor)
-- ServiceEntry: Per provider, MESH_EXTERNAL with DNS resolution
-- DestinationRule: Per provider, TLS origination SIMPLE mode
-- mTLS: Istio mesh-internal mTLS for ext_proc communication
+- PeerAuthentication: STRICT (Istio mTLS for ext_proc gRPC port 9004)
+- TLS Origination: DestinationRule SIMPLE mode per ExternalProvider
+- ServiceEntry: mesh-external resolution per provider endpoint
 
 Secrets:
-- {provider}-credentials (Opaque) - Provider API key (data key: "api-key")
-  - Provisioned by: Manual (user-created)
-  - Label selector: inference.networking.k8s.io/bbr-managed=true
-  - Auto-rotate: No
-  - Cached by: apikey-injection plugin in-memory store
+- {provider-name}-secret (Opaque) — per ExternalProvider, user-provisioned, no auto-rotation
+  Fields (vary by auth type):
+  - API Key: api-key
+  - AWS: aws-access-key-id, aws-secret-access-key, aws-session-token
+  - GCP: gcp-service-account-json
+- Secret informer filtered by label: inference.llm-d.ai/ipp-managed
 
 FIPS Compliance:
 - Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
-- Base image: registry.access.redhat.com/ubi9/ubi-minimal (OpenSSL)
-- TLS: No custom TLS config; relies on Istio mTLS (intra-cluster)
-        and DestinationRule SIMPLE (egress TLS origination)
-- Crypto: stdlib crypto/tls (FIPS via OpenSSL at runtime)
-- No non-FIPS crypto risks detected
+- Crypto: SHA256 (SigV4 body hashing) and OAuth2 routed through OpenSSL via strictfipsruntime
+- TLS: Delegated to Istio sidecar (mesh-internal) and DestinationRule (egress)
+- Base image: UBI9 ubi-minimal (system OpenSSL + trust store)
+
+Multi-Tenancy:
+- Tenant boundary: per-namespace
+- Deployment model: multi-tenant (single instance watches all namespaces)
+- Tenant identifier: namespace name in HTTPRoute path prefix /{namespace}/{model-name}
+- Isolation: Namespace-scoped CRDs, per-namespace Secret access via label-filtered informer
+- Risk: All tenants share single ext_proc process; no per-tenant resource limits

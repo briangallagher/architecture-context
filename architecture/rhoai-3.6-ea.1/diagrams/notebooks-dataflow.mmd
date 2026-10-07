@@ -1,0 +1,52 @@
+sequenceDiagram
+    participant User as Data Scientist
+    participant Route as OpenShift Route
+    participant OAuth as oauth-proxy Sidecar
+    participant JL as JupyterLab Server<br/>8888/TCP
+    participant CS as code-server<br/>8787/TCP via nginx
+    participant CGI as access.cgi<br/>httpd CGI
+    participant Controller as odh-notebook-controller
+    participant K8s as Kubernetes API<br/>443/TCP HTTPS
+    participant S3 as S3-Compatible Storage<br/>443/TCP HTTPS
+
+    Note over User,S3: User Request Flow (JupyterLab)
+    User->>Route: GET /notebook/<project>/<name>/*
+    Route->>OAuth: Forward request
+    OAuth->>OAuth: Validate OAuth token
+    OAuth->>JL: Forward authenticated request<br/>NB_PREFIX=/notebook/<project>/<name>
+    JL-->>OAuth: JupyterLab UI / API response
+    OAuth-->>Route: Response
+    Route-->>User: Workbench interface
+
+    Note over User,S3: User Request Flow (code-server)
+    User->>Route: GET /notebook/<project>/<name>/*
+    Route->>OAuth: Forward request
+    OAuth->>OAuth: Validate OAuth token
+    OAuth->>CS: Forward to nginx on 8787/TCP
+    CS-->>OAuth: code-server UI response
+    OAuth-->>Route: Response
+    Route-->>User: VS Code interface
+
+    Note over Controller,JL: Idle Culling Flow (JupyterLab)
+    Controller->>JL: GET /api/kernels/<br/>Poll activity
+    JL-->>Controller: Kernel status JSON<br/>(last_activity timestamp)
+    Controller->>Controller: Evaluate idle timeout
+
+    Note over Controller,CGI: Idle Culling Flow (code-server)
+    Controller->>CGI: GET /api/kernels/<br/>Poll activity via nginx→httpd→CGI
+    CGI->>CS: GET /healthz on 8787/TCP
+    CS-->>CGI: Heartbeat timestamp
+    CGI-->>Controller: Kernel-compatible JSON response
+
+    Note over User,S3: Data Access from Notebook
+    User->>JL: Execute notebook cell
+    JL->>K8s: kubernetes client API call<br/>TLS, ServiceAccount token
+    K8s-->>JL: API response
+    JL->>S3: boto3 S3 request<br/>HTTPS, AWS credentials
+    S3-->>JL: Object data
+    JL-->>User: Cell output
+
+    Note over Controller,K8s: Build Pipeline Flow
+    Note right of Controller: buildinputs generates<br/>dependency metadata
+    Note right of Controller: check-payload validates<br/>FIPS compliance
+    Note right of Controller: Konflux hermetic build<br/>with prefetched deps

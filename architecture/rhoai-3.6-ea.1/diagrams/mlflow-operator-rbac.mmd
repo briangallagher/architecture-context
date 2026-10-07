@@ -1,0 +1,100 @@
+graph TD
+    subgraph ServiceAccounts["Service Accounts"]
+        SA_Manager["mlflow-operator-controller-manager<br/>(Namespace: opendatahub)"]
+    end
+
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        CRB_Manager["mlflow-operator-manager-rolebinding"]
+        CRB_Metrics["mlflow-operator-metrics-auth-rolebinding"]
+    end
+
+    subgraph RoleBindings_NS["Role Bindings (Namespace-scoped)"]
+        RB_Leader["mlflow-operator-leader-election-rolebinding<br/>(Namespace: opendatahub)"]
+    end
+
+    subgraph ClusterRoles["Cluster Roles"]
+        CR_Manager["mlflow-operator-manager-role"]
+        CR_Metrics["mlflow-operator-metrics-auth-role"]
+        CR_View["mlflow-operator-mlflow-view<br/>(propagated to workspaces)"]
+        CR_Edit["mlflow-operator-mlflow-edit<br/>(propagated to workspaces)"]
+        CR_Integration["mlflow-operator-mlflow-integration"]
+    end
+
+    subgraph Roles_NS["Roles (Namespace-scoped)"]
+        R_Leader["mlflow-operator-leader-election-role"]
+    end
+
+    subgraph ManagerPermissions["Manager Role - API Resources"]
+        direction LR
+        subgraph CoreAPIs["Core API"]
+            Namespaces["namespaces<br/>get, list, watch"]
+            Pods["pods<br/>get, list, watch"]
+            Secrets["secrets<br/>get, list, watch<br/>(resourceNames: mlflow-artifact-connection)"]
+            ConfigMaps["configmaps, services, PVCs,<br/>serviceaccounts, secrets<br/>full CRUD"]
+        end
+
+        subgraph CRDAPIs["CRD APIs"]
+            MLflows["mlflow.opendatahub.io<br/>mlflows<br/>full CRUD + finalizers"]
+            MLflowOps["components.platform.opendatahub.io<br/>mlflowoperators<br/>get, list, patch, update, watch"]
+            MLflowConfigs["mlflow.kubeflow.org<br/>mlflowconfigs<br/>get, list, watch"]
+            AuthCRs["services.platform.opendatahub.io<br/>auths<br/>get, list, watch"]
+        end
+
+        subgraph WorkloadAPIs["Workload APIs"]
+            Deployments["apps/deployments<br/>full CRUD"]
+            CronJobs["batch/cronjobs, jobs<br/>full CRUD"]
+            NetPolicies["networking.k8s.io/networkpolicies<br/>full CRUD"]
+        end
+
+        subgraph PlatformAPIs["Platform APIs (conditional)"]
+            HTTPRoutes["gateway.networking.k8s.io<br/>httproutes<br/>full CRUD"]
+            ConsoleLinks["console.openshift.io<br/>consolelinks<br/>full CRUD"]
+            ServiceMonitors["monitoring.coreos.com<br/>servicemonitors<br/>full CRUD"]
+        end
+
+        subgraph RBACAPIs["RBAC APIs"]
+            ClusterRolesRes["clusterroles, clusterrolebindings<br/>CRUD + bind"]
+            RoleBindingsRes["rolebindings<br/>full CRUD"]
+        end
+    end
+
+    subgraph MetricsPermissions["Metrics Auth Role"]
+        TokenReviews["authentication.k8s.io<br/>tokenreviews<br/>create"]
+        SubjectAccess["authorization.k8s.io<br/>subjectaccessreviews<br/>create"]
+    end
+
+    subgraph LeaderElection["Leader Election Role"]
+        LEConfigMaps["configmaps<br/>full CRUD"]
+        LELeases["coordination.k8s.io/leases<br/>full CRUD"]
+        LEEvents["events<br/>create, patch"]
+    end
+
+    %% Bindings
+    SA_Manager -->|"bound via"| CRB_Manager
+    SA_Manager -->|"bound via"| CRB_Metrics
+    SA_Manager -->|"bound via"| RB_Leader
+
+    CRB_Manager -->|"grants"| CR_Manager
+    CRB_Metrics -->|"grants"| CR_Metrics
+    RB_Leader -->|"grants"| R_Leader
+
+    CR_Manager -->|"permits"| ManagerPermissions
+    CR_Metrics -->|"permits"| MetricsPermissions
+    R_Leader -->|"permits"| LeaderElection
+
+    %% Workspace propagation
+    CR_View -.->|"propagated to<br/>workspace namespaces"| WorkspaceRB["Workspace RoleBindings<br/>(created by NamespaceRBACReconciler)"]
+    CR_Edit -.->|"propagated to<br/>workspace namespaces"| WorkspaceRB
+
+    %% Styling
+    style SA_Manager fill:#4a90e2,color:#fff
+    style CR_Manager fill:#f5a623,color:#fff
+    style CR_Metrics fill:#f5a623,color:#fff
+    style CR_View fill:#50c878,color:#fff
+    style CR_Edit fill:#50c878,color:#fff
+    style CR_Integration fill:#50c878,color:#fff
+    style R_Leader fill:#f5a623,color:#fff
+    style CRB_Manager fill:#9b59b6,color:#fff
+    style CRB_Metrics fill:#9b59b6,color:#fff
+    style RB_Leader fill:#9b59b6,color:#fff
+    style WorkspaceRB fill:#e8e8e8,stroke:#999

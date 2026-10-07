@@ -1,0 +1,84 @@
+graph TD
+    subgraph "Service Account"
+        SA["rhoai-mcp<br/>Namespace: rhoai-mcp"]
+    end
+
+    subgraph "ClusterRole Binding"
+        CRB["rhoai-mcp<br/>(ClusterRoleBinding)<br/>Scope: Cluster-wide"]
+    end
+
+    subgraph "ClusterRole: rhoai-mcp"
+        CR["rhoai-mcp<br/>(ClusterRole)"]
+    end
+
+    subgraph "Core API Resources"
+        ReadOnly["events, nodes, pods,<br/>pods/log, services"]
+        CreateOnly["persistentvolumes, pods"]
+        NamespaceMgmt["namespaces"]
+        SecretPVC["persistentvolumeclaims,<br/>secrets"]
+        StorageClass["storageclasses<br/>(storage.k8s.io)"]
+    end
+
+    subgraph "Kubeflow Resources"
+        Notebooks["notebooks<br/>(kubeflow.org)"]
+        TrainJobs["trainjobs<br/>(trainer.kubeflow.org)"]
+        TrainingRuntimes["trainingruntimes<br/>(trainer.kubeflow.org)"]
+        ClusterTrainingRuntimes["clustertrainingruntimes<br/>(trainer.kubeflow.org)"]
+    end
+
+    subgraph "KServe Resources"
+        InferenceServices["inferenceservices<br/>(serving.kserve.io)"]
+        ServingRuntimes["servingruntimes<br/>(serving.kserve.io)"]
+    end
+
+    subgraph "Data Science Pipelines"
+        DSPA["datasciencepipelinesapplications<br/>(datasciencepipelinesapplications<br/>.opendatahub.io)"]
+    end
+
+    %% Bindings
+    SA -->|"bound via"| CRB
+    CRB -->|"grants"| CR
+
+    %% Core API permissions
+    CR -->|"get, list, watch"| ReadOnly
+    CR -->|"create"| CreateOnly
+    CR -->|"create, delete, get,<br/>list, patch, watch"| NamespaceMgmt
+    CR -->|"create, delete, get,<br/>list, watch"| SecretPVC
+    CR -->|"list"| StorageClass
+
+    %% Kubeflow permissions
+    CR -->|"create, delete, get,<br/>list, patch, watch"| Notebooks
+    CR -->|"create, delete, get, list,<br/>patch, update, watch"| TrainJobs
+    CR -->|"get, list, watch"| TrainingRuntimes
+    CR -->|"create, delete, get,<br/>list, watch"| ClusterTrainingRuntimes
+
+    %% KServe permissions
+    CR -->|"create, delete, get,<br/>list, watch"| InferenceServices
+    CR -->|"create, get,<br/>list, watch"| ServingRuntimes
+
+    %% DSP permissions
+    CR -->|"create, delete, get,<br/>list, watch"| DSPA
+
+    %% Additional auth layer
+    subgraph "Runtime RBAC Layer"
+        SAR["SubjectAccessReview<br/>(per-tool filtering)<br/>When OIDC enabled"]
+    end
+
+    CR -.->|"augmented by"| SAR
+
+    style SA fill:#4a90e2,color:#fff
+    style CRB fill:#9b59b6,color:#fff
+    style CR fill:#f5a623,color:#fff
+    style ReadOnly fill:#d5e8d4,stroke:#82b366
+    style CreateOnly fill:#d5e8d4,stroke:#82b366
+    style NamespaceMgmt fill:#ffe6cc,stroke:#d79b00
+    style SecretPVC fill:#ffe6cc,stroke:#d79b00
+    style StorageClass fill:#d5e8d4,stroke:#82b366
+    style Notebooks fill:#7ed321
+    style TrainJobs fill:#7ed321
+    style TrainingRuntimes fill:#7ed321
+    style ClusterTrainingRuntimes fill:#7ed321
+    style InferenceServices fill:#7ed321
+    style ServingRuntimes fill:#7ed321
+    style DSPA fill:#7ed321
+    style SAR fill:#e74c3c,color:#fff

@@ -1,52 +1,56 @@
 graph TD
-    subgraph Note["RBAC Note"]
-        direction TB
-        Info["caikit-nlp is a Python library,<br/>NOT a Kubernetes operator.<br/><br/>No RBAC resources are defined<br/>by caikit-nlp itself."]
+    subgraph Legend["Legend"]
+        direction LR
+        L1["🟦 Library Component"]
+        L2["🟩 Platform Enforcement"]
+        L3["🟨 Configurable"]
     end
 
-    subgraph RuntimeSecurity["Runtime Security Model"]
+    subgraph CaikitNLP["Caikit NLP (Library)"]
+        direction TB
+        NoRBAC["No RBAC Roles Defined<br/><i>Library, not a Kubernetes controller</i>"]
+    end
+
+    subgraph PlatformAuth["Platform-Level Auth Enforcement"]
         direction TB
 
-        subgraph ContainerSecurity["Container Security"]
-            NonRoot["Non-root execution<br/>UID: 1001 (caikit user)<br/>Dedicated group"]
-            BaseImage["Base Image: UBI 9 minimal<br/>registry.access.redhat.com/ubi9/ubi-minimal:latest<br/>FIPS-validated OpenSSL"]
+        subgraph HTTPAuth["HTTP API (8080/TCP)"]
+            HTTPEndpoints["POST /api/v1/task/*<br/>GET /openapi.json"]
+            HTTPEnforcement["Enforcement: Caikit Runtime<br/>+ KServe / kube-rbac-proxy"]
         end
 
-        subgraph AccessControl["Access Controls (Library-Level)"]
-            AllowDownloads["allow_downloads: false<br/><i>Prevents arbitrary model downloads</i>"]
-            TrustRemoteCode["trust_remote_code: false<br/><i>Prevents untrusted code execution</i>"]
-        end
-
-        subgraph TLSConfig["TLS Configuration (TGIS)"]
-            CACert["ca_cert_file<br/><i>Custom CA bundle</i>"]
-            ClientCert["client_cert_file<br/><i>Client certificate for mTLS</i>"]
-            ClientKey["client_key_file<br/><i>Client private key</i>"]
+        subgraph GRPCAuth["gRPC API (8085/TCP)"]
+            GRPCServices["caikit.runtime.Nlp<br/>caikit.runtime.NlpTraining"]
+            GRPCEnforcement["Enforcement: Caikit Runtime<br/>+ Platform"]
         end
     end
 
-    subgraph PlatformRBAC["Platform-Level Auth (Not caikit-nlp)"]
-        direction TB
-        KubeRBAC["kube-rbac-proxy<br/><i>Platform ingress AuthN/AuthZ</i>"]
-        GatewayAPI["Gateway API<br/><i>Platform routing + auth</i>"]
-        KServeAuth["KServe InferenceService<br/><i>Service account per deployment</i>"]
+    subgraph Secrets["Secrets (Configurable)"]
+        TGISCerts["TGIS TLS Certificates<br/>Type: kubernetes.io/tls<br/>Provisioned: Manual / cert-manager<br/>Auto-Rotate: No<br/>Config: ca_cert_file,<br/>client_cert_file, client_key_file"]
+        HFToken["HuggingFace Token<br/>Type: Opaque<br/>Provisioned: Manual<br/>Auto-Rotate: No<br/>Config: HF_TOKEN env var"]
     end
 
-    RuntimeSecurity -->|"AuthN/AuthZ delegated to"| PlatformRBAC
+    subgraph TLSConfig["TLS Configuration"]
+        ServerTLS["Server TLS<br/>RUNTIME_TLS_SERVER_KEY<br/>RUNTIME_TLS_SERVER_CERT"]
+        ClientTLS["TGIS Client TLS<br/>ca_cert_file<br/>client_cert_file<br/>client_key_file"]
+    end
 
-    style Note fill:#fff3cd,stroke:#856404,stroke-width:2px
-    style Info fill:#fff3cd,stroke:none
-    style RuntimeSecurity fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style ContainerSecurity fill:#e8f0fe,stroke:#4a90e2
-    style AccessControl fill:#e8f0fe,stroke:#4a90e2
-    style TLSConfig fill:#e8f0fe,stroke:#4a90e2
-    style PlatformRBAC fill:#f0f0f0,stroke:#666,stroke-width:2px
-    style NonRoot fill:#d5e8d4,stroke:#82b366
-    style BaseImage fill:#d5e8d4,stroke:#82b366
-    style AllowDownloads fill:#d5e8d4,stroke:#82b366
-    style TrustRemoteCode fill:#d5e8d4,stroke:#82b366
-    style CACert fill:#fff2cc,stroke:#d6b656
-    style ClientCert fill:#fff2cc,stroke:#d6b656
-    style ClientKey fill:#fff2cc,stroke:#d6b656
-    style KubeRBAC fill:#e0e0e0,stroke:#999
-    style GatewayAPI fill:#e0e0e0,stroke:#999
-    style KServeAuth fill:#e0e0e0,stroke:#999
+    CaikitNLP -->|"delegates auth to"| PlatformAuth
+    TGISCerts -->|"used for mTLS"| ClientTLS
+    HFToken -->|"used for downloads"| HTTPAuth
+    ServerTLS -->|"secures"| HTTPAuth
+    ServerTLS -->|"secures"| GRPCAuth
+
+    style CaikitNLP fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    style NoRBAC fill:#f9f9f9,stroke:#999
+    style PlatformAuth fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style Secrets fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style TLSConfig fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style HTTPEndpoints fill:#d5e8d4,stroke:#82b366
+    style HTTPEnforcement fill:#d5e8d4,stroke:#82b366
+    style GRPCServices fill:#d5e8d4,stroke:#82b366
+    style GRPCEnforcement fill:#d5e8d4,stroke:#82b366
+    style TGISCerts fill:#fff2cc,stroke:#d6b656
+    style HFToken fill:#fff2cc,stroke:#d6b656
+    style ServerTLS fill:#fff2cc,stroke:#d6b656
+    style ClientTLS fill:#fff2cc,stroke:#d6b656

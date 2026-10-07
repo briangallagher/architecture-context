@@ -1,0 +1,95 @@
+graph TB
+    subgraph External["External (Untrusted)"]
+        Client[External Client]
+        OIDCProvider["OAuth2/OIDC Provider<br/>(OpenShift OAuth)"]
+    end
+
+    subgraph Route["OpenShift Route"]
+        IngressRoute["Route: your-app.apps.cluster.example.com<br/>HTTPS / TLS"]
+    end
+
+    subgraph KubeAuthProxy["kube-auth-proxy (Port 4180)"]
+        direction TB
+
+        subgraph PreAuthChain["Pre-Authentication Chain"]
+            HealthCheck["/ping Health Check"]
+            RequestLogging["Request Logging"]
+            Metrics["Prometheus Metrics"]
+            HTTPSRedirect["HTTPS Redirect"]
+        end
+
+        subgraph AuthSessionChain["Authentication Session Chain"]
+            K8sTokenReview["K8s TokenReview<br/>Validator"]
+            JWTBearer["JWT Bearer Token<br/>Verification"]
+            OAuth2Session["OAuth2/OIDC<br/>Session Loader"]
+            BasicAuth["htpasswd<br/>Basic Auth"]
+        end
+
+        subgraph AuthEndpoints["Authentication Endpoints"]
+            SignIn["{prefix}/sign_in"]
+            Start["{prefix}/start"]
+            Callback["{prefix}/callback"]
+            SignOut["{prefix}/sign_out"]
+            AuthOnly["{prefix}/auth<br/>(ext_authz)"]
+            UserInfo["{prefix}/userinfo"]
+        end
+
+        subgraph HeadersChain["Headers Chain"]
+            HeaderEnrichment["X-Forwarded-User<br/>X-Forwarded-Email"]
+        end
+
+        UpstreamProxy["Upstream Proxy<br/>(HTTP + WebSocket)"]
+    end
+
+    subgraph Backends["Backend Services"]
+        UpstreamService["Upstream Service<br/>(Dashboard, Model Serving, etc.)"]
+    end
+
+    subgraph Infrastructure["Infrastructure"]
+        KubeAPI["Kubernetes API<br/>6443/TCP HTTPS"]
+        Redis["Redis/Valkey<br/>(Session Store, Optional TLS)"]
+    end
+
+    %% Request flow
+    Client -->|HTTPS/443| IngressRoute
+    IngressRoute -->|HTTP/4180| HealthCheck
+    HealthCheck --> RequestLogging
+    RequestLogging --> Metrics
+    Metrics --> HTTPSRedirect
+
+    %% Auth flow
+    HTTPSRedirect --> K8sTokenReview
+    K8sTokenReview --> JWTBearer
+    JWTBearer --> OAuth2Session
+    OAuth2Session --> BasicAuth
+
+    %% Auth endpoints
+    Start -->|redirect| OIDCProvider
+    OIDCProvider -->|callback| Callback
+
+    %% Post-auth
+    BasicAuth --> HeaderEnrichment
+    HeaderEnrichment --> UpstreamProxy
+    UpstreamProxy -->|forward| UpstreamService
+
+    %% Infrastructure integrations
+    K8sTokenReview -->|TokenReview API| KubeAPI
+    OAuth2Session -->|session read/write| Redis
+
+    %% Styling
+    style Client fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style OIDCProvider fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style IngressRoute fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    style HealthCheck fill:#d5e8d4,stroke:#82b366
+    style RequestLogging fill:#d5e8d4,stroke:#82b366
+    style Metrics fill:#d5e8d4,stroke:#82b366
+    style HTTPSRedirect fill:#d5e8d4,stroke:#82b366
+    style K8sTokenReview fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    style JWTBearer fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    style OAuth2Session fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    style BasicAuth fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    style HeaderEnrichment fill:#e1d5e7,stroke:#9673a6
+    style UpstreamProxy fill:#4a90e2,stroke:#333,color:#fff
+    style UpstreamService fill:#7ed321,stroke:#333
+    style KubeAPI fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style Redis fill:#fff2cc,stroke:#d6b656,stroke-width:2px

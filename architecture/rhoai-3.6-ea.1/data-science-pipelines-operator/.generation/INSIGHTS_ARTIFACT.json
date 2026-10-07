@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "data-science-pipelines-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "dspo-fips-gofips140-001",
+      "claim": "The operator uses Go's native FIPS 140 module (GOFIPS140=v1.0.0) with static linking and no_openssl, diverging from the traditional OpenSSL-backed strictfipsruntime approach used by other RHOAI components.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:28"
+        }
+      ],
+      "reasoning": "The Dockerfile.konflux build command uses CGO_ENABLED=0 GOFIPS140=v1.0.0 -tags no_openssl, which relies on Go 1.24+'s native FIPS 140 certified crypto module rather than linking against system OpenSSL. This is a different FIPS strategy than the CGO_ENABLED=1 + GOEXPERIMENT=strictfipsruntime pattern and may have different check-payload validation characteristics since the binary is statically linked without OpenSSL.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "dspo-tls-profile-watcher-002",
+      "claim": "The operator implements a SecurityProfileWatcher that monitors OpenShift TLS profile changes at runtime and triggers graceful pod restarts, ensuring continuous alignment with cluster security policy without manual intervention.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "tls_profile.go:22-64"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "main.go:385-399"
+        }
+      ],
+      "reasoning": "The operator fetches the OpenShift APIServer TLS profile at startup and registers a SecurityProfileWatcher that cancels the controller context when the profile changes, causing a graceful restart. This dynamic TLS adherence pattern via openshift/controller-runtime-common/pkg/tls ensures the operator stays aligned with cluster-wide TLS policy changes without requiring manual pod restarts.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "dspo-broad-rbac-scope-003",
+      "claim": "The operator's manager-role ClusterRole spans 10+ API groups with broad permissions (including wildcard verbs on kubeflow.org resources), reflecting its role as an infrastructure orchestrator but creating a wide authorization surface.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/security/rbac"
+        }
+      ],
+      "reasoning": "The manager-role grants permissions across argoproj.io, kubeflow.org, serving.kserve.io, ray.io, workload.codeflare.dev, machinelearning.seldon.io, and more. The kubeflow.org wildcard ('* on *') is particularly broad. While this reflects the operator's need to manage the full pipeline ecosystem, it means a compromise of the operator's service account would grant wide cluster access across multiple platform components.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

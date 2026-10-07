@@ -1,131 +1,140 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  CLIENT SIDE (User Workstation / CI Pipeline / Container)               │
+│  LOCAL EXECUTION ENVIRONMENT                                            │
 │                                                                          │
-│  [odh-cli Binary]                                                        │
-│  - Distribution: Go binary (rhai-cli / kubectl-odh)                      │
-│  - Container: quay.io/rhoai/rhoai-upgrade-helpers-rhel9                  │
-│  - Base: ose-cli-rhel9 (UBI9)                                            │
-│  - FIPS: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime                   │
-│  - Crypto: Delegates to client-go → system OpenSSL (UBI9)                │
-│  - No direct TLS configuration — uses kubeconfig settings                │
+│  [rhai-cli / kubectl-odh]                                                │
+│  - Binary: Go CLI tool (kubectl plugin)                                  │
+│  - Auth Identity: kubeconfig user (Bearer Token / Client Cert / OIDC)    │
+│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                   │
+│  - API Throttle: QPS=50, Burst=100 (configurable)                        │
+│         │                    │                    │                       │
+│         │                    │                    │                       │
+│    ┌────┴────┐          ┌────┴────┐          ┌────┴────┐                 │
+│    │ stdin   │          │ stdout  │          │ file    │                 │
+│    │ (MCP)   │          │ output  │          │ backup  │                 │
+│    └────┬────┘          └─────────┘          └─────────┘                 │
 │         │                                                                │
-│         │ Port: 6443/TCP                                                 │
-│         │ Protocol: HTTPS (REST API)                                     │
-│         │ Encryption: TLS 1.2+ (system crypto via client-go)             │
-│         │ Auth: kubeconfig                                               │
-│         │   - Bearer Token (ServiceAccount / OIDC)                       │
-│         │   - Client Certificate (x509)                                  │
-│         │   - --token flag (direct token)                                │
-│         │   - --certificate-authority (custom CA)                        │
+│         │ Protocol: MCP (stdio transport)                                │
+│         │ Encryption: None                                               │
+│         │ Auth: None                                                     │
 │         ▼                                                                │
-├─────────────────────────────────────────────────────────────────────────┤
-│  KUBERNETES CLUSTER (Trusted — authenticated via kubeconfig)            │
+│  [AI Agent / MCP Client] (optional)                                      │
+│  - 12 tools exposed via MCP                                              │
+│  - Read-only / destructive annotations per tool                          │
 │                                                                          │
-│  [Kubernetes API Server]                                                 │
-│  - Port: 6443/TCP                                                        │
-│  - Protocol: HTTPS                                                       │
-│  - Encryption: TLS 1.2+                                                  │
-│  - AuthN: Bearer Token / Client Certificate / OIDC                       │
-│  - AuthZ: RBAC (user's existing bindings — no ClusterRoles installed)    │
+│  [MCP SSE Server] (optional, on-demand only)                             │
+│  - Port: 8080/TCP                                                        │
+│  - Protocol: HTTP (SSE)                                                  │
+│  - Encryption: None                                                      │
+│  - Auth: None                                                            │
+│  - Exposure: Localhost only                                              │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EGRESS (Outbound Connections)                                           │
 │                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  Resources Accessed (Read Operations — client.Reader)            │    │
-│  │                                                                   │    │
-│  │  Platform CRDs:                                                   │    │
-│  │  - datasciencecluster.opendatahub.io/datascienceclusters (R)     │    │
-│  │  - dscinitialization.opendatahub.io/dscinitializations (R)       │    │
-│  │  - components.platform.opendatahub.io/* (R)                      │    │
-│  │  - config.openshift.io/clusterversions (R)                       │    │
-│  │  - apiextensions.k8s.io/customresourcedefinitions (R)            │    │
-│  │                                                                   │    │
-│  │  OLM Resources:                                                   │    │
-│  │  - operators.coreos.com/subscriptions (R/W)                      │    │
-│  │  - operators.coreos.com/clusterserviceversions (R)               │    │
-│  │  - operators.coreos.com/operatorgroups (W)                       │    │
-│  │                                                                   │    │
-│  │  Workload CRDs:                                                   │    │
-│  │  - serving.kserve.io/inferenceservices (R)                       │    │
-│  │  - serving.kserve.io/servingruntimes (R)                         │    │
-│  │  - kubeflow.org/notebooks (R)                                    │    │
-│  │  - kubeflow.org/pytorchjobs (R)                                  │    │
-│  │  - ray.io/rayclusters (R)                                        │    │
-│  │  - ray.io/rayjobs (R)                                            │    │
-│  │  - workload.codeflare.dev/appwrappers (R)                        │    │
-│  │  - kuadrant.io/kuadrants (R)                                     │    │
-│  │  - authorino.kuadrant.io/authorinos (R)                          │    │
-│  │  - stack.llama.io/llamastackdistributions (R)                    │    │
-│  │  - datasciencepipelinesapplications (R)                          │    │
-│  │  - Kueue (ClusterQueues, LocalQueues) (R)                        │    │
-│  │                                                                   │    │
-│  │  Core Resources:                                                  │    │
-│  │  - configmaps (R/W — migrate only)                               │    │
-│  │  - secrets (R — backup/lint only)                                │    │
-│  │  - namespaces (R/W — deps install only)                          │    │
-│  │  - pods, pods/log (R)                                            │    │
-│  │  - nodes, events, resourcequotas (R)                             │    │
-│  │  - deployments (R)                                               │    │
-│  │  - persistentvolumeclaims (R)                                    │    │
+│  │  Connection 1: Kubernetes API Server                             │    │
+│  │  - Destination: Kubernetes API Server (in-cluster or remote)     │    │
+│  │  - Port: 6443/TCP                                                │    │
+│  │  - Protocol: HTTPS (REST via client-go)                          │    │
+│  │  - Encryption: TLS 1.2+                                          │    │
+│  │  - Auth: Bearer Token / Client Certificate / OIDC                │    │
+│  │         (from kubeconfig)                                        │    │
+│  │  - Purpose: ALL cluster operations                                │    │
+│  │    · Read: DSC, DSCI, CSVs, CRDs, Subscriptions, Namespaces     │    │
+│  │    · Read: Nodes, Deployments, Pods, Events, ResourceQuotas      │    │
+│  │    · Read: Notebooks, DSPA, InferenceService, RayCluster         │    │
+│  │    · Read: TrustyAIService, GuardrailsOrchestrator, LlamaStack   │    │
+│  │    · Read: AcceleratorProfile, HardwareProfile, ModelMesh         │    │
+│  │    · Read: Certificate, Issuer, ServiceMeshControlPlane           │    │
+│  │    · Read: PyTorchJob, TFJob, MPIJob, XGBoostJob                 │    │
+│  │    · Write: DataScienceCluster (enable/disable components)       │    │
+│  │    · Write: Notebook CRs (migration patches)                     │    │
+│  │    · Write: DSPA CRD (stored version migration)                  │    │
+│  │    · Write: Subscriptions (deps install)                         │    │
+│  │    · Write: Roles, RoleBindings (RBAC migration)                 │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐    │
-│  │  Write Operations (limited commands only)                        │    │
-│  │                                                                   │    │
-│  │  deps install:                                                    │    │
-│  │  - CREATE Namespace, OperatorGroup, Subscription                  │    │
-│  │  - Security: catalog source allow-list (CWE-829 mitigation)      │    │
-│  │  - Security: rejects system namespace targets (CWE-269)          │    │
-│  │                                                                   │    │
-│  │  components enable/disable:                                       │    │
-│  │  - PATCH DataScienceCluster                                       │    │
-│  │                                                                   │    │
-│  │  migrate:                                                         │    │
-│  │  - PATCH DataScienceCluster, ConfigMap                            │    │
-│  │  - CREATE Subscription (RHBOK)                                    │    │
-│  │  - Conflict resolution: exponential backoff with jitter           │    │
+│  │  Connection 2: TrustyAI Service Routes                           │    │
+│  │  - Destination: TrustyAI OpenShift Routes (in-cluster)           │    │
+│  │  - Port: 443/TCP                                                 │    │
+│  │  - Protocol: HTTPS (REST)                                        │    │
+│  │  - Encryption: TLS 1.2 (MinVersion enforced)                     │    │
+│  │  - TLS Gap: InsecureSkipVerify=true (self-signed in-cluster)     │    │
+│  │  - Auth: Bearer Token (from kubeconfig REST config)              │    │
+│  │  - Purpose: Metrics backup/restore during TrustyAI migration     │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│  EXTERNAL SERVICES                                                       │
+│  ┌──────────────────────────────────────────────────────────────────┐    │
+│  │  Connection 3: GitHub (odh-gitops)                               │    │
+│  │  - Destination: raw.githubusercontent.com                        │    │
+│  │  - Port: 443/TCP                                                 │    │
+│  │  - Protocol: HTTPS                                               │    │
+│  │  - Encryption: TLS 1.2+                                          │    │
+│  │  - Auth: None (public repository)                                │    │
+│  │  - Purpose: Fetch dependency manifest on `deps --refresh`        │    │
+│  │  - Pinned to: commit 1a55af0                                     │    │
+│  └──────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
-│  [GitHub — raw.githubusercontent.com]                                    │
-│  - Purpose: Fetch updated dependency manifests from odh-gitops           │
-│  - Port: 443/TCP                                                         │
-│  - Protocol: HTTPS                                                       │
-│  - Encryption: TLS 1.2+                                                  │
-│  - Auth: None (public repository)                                        │
-│  - Trigger: --refresh flag on deps command                               │
-│  - Data: values.yaml, Chart.yaml (Helm dependency manifests)             │
 └─────────────────────────────────────────────────────────────────────────┘
 
 RBAC Summary:
-- No ClusterRoles or RoleBindings are installed by the CLI
-- CLI relies entirely on the calling user's existing RBAC permissions
-- Lint commands enforce read-only at the Go type level (client.Reader)
-- Write operations restricted to: deps install, components enable/disable, migrate
-- Exit code 4 returned when RBAC is insufficient (graceful degradation)
-- Permission errors treated as non-fatal for lint/status (skip check, continue)
+  No custom RBAC roles defined. CLI inherits authenticated user's RBAC permissions.
 
-Authentication Summary:
-- Primary: kubeconfig file (Bearer Token / Client Certificate / OIDC)
-- Alternative: --token flag for direct Bearer Token authentication
-- Custom CA: --certificate-authority flag for non-standard CAs
-- GitHub: No authentication required (public repository access)
+  Required permissions by command:
+  ┌──────────────────┬───────────────────────────────────────────────────────┐
+  │ Command          │ Required Permissions                                  │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ lint             │ Read: DSC, DSCI, CRDs, CSVs, Subscriptions,          │
+  │                  │       Namespaces, all workload CRs (cluster-wide)     │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ status           │ Read: Nodes, Deployments, Pods, Events,               │
+  │                  │       ResourceQuotas, DSC, DSCI, CSVs                 │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ components       │ Read: DataScienceCluster                              │
+  │ enable/disable   │ Patch: DataScienceCluster                             │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ backup           │ Read: all workload CRs, ConfigMaps, PVCs, Secrets     │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ deps             │ Read: Subscriptions, CSVs, PackageManifests           │
+  │ deps install     │ Create/Update: Subscriptions, OperatorGroups          │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ migrate          │ Read/Write: workload CRs, CRDs, Roles,               │
+  │                  │            RoleBindings, Pods, Deployments             │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ get              │ Read: requested resource types                        │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ events           │ Read: Events, Pods, Deployments                       │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ logs             │ Read: Pods, Pod/log subresource                       │
+  └──────────────────┴───────────────────────────────────────────────────────┘
+
+Authentication & Authorization:
+  ┌────────────────────────┬──────────────────────┬──────────────────────────┐
+  │ Endpoint               │ Auth Mechanism        │ Enforcement Point        │
+  ├────────────────────────┼──────────────────────┼──────────────────────────┤
+  │ Kubernetes API         │ Bearer Token /        │ Kubernetes API Server    │
+  │                        │ Client Cert / OIDC    │ (user's RBAC)            │
+  ├────────────────────────┼──────────────────────┼──────────────────────────┤
+  │ TrustyAI Route         │ Bearer Token          │ OpenShift Route /        │
+  │                        │ (from kubeconfig)     │ TrustyAI Service         │
+  ├────────────────────────┼──────────────────────┼──────────────────────────┤
+  │ MCP SSE Server         │ None                  │ N/A (local access only)  │
+  └────────────────────────┴──────────────────────┴──────────────────────────┘
 
 FIPS Compliance:
-- Build: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime, -tags strictfipsruntime
-- Linking: Dynamic (links against UBI9 OpenSSL)
-- Runtime: No direct crypto operations — all TLS via client-go → system OpenSSL
-- yq binary: Also built with FIPS flags
-- Python helpers: Use system OpenSSL via kubernetes Python client
-- No non-FIPS crypto detected (no MD5, RC4, DES imports)
+  - Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, -tags strictfipsruntime
+  - Linking: Dynamic (CGO_ENABLED=1), OpenSSL via UBI9 base image
+  - TLS: MinVersion=TLS 1.2 enforced
+  - Gap: InsecureSkipVerify=true on TrustyAI metrics client
+    (intentional for in-cluster self-signed certs, matches curl -sk behavior)
 
-Secrets Handling:
-- CLI does not create or manage Secrets
-- Reads Secrets only during: backup (--dependencies=true), lint (config validation)
-- Backup output containing Secrets should be stored in encrypted locations
+Secrets:
+  - No secrets created or managed by the CLI
+  - Backup command may export secrets when --dependencies=true is set
+  - Kubeconfig credentials are used but never persisted by the tool
 
-Security Mitigations:
-- CWE-829: OLM catalog source allow-list restricts installable operators
-- CWE-269: System namespace targets rejected during dependency installation
-- Reader/Writer type split prevents accidental mutations in lint checks
-- 6-level exit code system (0=success, 1=warning, 2=error, 3=validation, 4=auth, 5=connection)
+Build Hermeticity:
+  - RPM lock: rpms.lock.yaml (aarch64, ppc64le, x86_64)
+  - Go deps: go.sum
+  - Gap: No Hermeto/cachi2 prefetch; go mod download during build is not fully hermetic

@@ -1,51 +1,43 @@
 sequenceDiagram
-    autonumber
-
-    participant User as User Browser
-    participant Router as OpenShift Router<br/>443/TCP HTTPS
-    participant OAuth as OAuth Proxy Sidecar<br/>8443/TCP HTTPS
-    participant OSOAuth as OpenShift OAuth Server<br/>443/TCP HTTPS
-    participant Dashboard as Ray Dashboard<br/>8265/TCP HTTP
-    participant RayHead as Ray Head Node<br/>10001/TCP gRPC
-    participant RayWorker as Ray Worker Node<br/>10001/TCP gRPC
+    participant User as User / Data Scientist
     participant K8sAPI as Kubernetes API<br/>443/TCP HTTPS
-    participant CASecret as CA Secret<br/>(K8s Secret)
+    participant MutWH as Mutating Webhook<br/>9443/TCP HTTPS
+    participant Controller as RayCluster Controller
+    participant RouteAPI as OpenShift Route API<br/>443/TCP HTTPS
+    participant ExtUser as External User
+    participant Route as OpenShift Route<br/>443/TCP HTTPS
+    participant OAuth as OAuth Proxy<br/>8443/TCP HTTPS
+    participant Dashboard as Ray Dashboard<br/>8265/TCP HTTP
+    participant OSAuth as OpenShift OAuth<br/>443/TCP HTTPS
 
-    Note over User, Dashboard: Flow 1: RayCluster OAuth Dashboard Access (OpenShift)
-
-    User->>Router: GET /dashboard<br/>HTTPS/443, TLS 1.2+
-    Router->>OAuth: Reencrypt TLS<br/>HTTPS/8443
-    OAuth->>OSOAuth: OAuth delegation<br/>HTTPS/443, TLS 1.2+
-    OSOAuth-->>OAuth: Auth token validated
-    OAuth->>Dashboard: Proxied request<br/>HTTP/8265 (loopback)
-    Dashboard-->>OAuth: Dashboard response
-    OAuth-->>Router: HTTPS response
-    Router-->>User: HTTPS response
-
-    Note over RayHead, CASecret: Flow 2: Ray mTLS Inter-Node Communication
-
-    rect rgb(240, 248, 255)
-        Note right of RayHead: Init Container (create-cert)
-        RayHead->>K8sAPI: Get CA Secret<br/>HTTPS/443, SA Token
-        K8sAPI-->>RayHead: CA key + cert
-        RayHead->>RayHead: Generate node cert<br/>openssl (RSA 2048)
-        RayWorker->>K8sAPI: Get CA Secret<br/>HTTPS/443, SA Token
-        K8sAPI-->>RayWorker: CA key + cert
-        RayWorker->>RayWorker: Generate node cert<br/>openssl (RSA 2048)
+    rect rgb(232, 244, 253)
+        Note over User,Dashboard: Flow 1: RayCluster Creation on OpenShift
+        User->>K8sAPI: 1. Create RayCluster CR<br/>HTTPS/443, Bearer Token
+        K8sAPI->>MutWH: 2. Admission webhook call<br/>HTTPS/9443, TLS (cert-controller)
+        MutWH->>MutWH: 3. Inject oauth-proxy sidecar,<br/>TLS volumes, mTLS init containers
+        MutWH-->>K8sAPI: Mutated RayCluster spec
+        K8sAPI-->>Controller: 4. Watch event: RayCluster created
+        Controller->>K8sAPI: 4a. Create OAuth Service, SA,<br/>CRB, NetworkPolicies, Secrets<br/>HTTPS/443, SA token
+        Controller->>RouteAPI: 5. Create Dashboard Route (reencrypt)<br/>+ Client Route (passthrough)<br/>HTTPS/443, SA token
+        RouteAPI-->>Controller: Routes created
     end
 
-    rect rgb(245, 255, 245)
-        Note right of RayHead: Runtime Communication
-        RayHead->>RayWorker: Ray task/object<br/>gRPC/10001, mTLS
-        RayWorker-->>RayHead: Result<br/>gRPC/10001, mTLS
-        RayWorker->>RayHead: Heartbeat<br/>gRPC/10001, mTLS
+    rect rgb(255, 242, 204)
+        Note over ExtUser,Dashboard: Flow 1 (continued): User Accesses Ray Dashboard
+        ExtUser->>Route: 6. Access Ray Dashboard<br/>HTTPS/443, TLS (reencrypt)
+        Route->>OAuth: Forward to oauth-proxy<br/>HTTPS/8443
+        OAuth->>OSAuth: Authenticate user<br/>HTTPS/443, OAuth
+        OSAuth-->>OAuth: Auth response
+        OAuth->>Dashboard: 7. Proxy to Ray Dashboard<br/>HTTP/8265 (localhost)
+        Dashboard-->>OAuth: Dashboard response
+        OAuth-->>Route: Authenticated response
+        Route-->>ExtUser: Dashboard UI
     end
 
-    Note over User, RayHead: Flow 3: Ray Client Access (OpenShift)
-
-    participant Client as Ray Client SDK
-
-    Client->>Router: Ray client connect<br/>HTTPS/443, TLS passthrough
-    Router->>RayHead: Passthrough<br/>gRPC/10001, mTLS
-    RayHead-->>Router: Response<br/>gRPC/10001, mTLS
-    Router-->>Client: Response<br/>HTTPS/443
+    rect rgb(240, 248, 232)
+        Note over Controller,Dashboard: Flow 2: mTLS Certificate Provisioning
+        Controller->>K8sAPI: 1. Create CA Secret<br/>(RSA 2048, self-signed, 1yr)<br/>HTTPS/443, SA token
+        Note over Controller: Init container mounts<br/>CA Secret as volume
+        Note over Controller: Init container generates<br/>server cert to emptyDir
+        Note over Dashboard: Ray head ↔ workers<br/>gRPC/10001, mTLS<br/>(operator-generated certs)
+    end

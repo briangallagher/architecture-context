@@ -1,0 +1,124 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  INTERNAL CLUSTER NETWORK (No application-level auth on any endpoint)       │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────┐      │
+│  │  llm-d-kv-cache Pod                                                │      │
+│  │                                                                    │      │
+│  │  [Online Service / kv-cache-manager]                               │      │
+│  │  - Port: 8080/TCP (HTTP)                                          │      │
+│  │  - Endpoints: /score_completions, /score_chat_completions, /metrics│      │
+│  │  - Encryption: None                                                │      │
+│  │  - Auth: None                                                      │      │
+│  │  - Entrypoint: /app/kv-cache-manager                              │      │
+│  │         │                                                          │      │
+│  │         │ ZMQ Subscriber                                           │      │
+│  │         │ Port: 5557/TCP                                           │      │
+│  │         │ Protocol: ZMQ/TCP                                        │      │
+│  │         │ Encryption: None                                         │      │
+│  │         │ Auth: None                                                │      │
+│  │         │ Topic: kv@                                               │      │
+│  │         │                                                          │      │
+│  │  [UDS Tokenizer Service]                                           │      │
+│  │  - Socket: /tmp/tokenizer/tokenizer-uds.socket                    │      │
+│  │  - Protocol: gRPC over Unix Domain Socket                          │      │
+│  │  - Encryption: None (local IPC)                                    │      │
+│  │  - Auth: Filesystem permissions (directory mode 0700)              │      │
+│  │  - Health probe: 8082/TCP HTTP                                     │      │
+│  │  - gRPC Methods:                                                   │      │
+│  │    - tokenization.TokenizationService/Tokenize                     │      │
+│  │    - tokenization.TokenizationService/RenderChatCompletion          │      │
+│  │    - tokenization.TokenizationService/RenderChatTemplate            │      │
+│  │    - tokenization.TokenizationService/RenderCompletion              │      │
+│  │    - tokenization.TokenizationService/InitializeTokenizer           │      │
+│  │                                                                    │      │
+│  │  [PodReconciler]                                                   │      │
+│  │  - Type: controller-runtime operator                               │      │
+│  │  - Watches: /v1/Pod resources                                      │      │
+│  │  - Auth: Kubernetes ServiceAccount token                           │      │
+│  │                                                                    │      │
+│  └────────────────────────────────────────────────────────────────────┘      │
+│         │                   │                  │                              │
+│         │                   │                  │                              │
+│         │ Port: varies      │ Port: 6443/TCP   │ Port: 5557/TCP              │
+│         │ Protocol: TCP     │ Protocol: HTTPS  │ Protocol: ZMQ/TCP           │
+│         │ Encryption: TBD*  │ Encryption:      │ Encryption: None            │
+│         │ Auth: None**      │   TLS 1.2+       │ Auth: None                  │
+│         ▼                   │ Auth:            │                              │
+│                             │   ServiceAccount  ▼                            │
+│  [Redis/Valkey]             │                  [vLLM Inference Engines]       │
+│  - Protocol: TCP            │                  - ZMQ Publisher               │
+│  - Schemes: redis://,       │                  - Topic: kv@                  │
+│    rediss://, valkey://,     │                  - Events: store, delete,      │
+│    valkeys://                │                    clear (KV cache blocks)     │
+│  - TLS: Available via       │                                                │
+│    rediss:// or valkeys://   │                                               │
+│  - Auth: Configured by      │                                                │
+│    runtime                   ▼                                               │
+│                                                                              │
+│                     [Kubernetes API Server]                                   │
+│                     - Port: 6443/TCP                                          │
+│                     - Protocol: HTTPS / WebSocket                             │
+│                     - Encryption: TLS 1.2+                                   │
+│                     - Auth: ServiceAccount token (auto-mounted)              │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                           │
+│                                                                              │
+│  [OpenTelemetry Collector]                                                   │
+│  - Protocol: OTLP/gRPC                                                       │
+│  - Port: Configured by runtime                                               │
+│  - Encryption: Configured by runtime                                         │
+│  - Purpose: Distributed trace export                                         │
+│                                                                              │
+│  [HuggingFace Hub / TOKENIZERS_DIR]                                          │
+│  - Protocol: HTTPS                                                           │
+│  - Purpose: Model tokenizer download (if not pre-cached)                    │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+* Redis/Valkey TLS depends on URL scheme: rediss:// and valkeys:// enable TLS.
+  RDMA transport is defined as a placeholder configuration but not yet functional.
+
+** Redis/Valkey authentication is configured at the runtime/deployment level,
+   not within this component's code.
+
+RBAC Summary:
+- No ClusterRoles or RoleBindings defined in this component.
+- RBAC is expected to be provisioned by the parent llm-d operator.
+- PodReconciler requires: get, list, watch on /v1/Pod resources.
+
+Authentication & Authorization Summary:
+┌──────────────────────────┬────────────┬──────────────────────────────────────┐
+│ Endpoint                  │ Auth       │ Notes                                │
+├──────────────────────────┼────────────┼──────────────────────────────────────┤
+│ HTTP Scoring API          │ None       │ No auth middleware configured         │
+│ (8080/TCP)                │            │ Platform-level auth expected          │
+├──────────────────────────┼────────────┼──────────────────────────────────────┤
+│ gRPC IndexerService       │ None       │ No auth interceptors configured      │
+├──────────────────────────┼────────────┼──────────────────────────────────────┤
+│ gRPC TokenizationService  │ UDS perms  │ Socket dir mode 0700                 │
+│ (Unix Domain Socket)      │            │ Local access only                    │
+├──────────────────────────┼────────────┼──────────────────────────────────────┤
+│ ZMQ Event Subscriber      │ None       │ No ZMQ auth configured               │
+│ (5557/TCP)                │            │                                      │
+└──────────────────────────┴────────────┴──────────────────────────────────────┘
+
+Secrets:
+- TOKENIZERS_DIR (environment variable) - Path to pre-loaded tokenizer models
+  Provisioned by: runtime environment
+  Auto-Rotate: Unknown
+
+FIPS Compliance:
+- Status: Unknown / Not Verified
+- No FIPS build flags (GOEXPERIMENT=strictfipsruntime) detected
+- No CGO_ENABLED=1 in build configuration
+- Python cryptography (v46.0.7) present but no explicit FIPS opt-in
+- pyjwt dependency appears only in test requirements
+
+Security Gaps (for SAR consideration):
+1. No application-level authentication on HTTP scoring API (8080/TCP)
+2. No authentication on gRPC IndexerService
+3. ZMQ event channel has no encryption or authentication
+4. Redis/Valkey TLS is optional (depends on URL scheme configuration)
+5. RBAC must be provisioned externally by the llm-d operator
+6. Deployment manifest is a placeholder - actual security config from parent

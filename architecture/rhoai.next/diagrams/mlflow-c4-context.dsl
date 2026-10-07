@@ -1,54 +1,52 @@
 workspace {
     model {
-        dataScientist = person "Data Scientist" "Creates experiments, logs runs, registers models, and views traces via SDK or UI"
-        platformAdmin = person "Platform Admin" "Deploys and configures MLflow via MLflow Operator"
+        dataScientist = person "Data Scientist" "Logs experiments, manages models, and deploys inference endpoints"
+        mlEngineer = person "ML Engineer" "Builds training pipelines and manages model lifecycle"
+        appDeveloper = person "Application Developer" "Uses AI Gateway to integrate LLM capabilities into applications"
 
-        mlflow = softwareSystem "MLflow" "Shared experiment tracking, model registry, and AI gateway service for RHOAI" {
-            server = container "MLflow Server" "Tracking API, model registry, artifact proxy, AI gateway, and UI serving" "Python (FastAPI + Flask)" "Port 5000/TCP"
-            ui = container "MLflow UI" "Experiment visualization, model registry UI, trace viewer" "React/TypeScript" "Module Federation"
-            k8sAuthPlugin = container "Kubernetes Auth Plugin" "Enforces K8s RBAC via SelfSubjectAccessReview for each API request" "Python Plugin (mlflow-kubernetes-plugins)"
-            k8sWorkspaceProvider = container "Kubernetes Workspace Provider" "Maps Kubernetes namespaces to MLflow workspaces for multi-tenancy" "Python Plugin (mlflow-kubernetes-plugins)"
-            cryptoEngine = container "Secrets Encryption Engine" "AES-256-GCM envelope encryption for gateway API keys using PBKDF2-derived KEK" "Python Module"
-            prometheusExporter = container "Prometheus Exporter" "Exposes Prometheus metrics for request latency, counts, and server health" "Python Module"
+        mlflow = softwareSystem "MLflow" "ML experiment tracking, model registry, AI gateway, and MCP server registry for RHOAI" {
+            fastApiApp = container "FastAPI Application" "Main entry point — async routes for OTLP traces, AI Gateway, MCP, jobs" "Python / FastAPI / uvicorn"
+            flaskWsgi = container "Flask WSGI Application" "Legacy Tracking API v2/v3, GraphQL, AJAX, artifact proxy, webhooks" "Python / Flask"
+            securityMiddleware = container "Security Middleware" "CORS blocking, host validation, security headers, auth plugin dispatch" "Python / Starlette"
+            webUI = container "Web UI" "React/TypeScript browser UI for experiment visualization, model management, prompt engineering" "React / TypeScript"
+            k8sPlugin = container "Kubernetes Plugins" "Workspace provider (namespace mapping) and Kubernetes auth (TokenReview)" "Python / mlflow-kubernetes-plugins"
+            cli = container "MLflow CLI" "Server management, DB migrations, garbage collection, KEK rotation" "Python CLI"
+
+            fastApiApp -> flaskWsgi "Mounts via EfficientWSGIMiddleware"
+            securityMiddleware -> fastApiApp "Wraps all requests"
+            k8sPlugin -> fastApiApp "Provides workspace + auth"
         }
 
-        mlflowOperator = softwareSystem "MLflow Operator" "Reconciles MLflow CR, deploys server via Helm chart" "Internal RHOAI"
-        odhGateway = softwareSystem "ODH Data Science Gateway" "Routes /mlflow traffic to MLflow service via HTTPRoute" "Internal RHOAI"
-        odhDashboard = softwareSystem "ODH Dashboard" "Embeds MLflow UI as federated module" "Internal RHOAI"
-        k8sAPI = softwareSystem "Kubernetes API Server" "SelfSubjectAccessReview, namespace listing, MLflowConfig reads" "Platform"
-        postgresql = softwareSystem "PostgreSQL" "Experiment, run, model, trace metadata storage" "Platform"
-        s3Storage = softwareSystem "S3-compatible Storage" "Artifact storage for models, datasets, logs" "External"
-        openai = softwareSystem "OpenAI API" "LLM inference (AI Gateway routing)" "External"
-        anthropic = softwareSystem "Anthropic API" "LLM inference (AI Gateway routing)" "External"
-        gemini = softwareSystem "Google Gemini API" "LLM inference (AI Gateway routing)" "External"
-        prometheus = softwareSystem "Prometheus" "Metrics collection from /metrics endpoint" "Platform"
+        postgresql = softwareSystem "PostgreSQL" "Backend metadata store for experiments, runs, metrics, models, traces, workspaces, secrets, jobs" "External"
+        s3Storage = softwareSystem "S3-Compatible Storage" "Artifact storage for ML models, datasets, and run outputs (MinIO, AWS S3, Ceph)" "External"
+        k8sApi = softwareSystem "Kubernetes API Server" "Workspace enumeration (namespace listing), authentication (TokenReview), RBAC validation" "External"
+        llmProviders = softwareSystem "External LLM Providers" "OpenAI, Anthropic, and other LLM APIs proxied via AI Gateway" "External"
+        huggingface = softwareSystem "HuggingFace Hub" "Model artifact downloads from HuggingFace model hub" "External"
+        otelCollector = softwareSystem "OpenTelemetry Collector" "Trace export destination for OTLP traces" "External"
+        prometheus = softwareSystem "Prometheus" "Metrics collection via prometheus-flask-exporter" "External"
 
-        # System context relationships
-        dataScientist -> mlflow "Logs experiments, registers models, views traces" "HTTPS/443 via ODH Gateway"
-        platformAdmin -> mlflowOperator "Deploys and configures MLflow" "kubectl / CR"
-        mlflowOperator -> mlflow "Deploys server, manages TLS certs, creates HTTPRoute" "Helm chart"
-        odhGateway -> mlflow "Routes /mlflow traffic" "HTTPRoute, HTTPS/443 → HTTP/5000"
-        odhDashboard -> mlflow "Embeds MLflow UI via Module Federation" "HTTPS/443"
-        mlflow -> k8sAPI "SelfSubjectAccessReview, namespace discovery" "HTTPS/6443"
-        mlflow -> postgresql "Stores metadata (experiments, runs, models, traces)" "PostgreSQL/5432 TLS"
-        mlflow -> s3Storage "Reads/writes artifacts" "HTTPS/443"
-        mlflow -> openai "AI Gateway inference routing (disabled by default)" "HTTPS/443"
-        mlflow -> anthropic "AI Gateway inference routing (disabled by default)" "HTTPS/443"
-        mlflow -> gemini "AI Gateway inference routing (disabled by default)" "HTTPS/443"
-        prometheus -> mlflow "Scrapes metrics" "HTTP/5000"
+        rhoaiDashboard = softwareSystem "RHOAI Dashboard" "Platform dashboard — embeds MLflow UI via Module Federation" "Internal RHOAI"
+        rhodsOperator = softwareSystem "rhods-operator" "Platform operator — manages MLflow Deployment, Service, ingress resources" "Internal RHOAI"
+        webhookReceivers = softwareSystem "Webhook Receivers" "External systems receiving model registry event notifications" "External"
 
-        # Container relationships
-        dataScientist -> server "API calls via SDK" "HTTPS/443 via Gateway"
-        dataScientist -> ui "Views experiments, models, traces" "HTTPS/443 via Gateway"
-        ui -> server "AJAX API calls" "HTTP/5000, X-MLFLOW-WORKSPACE header"
-        server -> k8sAuthPlugin "Authenticates every request" "In-process"
-        k8sAuthPlugin -> k8sWorkspaceProvider "Resolves workspace from namespace" "In-process"
-        k8sAuthPlugin -> k8sAPI "SelfSubjectAccessReview" "HTTPS/6443"
-        k8sWorkspaceProvider -> k8sAPI "Namespace list/watch" "HTTPS/6443"
-        server -> cryptoEngine "Encrypts/decrypts gateway API keys" "In-process"
-        server -> postgresql "SQL queries for metadata" "PostgreSQL/5432"
-        server -> s3Storage "Artifact read/write" "HTTPS/443"
-        prometheusExporter -> prometheus "Exposes /metrics" "HTTP/5000"
+        # User interactions
+        dataScientist -> mlflow "Logs experiments, metrics, artifacts via mlflow SDK" "HTTP/HTTPS :5000"
+        mlEngineer -> mlflow "Manages model versions and lifecycle" "HTTP/HTTPS :5000"
+        appDeveloper -> mlflow "Invokes LLM endpoints via AI Gateway" "HTTP/HTTPS :5000"
+
+        # System dependencies
+        mlflow -> postgresql "Stores experiment metadata, runs, models, traces" "PostgreSQL :5432"
+        mlflow -> s3Storage "Stores and retrieves model artifacts" "HTTPS :443 / HTTP :9000"
+        mlflow -> k8sApi "Workspace provider + auth (TokenReview)" "HTTPS :6443"
+        mlflow -> llmProviders "Proxies LLM requests via AI Gateway" "HTTPS :443"
+        mlflow -> huggingface "Downloads model artifacts" "HTTPS :443"
+        mlflow -> otelCollector "Exports traces" "OTLP HTTP"
+        mlflow -> webhookReceivers "Sends model registry event webhooks" "HTTPS"
+
+        # Internal integrations
+        rhoaiDashboard -> mlflow "Embeds MLflow UI components" "Module Federation (JS)"
+        rhodsOperator -> mlflow "Creates and manages deployment resources" "Kubernetes API"
+        prometheus -> mlflow "Scrapes metrics endpoint" "HTTP :5000"
     }
 
     views {
@@ -63,18 +61,6 @@ workspace {
         }
 
         styles {
-            element "External" {
-                background #999999
-                color #ffffff
-            }
-            element "Internal RHOAI" {
-                background #7ed321
-                color #ffffff
-            }
-            element "Platform" {
-                background #4a90e2
-                color #ffffff
-            }
             element "Person" {
                 shape Person
                 background #08427b
@@ -82,6 +68,14 @@ workspace {
             }
             element "Software System" {
                 background #1168bd
+                color #ffffff
+            }
+            element "External" {
+                background #999999
+                color #ffffff
+            }
+            element "Internal RHOAI" {
+                background #7ed321
                 color #ffffff
             }
             element "Container" {

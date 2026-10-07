@@ -1,225 +1,187 @@
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  DEPLOYMENT PHASE (Init Container - Runs Once)                                 │
-│                                                                                │
-│  [deploy.sh Container]                                                         │
-│  - Image: UBI8-minimal + oc CLI                                                │
-│  - ServiceAccount: rhods-operator SA                                           │
-│         │                                                                      │
-│         │ Port: 443/TCP                                                        │
-│         │ Protocol: HTTPS                                                      │
-│         │ Encryption: TLS 1.2+                                                 │
-│         │ Auth: ServiceAccount Token (automounted)                             │
-│         ▼                                                                      │
-│  [Kubernetes API Server]                                                       │
-│  - Creates namespaces: redhat-ods-applications, redhat-ods-monitoring,         │
-│    rhods-notebooks                                                             │
-│  - Applies CRDs, KfDef CRs, Dashboard CRs, NetworkPolicies, RBAC             │
-│                                                                                │
-└─────────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  EXTERNAL (Untrusted)                                                          │
-│                                                                                │
-│  [OpenShift Users / Administrators]                                            │
-│         │                                                                      │
-│         │ Port: 443/TCP                                                        │
-│         │ Protocol: HTTPS                                                      │
-│         │ Encryption: TLS                                                      │
-│         │ Auth: OpenShift OAuth (via Route)                                    │
-│         ▼                                                                      │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  INGRESS (OpenShift Routes - Reencrypt TLS)                                    │
-│                                                                                │
-│  [Prometheus Route]                                                            │
-│  - Port: 443/TCP (external) → 9091/TCP (internal)                             │
-│  - TLS Mode: Reencrypt                                                         │
-│  - Auth: OpenShift OAuth Proxy                                                 │
-│                                                                                │
-│  [Alertmanager Route]                                                          │
-│  - Port: 443/TCP (external) → 10443/TCP (internal)                            │
-│  - TLS Mode: Reencrypt                                                         │
-│  - Auth: OpenShift OAuth Proxy                                                 │
-│                                                                                │
-│  [RHODS Dashboard Route]                                                       │
-│  - Port: 443/TCP (external) → 8443/TCP (internal)                             │
-│  - TLS Mode: Reencrypt                                                         │
-│  - Auth: OpenShift OAuth                                                       │
-│                                                                                │
-│  [ConsoleLink (rhodslink)]                                                     │
-│  - Type: OpenShift Application Launcher entry                                  │
-│  - Points to: Dashboard Route URL                                              │
-│         │                                                                      │
-│         ▼                                                                      │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  NAMESPACE: redhat-ods-monitoring (Monitoring Trust Zone)                       │
-│  NetworkPolicy: Allow ingress from opendatahub.io/generated-namespace=true     │
-│  Allowed ports: 443, 9115, 8443, 9091, 10443/TCP                              │
-│                                                                                │
-│  [Prometheus]                                                                  │
-│  - Service: prometheus (ClusterIP)                                             │
-│  - Port: 9091/TCP                                                              │
-│  - Protocol: HTTPS                                                             │
-│  - Encryption: TLS (service-serving-cert-signer)                               │
-│  - Auth: OAuth Proxy sidecar (SAR on redhat-ods-monitoring GET)                │
-│  - ServiceAccount: prometheus                                                  │
-│  - Note: /metrics path bypasses auth (skip-auth-regex)                         │
-│         │                                                                      │
-│         │ Federation:                                                           │
-│         │ Port: 9091/TCP                                                       │
-│         │ Protocol: HTTPS                                                      │
-│         │ Encryption: TLS                                                      │
-│         │ Auth: Bearer Token (SA)                                              │
-│         ▼                                                                      │
-│  ┌──────────────────────────────────┐                                          │
-│  │ openshift-monitoring namespace   │                                          │
-│  │ [OpenShift Prometheus]           │                                          │
-│  │ - Metrics: haproxy,              │                                          │
-│  │   controller_runtime, resources  │                                          │
-│  └──────────────────────────────────┘                                          │
-│                                                                                │
-│  [Prometheus] ──scrapes──►                                                     │
-│         │ Port: 8080/TCP                                                       │
-│         │ Protocol: HTTP                                                       │
-│         │ Encryption: plaintext                                                │
-│         │ Auth: None                                                           │
-│         ▼                                                                      │
-│  ┌──────────────────────────────────────────────────────────────────┐           │
-│  │ redhat-ods-applications namespace (scrape targets)              │           │
-│  │ - odh-notebook-controller-service:8080                          │           │
-│  │ - notebook-controller-service:8080                              │           │
-│  │ - odh-model-controller-metrics-service:8080                     │           │
-│  │ - modelmesh-controller:8080                                     │           │
-│  │ - data-science-pipelines-operator-service:8080                  │           │
-│  └──────────────────────────────────────────────────────────────────┘           │
-│  ┌──────────────────────────────────────────────────────────────────┐           │
-│  │ redhat-ods-operator namespace (scrape target)                   │           │
-│  │ - rhods-operator-metrics:8383/TCP HTTP plaintext                │           │
-│  └──────────────────────────────────────────────────────────────────┘           │
-│  ┌──────────────────────────────────────────────────────────────────┐           │
-│  │ any namespace (scrape target)                                   │           │
-│  │ - ds-pipeline-*:8888/TCP HTTP plaintext                         │           │
-│  └──────────────────────────────────────────────────────────────────┘           │
-│                                                                                │
-│  [Alertmanager]                                                                │
-│  - Service: alertmanager (ClusterIP)                                           │
-│  - Port: 443/TCP → 10443/TCP                                                  │
-│  - Protocol: HTTPS                                                             │
-│  - Encryption: TLS (service-serving-cert-signer)                               │
-│  - Auth: OAuth Proxy sidecar (SAR on redhat-ods-monitoring GET)                │
-│         │                                                                      │
-│         │ Alerts from Prometheus:                                               │
-│         │ Port: 9093/TCP                                                       │
-│         │ Protocol: HTTP                                                       │
-│         │ Encryption: plaintext (localhost)                                     │
-│         │                                                                      │
-│  [Blackbox Exporter]                                                           │
-│  - Service: blackbox-exporter (ClusterIP)                                      │
-│  - Port: 9114/TCP                                                              │
-│  - Protocol: HTTPS                                                             │
-│  - Encryption: TLS (service-serving-cert-signer)                               │
-│  - Auth: OAuth Proxy sidecar (SAR on redhat-ods-monitoring GET)                │
-│  - Note: /metrics path bypasses auth (skip-auth-regex)                         │
-│  - WARNING: External config uses insecure_skip_verify: true                    │
-│                                                                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  NAMESPACE: redhat-ods-applications (Application Trust Zone)                   │
-│  NetworkPolicy: Allow ingress from opendatahub.io/generated-namespace=true     │
-│  Allowed ports: 8443, 8080, 8081, 5432, 8082, 8099, 8181/TCP                  │
-│                                                                                │
-│  [rhods-dashboard]                                                             │
-│  - Port: 8443/TCP HTTPS TLS (reencrypt via Route)                             │
-│  - Probed by: Blackbox Exporter                                                │
-│                                                                                │
-│  [Component Service Accounts with anyuid SCC]                                  │
-│  - modelmesh-controller                                                        │
-│  - notebook-controller-service-account                                         │
-│  - odh-model-controller                                                        │
-│  - rhods-dashboard                                                             │
-│  - modelmesh                                                                   │
-│                                                                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  NAMESPACE: redhat-ods-operator (Operator Trust Zone)                          │
-│  NetworkPolicy: Allow ingress from opendatahub.io/generated-namespace=true     │
-│  Pod selector: name=rhods-operator                                             │
-│  Allowed ports: any                                                            │
-│                                                                                │
-│  [rhods-operator]                                                              │
-│  - Metrics: 8383/TCP HTTP plaintext                                            │
-│  - Reconciles KfDef CRs to deploy components                                  │
-│                                                                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  EXTERNAL SERVICES (Managed Service Only)                                      │
-│                                                                                │
-│  [PagerDuty API]                                                               │
-│  - Port: 443/TCP                                                               │
-│  - Protocol: HTTPS                                                             │
-│  - Encryption: TLS 1.2+                                                        │
-│  - Auth: Service Key (from redhat-rhods-pagerduty secret)                      │
-│  - Purpose: Critical alert routing to SRE on-call                              │
-│                                                                                │
-│  [SMTP Server]                                                                 │
-│  - Port: configurable                                                          │
-│  - Protocol: SMTP                                                              │
-│  - Encryption: TLS (STARTTLS)                                                  │
-│  - Auth: SMTP credentials (from redhat-rhods-smtp secret)                      │
-│  - Purpose: User notification emails                                           │
-│                                                                                │
-│  [Dead Man's Snitch]                                                           │
-│  - Port: 443/TCP                                                               │
-│  - Protocol: HTTPS                                                             │
-│  - Encryption: TLS 1.2+                                                        │
-│  - Auth: URL secret (from redhat-rhods-deadmanssnitch secret)                  │
-│  - Purpose: Heartbeat monitoring (every 5 min)                                 │
-│                                                                                │
-└─────────────────────────────────────────────────────────────────────────────────┘
-
-RBAC Summary:
-
-  ClusterRole: prometheus-scraper
-  - API Groups: authentication.k8s.io → tokenreviews (create)
-  - API Groups: authorization.k8s.io → subjectaccessreviews (create)
-  - API Groups: "" → namespaces (get), endpoints/pods/services/namespaces (list, get, watch)
-  - API Groups: route.openshift.io → routers/metrics, routers/federate (get)
-  - API Groups: image.openshift.io → registry/metrics (get)
-  - Bound to: SA prometheus (redhat-ods-monitoring) via CRB
-
-  RoleBinding: rhods-applications-scc (redhat-ods-applications)
-  - Role: system:openshift:scc:anyuid
-  - SAs: modelmesh-controller, notebook-controller-service-account,
-         odh-model-controller, rhods-dashboard, modelmesh
-
-  RoleBinding: rhods-monitoring-scc (redhat-ods-monitoring)
-  - Role: system:openshift:scc:anyuid
-  - SAs: all service accounts in namespace
-
-  RoleBinding: rhods-prometheus-viewer (redhat-ods-applications)
-  - Role: view (ClusterRole)
-  - SA: prometheus (redhat-ods-monitoring)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                        │
+│                                                                              │
+│  [OpenShift Console User]                                                    │
+│         │                                                                    │
+│         │ Port: 443/TCP                                                      │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS                                                    │
+│         │ Auth: OpenShift OAuth                                              │
+│         ▼                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (OpenShift Routes - Reencrypt TLS)                                  │
+│                                                                              │
+│  [rhods-dashboard Route]                                                     │
+│  - Port: 8443/TCP (external) → 8443/TCP (internal)                         │
+│  - TLS Mode: Reencrypt                                                       │
+│  - Target: odh-dashboard service                                             │
+│                                                                              │
+│  [prometheus Route]                                                          │
+│  - Port: 9091/TCP (external) → 9091/TCP (internal)                         │
+│  - TLS Mode: Reencrypt                                                       │
+│  - Target: prometheus service                                                │
+│                                                                              │
+│  [alertmanager Route]                                                        │
+│  - Port: 443/TCP (external) → 10443/TCP (internal)                         │
+│  - TLS Mode: Reencrypt                                                       │
+│  - Target: alertmanager service                                              │
+│                                                                              │
+│  [rhodslink ConsoleLink]                                                     │
+│  - Type: Application Launcher menu item                                      │
+│  - Target: rhods-dashboard Route URL                                         │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  DEPLOYMENT-TIME (deploy.sh Init Container)                                  │
+│                                                                              │
+│  [deploy.sh]                                                                 │
+│  - Image: UBI8-minimal + oc CLI + openssl                                   │
+│  - Runs as: Init Container (one-shot execution)                              │
+│         │                                                                    │
+│         │ Port: 6443/TCP                                                     │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS 1.2+                                               │
+│         │ Auth: Service Account Token                                        │
+│         ▼                                                                    │
+│  [OpenShift API Server]                                                      │
+│  - Creates: Namespaces, CRDs, KfDef CRs, ConfigMaps, Secrets               │
+│  - Creates: NetworkPolicies, RoleBindings, Services, Routes                  │
+│  - Creates: Monitoring Deployments (Prometheus, Alertmanager, Blackbox)      │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  NAMESPACE: redhat-ods-monitoring (Monitoring Stack)                         │
+│                                                                              │
+│  [Prometheus Pod - 4 containers]                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐     │
+│  │  prometheus           │ 9090/TCP │ HTTP  │ internal only           │     │
+│  │  oauth-proxy          │ 9091/TCP │ HTTPS │ TLS (serving cert)     │     │
+│  │  alertmanager         │ 9093/TCP │ HTTP  │ internal only           │     │
+│  │  alertmanager-proxy   │ 10443/TCP│ HTTPS │ TLS (serving cert)     │     │
+│  └─────────────────────────────────────────────────────────────────────┘     │
+│  - ServiceAccount: prometheus                                                │
+│  - PVC: 5Gi (prometheus), 5Gi (alertmanager)                                │
+│                                                                              │
+│  [Blackbox Exporter]                                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐     │
+│  │  blackbox-exporter    │ 9115/TCP │ HTTP  │ internal only           │     │
+│  │  oauth-proxy          │ 9114/TCP │ HTTPS │ TLS (serving cert)     │     │
+│  └─────────────────────────────────────────────────────────────────────┘     │
+│  - Note: insecure_skip_verify: true for internal probes                      │
+│                                                                              │
+│  Services (ClusterIP):                                                       │
+│  - prometheus:       9091/TCP  HTTPS  TLS (serving cert)  oauth-proxy SAR   │
+│  - alertmanager:     443/TCP   HTTPS  TLS (serving cert)  oauth-proxy SAR   │
+│  - blackbox-exporter:9114/TCP  HTTPS  TLS (serving cert)  oauth-proxy SAR   │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  NAMESPACE: redhat-ods-applications (Application Components)                 │
+│                                                                              │
+│  Metrics targets scraped by Prometheus (HTTP, no encryption, no auth):       │
+│                                                                              │
+│  [odh-notebook-controller-service]                                           │
+│  - Port: 8080/TCP  Protocol: HTTP  Encryption: None  Auth: None             │
+│                                                                              │
+│  [odh-model-controller-metrics-service]                                      │
+│  - Port: 8080/TCP  Protocol: HTTP  Encryption: None  Auth: None             │
+│                                                                              │
+│  [modelmesh-controller]                                                      │
+│  - Port: 8080/TCP  Protocol: HTTP  Encryption: None  Auth: None             │
+│                                                                              │
+│  [data-science-pipelines-operator-service]                                   │
+│  - Port: 8080/TCP  Protocol: HTTP  Encryption: None  Auth: None             │
+│                                                                              │
+│  [rhods-dashboard]                                                           │
+│  - Port: 8443/TCP  Protocol: HTTPS  Encryption: TLS  Auth: None (probe)    │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  NAMESPACE: redhat-ods-operator                                              │
+│                                                                              │
+│  [rhods-operator-metrics]                                                    │
+│  - Port: 8383/TCP  Protocol: HTTP  Encryption: None  Auth: None             │
+│  - Purpose: Operator reconcile metrics for SLO tracking                      │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  NAMESPACE: openshift-monitoring (Cluster Monitoring)                        │
+│                                                                              │
+│  [prometheus-k8s]                                                            │
+│  - Port: 9091/TCP  Protocol: HTTPS  Encryption: TLS (service CA)            │
+│  - Auth: Bearer Token (Service Account)                                      │
+│  - Purpose: Federate haproxy, controller_runtime, container metrics          │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES (Managed Service Mode Only)                               │
+│                                                                              │
+│  [PagerDuty API]                                                             │
+│  - Port: 443/TCP  Protocol: HTTPS  Encryption: TLS 1.2+                    │
+│  - Auth: Service Key (redhat-rhods-pagerduty secret)                        │
+│  - Purpose: Critical alert escalation (SRE)                                  │
+│                                                                              │
+│  [Dead Man's Snitch]                                                         │
+│  - Port: 443/TCP  Protocol: HTTPS  Encryption: TLS 1.2+                    │
+│  - Auth: URL Secret (redhat-rhods-deadmanssnitch secret)                    │
+│  - Purpose: Heartbeat monitoring (Watchdog alert)                            │
+│                                                                              │
+│  [SMTP Server]                                                               │
+│  - Port: configurable  Protocol: SMTP  Encryption: STARTTLS                 │
+│  - Auth: Username/Password (redhat-rhods-smtp secret)                       │
+│  - Purpose: User-facing email notifications (PVC usage warnings)             │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 
 Network Policies:
-  - redhat-ods-applications: ingress from opendatahub.io/generated-namespace=true
-    on ports 8443, 8080, 8081, 5432, 8082, 8099, 8181/TCP
-  - redhat-ods-monitoring: ingress from opendatahub.io/generated-namespace=true
-    on ports 443, 9115, 8443, 9091, 10443/TCP
-  - redhat-ods-operator: ingress from opendatahub.io/generated-namespace=true
-    to pods with name=rhods-operator on any port
+- operator_network_policy:      Restricts ingress to redhat-ods-operator namespace
+- applications_network_policy:  Restricts ingress to redhat-ods-applications namespace
+- monitoring_network_policy:    Restricts ingress to redhat-ods-monitoring namespace
+  (Policies use label-based namespace selectors; applications policy allows broad port range)
+
+RBAC Summary:
+- ClusterRole: prometheus-scraper
+  - API Groups: authentication.k8s.io
+  - Resources: tokenreviews
+  - Verbs: create
+  - API Groups: authorization.k8s.io
+  - Resources: subjectaccessreviews
+  - Verbs: create
+  - API Groups: ""
+  - Resources: namespaces, endpoints, pods, services
+  - Verbs: list, get, watch
+  - API Groups: route.openshift.io
+  - Resources: routers/metrics, routers/federate
+  - Verbs: get
+  - API Groups: image.openshift.io
+  - Resources: registry/metrics
+  - Verbs: get
+
+Role Bindings:
+- prometheus-scraper (cluster-wide) → SA: prometheus (redhat-ods-monitoring)
+- rhods-applications-scc (redhat-ods-applications) → system:openshift:scc:anyuid
+  → SAs: modelmesh-controller, notebook-controller-service-account,
+         odh-model-controller, rhods-dashboard, modelmesh
+- rhods-monitoring-scc (redhat-ods-monitoring) → system:openshift:scc:anyuid
+  → All SAs in redhat-ods-monitoring
+- rhods-prometheus-viewer (redhat-ods-applications) → view role
+  → SA: prometheus (redhat-ods-monitoring)
 
 Secrets:
-  - prometheus-tls (kubernetes.io/tls) - TLS cert, service-serving-cert-signer, auto-rotate
-  - alertmanager-tls (kubernetes.io/tls) - TLS cert, service-serving-cert-signer, auto-rotate
-  - prometheus-proxy (Opaque) - OAuth proxy session secret, openssl rand, no auto-rotate
-  - alertmanager-proxy (Opaque) - OAuth proxy session secret, openssl rand, no auto-rotate
-  - prometheus-secret (kubernetes.io/service-account-token) - SA token, auto-rotate
-  - odh-segment-key (Opaque) - Segment.io analytics key, static, no auto-rotate
-  - anaconda-ce-access (Opaque) - Anaconda CE credentials placeholder, no auto-rotate
-  - redhat-rhods-deadmanssnitch (Opaque) - DMS webhook URL, external addon secret, no auto-rotate
-  - redhat-rhods-pagerduty (Opaque) - PagerDuty service key, external addon secret, no auto-rotate
-  - redhat-rhods-smtp (Opaque) - SMTP credentials (host/port/user/pass), external addon secret, no auto-rotate
-  - addon-managed-odh-parameters (Opaque) - Addon parameters incl. notification email, external, no auto-rotate
+- prometheus-tls (kubernetes.io/tls) - TLS cert for Prometheus, OpenShift serving cert signer, Auto-rotate: Yes
+- alertmanager-tls (kubernetes.io/tls) - TLS cert for Alertmanager, OpenShift serving cert signer, Auto-rotate: Yes
+- prometheus-proxy (Opaque) - OAuth proxy session secret, deploy.sh (openssl rand), Auto-rotate: No
+- alertmanager-proxy (Opaque) - OAuth proxy session secret, deploy.sh (openssl rand), Auto-rotate: No
+- prometheus-secret (SA token) - SA token for metrics scraping, Kubernetes, Auto-rotate: Yes
+- odh-segment-key (Opaque) - Segment.io analytics key (static, committed to repo), Auto-rotate: No
+- anaconda-ce-access (Opaque) - Anaconda CE access credentials placeholder, Auto-rotate: No
+- redhat-rhods-deadmanssnitch (Opaque) - DMS URL (managed only), External addon provisioning, Auto-rotate: No
+- redhat-rhods-pagerduty (Opaque) - PagerDuty service key (managed only), External addon provisioning, Auto-rotate: No
+- redhat-rhods-smtp (Opaque) - SMTP credentials (managed only), External addon provisioning, Auto-rotate: No
+- addon-managed-odh-parameters (Opaque) - Addon params including notification email (managed only), Auto-rotate: No
+
+Authentication & Authorization:
+- Prometheus UI (9091/TCP): OpenShift OAuth Proxy, SAR check: get namespaces in redhat-ods-monitoring
+- Alertmanager UI (10443/TCP): OpenShift OAuth Proxy, SAR check: get namespaces in redhat-ods-monitoring
+- Blackbox Exporter (9114/TCP): OpenShift OAuth Proxy, SAR check: get namespaces in redhat-ods-monitoring
+- Prometheus /metrics: Unauthenticated (skip-auth-regex)
 
 Security Notes:
-  - /metrics endpoints on Prometheus and Blackbox Exporter bypass OAuth (skip-auth-regex: ^/metrics)
-  - Blackbox exporter external config uses insecure_skip_verify: true (non-FIPS crypto risk)
-  - Pod security: anyuid SCC granted broadly to application service accounts
-  - Component metrics scraped over plaintext HTTP (8080/TCP) - no encryption or auth
-  - sed-based template substitution for alerting config is fragile (silent failures)
+- Segment.io analytics key committed to repo as base64 (supply chain risk)
+- Blackbox exporter uses insecure_skip_verify: true for internal probes (intentional)
+- Component metrics endpoints (8080/TCP) have no authentication or encryption
+- deploy.sh runs with cluster-admin privileges for ISV tile application

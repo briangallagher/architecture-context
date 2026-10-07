@@ -1,154 +1,145 @@
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  USER WORKSTATION / NOTEBOOK ENVIRONMENT (Client-Side)                       │
-│                                                                              │
-│  [Data Scientist / Jupyter Notebook]                                         │
-│  - Environment: RHOAI Workbench or local Python environment                  │
-│  - SDK: codeflare-sdk (pip install)                                          │
-│  - Auth: Bearer Token / kubeconfig / in-cluster SA token                     │
-│  - CA Cert: CF_SDK_CA_CERT_PATH or                                           │
-│             /etc/pki/tls/custom-certs/ca-bundle.crt (workbench default)      │
-│         │                                                                    │
-│         │ Port: 6443/TCP                                                     │
-│         │ Protocol: HTTPS                                                    │
-│         │ Encryption: TLS 1.2+                                               │
-│         │ Auth: Bearer Token (TokenAuthentication)                           │
-│         │       kubeconfig (KubeConfigFileAuthentication)                    │
-│         │       In-cluster SA token (auto-detected)                          │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  KUBERNETES CONTROL PLANE (Trusted)                                          │
-│                                                                              │
-│  [Kubernetes API Server]                                                     │
-│  - Port: 6443/TCP                                                            │
-│  - Protocol: HTTPS                                                           │
-│  - Encryption: TLS 1.2+                                                      │
-│  - AuthN: Bearer Token, X.509 client certs, SA tokens                       │
-│  - AuthZ: RBAC                                                               │
-│                                                                              │
-│  SDK performs the following API operations:                                   │
-│  ┌─────────────────────────────────────────────────────────────────┐         │
-│  │ Resource                              │ Verbs                  │         │
-│  ├───────────────────────────────────────┼────────────────────────┤         │
-│  │ ray.io/v1 RayCluster                 │ get, list, create, del │         │
-│  │ workload.codeflare.dev/v1beta2 AW    │ get, list, create, del │         │
-│  │ kueue.x-k8s.io/v1beta1 LocalQueue   │ get, list              │         │
-│  │ route.openshift.io/v1 Route          │ get, list              │         │
-│  │ core/v1 Secret                       │ get, list              │         │
-│  │ core/v1 Namespace                    │ get                    │         │
-│  │ networking.k8s.io/v1 Ingress         │ get, list              │         │
-│  └─────────────────────────────────────────────────────────────────┘         │
-│         │                                                                    │
-│         │ (Operator reconciliation - internal)                               │
-│         ▼                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  OPERATOR NAMESPACE (Trusted - Operator Managed)                             │
-│                                                                              │
-│  [KubeRay Operator]                                                          │
-│  - Watches: ray.io/v1 RayCluster                                            │
-│  - Creates: Ray Head Pod, Worker Pods, head-svc Service                     │
-│                                                                              │
-│  [CodeFlare Operator / AppWrapper Controller]                                │
-│  - Watches: workload.codeflare.dev/v1beta2 AppWrapper                       │
-│  - Creates: Wrapped RayCluster resources                                     │
-│  - Integrates with Kueue admission for scheduling                           │
-│                                                                              │
-│  [Kueue Controller]                                                          │
-│  - Watches: kueue.x-k8s.io/v1beta1 LocalQueue, ClusterQueue                │
-│  - Manages: Workload admission and scheduling                               │
-│                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  USER NAMESPACE (Workload - Ray Cluster Pods)                                │
-│                                                                              │
-│  [Ray Head Pod]                                                              │
-│  - Namespace: {user-namespace}                                               │
-│  - Image: quay.io/modh/ray (version-specific digest)                        │
-│  - Volume Mounts: odh-trusted-ca-bundle, odh-ca-cert                        │
-│                                                                              │
-│    [{cluster-name}-head-svc] (ClusterIP Service)                             │
-│    ┌────────────────────────────────────────────────────┐                    │
-│    │ Port 6379/TCP  │ GCS (Ray internal)   │ No TLS    │                    │
-│    │ Port 8265/TCP  │ Ray Dashboard (HTTP) │ No TLS    │                    │
-│    │ Port 10001/TCP │ Ray Client           │ Opt. TLS  │                    │
-│    └────────────────────────────────────────────────────┘                    │
-│                                                                              │
-│  [Ray Worker Pods] (x num_workers)                                           │
-│  - Namespace: {user-namespace}                                               │
-│  - Image: quay.io/modh/ray (same as head)                                   │
-│  - Volume Mounts: odh-trusted-ca-bundle, odh-ca-cert                        │
-│         │                                                                    │
-│         │ (Internal Ray communication)                                       │
-│         │ Port: 6379/TCP (GCS)                                               │
-│         │ Encryption: None (default) or mTLS (if TLS certs generated)       │
-│         │                                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  INGRESS LAYER                                                               │
-│                                                                              │
-│  [OpenShift Route] (OpenShift clusters)                                      │
-│  - Name: ray-dashboard-{name}                                                │
-│  - Port: 443/TCP (external) → 8265/TCP (internal)                           │
-│  - Protocol: HTTPS                                                           │
-│  - TLS Mode: edge / passthrough                                              │
-│  - Auth: Bearer Token (OAuth-aware, forwarded from SDK auth)                │
-│                                                                              │
-│  [Kubernetes Ingress] (vanilla K8s clusters)                                 │
-│  - Name: ray-dashboard-{name}                                                │
-│  - Port: 80/TCP or 443/TCP → 8265/TCP (internal)                            │
-│  - Protocol: HTTP/HTTPS                                                      │
-│  - Auth: None                                                                │
-│                                                                              │
-│  SDK connects to Ray Dashboard via Route/Ingress:                            │
-│         ▲                                                                    │
-│         │ Port: 443/TCP (OpenShift) or 8265/TCP (vanilla K8s)               │
-│         │ Protocol: HTTPS (OpenShift) / HTTP (vanilla K8s)                   │
-│         │ Encryption: TLS (OpenShift) / None (vanilla K8s)                   │
-│         │ Auth: Bearer Token (OpenShift) / None (vanilla K8s)               │
-│         │                                                                    │
-│  [Data Scientist / SDK]                                                      │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│  USER ENVIRONMENT (Workbench / Local Machine)                           │
+│                                                                          │
+│  [CodeFlare SDK - Python Client Library]                                 │
+│  - Runtime: RHOAI/ODH Workbench (Jupyter) or local Python               │
+│  - Auth: kube-authkit (auto-detect, OIDC, OAuth, token, kubeconfig)     │
+│  - TLS Certs: ~/.local/share/codeflare/tls/{cluster}-{ns}/             │
+│    - Permissions: 0700 (dir), 0600 (files)                               │
+│    - Key: RSA-3072, Signature: SHA-256                                   │
+│         │                          │                          │          │
+│         │ (A)                      │ (B)                      │ (C)      │
+│         │                          │                          │          │
+│         │ Port: 6443/TCP           │ Port: 10001/TCP          │ Port:    │
+│         │ Protocol: HTTPS          │ Protocol: Ray Client     │ 8265/TCP │
+│         │ Encryption: TLS 1.2+     │ Encryption: mTLS         │ Proto:   │
+│         │ Auth: kube-authkit       │   (RAY_USE_TLS=1)        │ HTTPS    │
+│         │   (OIDC/OAuth/           │ Auth: SDK-generated      │ Enc:     │
+│         │    token/kubeconfig)     │   client certificate     │ TLS 1.2+ │
+│         │                          │   (signed by KubeRay CA) │ Auth:    │
+│         ▼                          ▼                          │ Bearer   │
+├───────────────────────────────────────────────────────────────│──────────┤
+│  KUBERNETES CONTROL PLANE                                     │          │
+│                                                               │          │
+│  [Kubernetes API Server]                                      │          │
+│  - Port: 6443/TCP                                             │          │
+│  - TLS: TLS 1.2+                                              │          │
+│  - AuthN: OIDC, OAuth, Bearer Token, X.509 client cert        │          │
+│  - AuthZ: RBAC                                                │          │
+│         │                                                     │          │
+│         │ CRD Operations (via Kubernetes API):                │          │
+│         ├── ray.io/v1 RayCluster (CRUD)                      │          │
+│         ├── ray.io/v1 RayJob (CRUD)                          │          │
+│         ├── kueue.x-k8s.io/v1beta1 LocalQueue (list)        │          │
+│         ├── kueue.x-k8s.io/v1beta1 Workload (list)          │          │
+│         ├── kueue.x-k8s.io/v1beta1 WorkloadPriorityClass    │          │
+│         │   (get)                                             │          │
+│         ├── core/v1 Secret (get, list, create, update)       │          │
+│         ├── route.openshift.io/v1 Route (list)               │          │
+│         ├── gateway.networking.k8s.io/v1 HTTPRoute (get,     │          │
+│         │   list)                                             │          │
+│         ├── gateway.networking.k8s.io/v1 Gateway (get, list) │          │
+│         ├── services.platform.opendatahub.io/v1alpha1        │          │
+│         │   GatewayConfig (get)                               │          │
+│         └── networking.k8s.io/v1 Ingress (list)              │          │
+│                                                               │          │
+├───────────────────────────────────────────────────────────────│──────────┤
+│  CLUSTER OPERATORS                                            │          │
+│                                                               │          │
+│  [KubeRay Operator]                                           │          │
+│  - Watches: ray.io/v1 RayCluster, RayJob (all namespaces)   │          │
+│  - Creates: Pods, Services, Secrets (CA certs)               │          │
+│                                                               │          │
+│  [Kueue Controller]                                           │          │
+│  - Watches: kueue.x-k8s.io/v1beta1 Workload (all ns)        │          │
+│  - Manages: Quota enforcement, admission control              │          │
+│                                                               │          │
+├───────────────────────────────────────────────────────────────│──────────┤
+│  USER NAMESPACE ({user-namespace})                            │          │
+│                                                               │          │
+│  [Ray Head Pod]                                               │          │
+│  - Service: {cluster}-head-svc (ClusterIP)                    │          │
+│    ├── Port 10001/TCP (Ray Client) ◄──────────────────────────┘          │
+│    │   Encryption: mTLS (RAY_USE_TLS=1)                                  │
+│    │   Auth: mTLS client certificate                                     │
+│    ├── Port 6379/TCP (GCS Protocol)                                      │
+│    │   Encryption: mTLS (RAY_USE_TLS=1)                      ◄──────────┘
+│    │   Auth: mTLS client certificate                (dashboard access)   │
+│    └── Port 8265/TCP (Ray Dashboard HTTP)                                │
+│        Encryption: TLS (via HTTPRoute/Route)                             │
+│        Auth: Bearer Token (OpenShift OAuth proxy)                        │
+│                                                                          │
+│  [Ray Worker Pods]                                                       │
+│  - Connected to head via mTLS (RAY_USE_TLS=1)                           │
+│  - Port 6379/TCP (GCS), internal cluster comms                           │
+│                                                                          │
+│  [{cluster}-ca-secret-{suffix}] (Opaque Secret)                          │
+│  - CA certificate and key for TLS cert generation                        │
+│  - Provisioned by: KubeRay operator                                      │
+│  - Consumed by: SDK (to generate client certs)                           │
+│                                                                          │
+│  [{rayjob}-files] (Opaque Secret)                                        │
+│  - Local Python scripts + zipped working_dir                             │
+│  - Provisioned by: CodeFlare SDK                                         │
+│  - Size limit: 1MB (Kubernetes Secret constraint)                        │
+│  - Cleanup: ownerReference → RayJob (garbage collected)                  │
+│                                                                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Dashboard Access)                                              │
+│                                                                          │
+│  [Gateway API - RHOAI 3.x]                                              │
+│  - HTTPRoute: ray.io/cluster-name label → {gateway-host}/ray/{ns}/{cl} │
+│  - Port: 443/TCP, Protocol: HTTPS, TLS: SIMPLE                         │
+│  - Fallback chain: Gateway listeners → OCP Route → GatewayConfig CR    │
+│                                                                          │
+│  [OpenShift Route - Pre-3.x]                                            │
+│  - Route: ray-dashboard-{cluster}                                        │
+│  - Port: 443/TCP, Protocol: HTTPS, TLS: edge termination               │
+│                                                                          │
+│  [Kubernetes Ingress - Non-OpenShift]                                    │
+│  - Ingress: {cluster}-ingress                                            │
+│  - Port: 80/TCP or 443/TCP                                              │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 
-RBAC Summary:
-- No ClusterRoles or RoleBindings created by the SDK
-- SDK operates with the permissions of the authenticated user or service account
-- Minimum required permissions:
-  - ray.io: rayclusters (get, list, create, delete)
-  - workload.codeflare.dev: appwrappers (get, list, create, delete)
-  - kueue.x-k8s.io: localqueues (get, list)
-  - route.openshift.io: routes (get, list)
-  - core: secrets (get, list), namespaces (get)
-  - networking.k8s.io: ingresses (get, list)
+RBAC Summary (Required User Permissions):
+  The SDK operates with the authenticated user's credentials.
+  No ClusterRoles or RoleBindings are installed by the SDK.
+  Required API permissions:
+
+  API Group                              Resource                    Verbs
+  ─────────────────────────────────────  ──────────────────────────  ──────────────────────────────
+  ray.io                                 rayclusters                 get, list, create, patch, delete
+  ray.io                                 rayjobs                     get, list, create, patch, delete
+  kueue.x-k8s.io                        localqueues                 list
+  kueue.x-k8s.io                        workloads                   list
+  kueue.x-k8s.io                        workloadpriorityclasses     get
+  "" (core)                              secrets                     get, list, create, update
+  route.openshift.io                     routes                      list
+  gateway.networking.k8s.io             httproutes, gateways        get, list
+  services.platform.opendatahub.io      gatewayconfigs              get
+  networking.k8s.io                      ingresses                   list
+
+Authentication Methods:
+  - kube-authkit auto-detect (primary)
+  - OIDC token
+  - OpenShift OAuth
+  - Bearer token
+  - kubeconfig file
+  - Legacy: TokenAuthentication, KubeConfigFileAuthentication (deprecated)
+
+  Workbench CA path (auto-detected):
+    /etc/pki/tls/custom-certs/ca-bundle.crt
 
 Secrets:
-- {cluster-name}-ca-secret-* (Opaque: ca.key, ca.crt)
-  Purpose: CA certificate and key for Ray cluster TLS communication
-  Provisioned By: SDK generate_cert utility or external provisioner
-  Auto-Rotate: No (default validity: 30 days)
+  Name                              Type      Purpose                          Provisioned By      Auto-Rotate
+  ──────────────────────────────    ────────  ─────────────────────────────    ─────────────────   ───────────
+  {cluster}-ca-secret-{suffix}      Opaque    CA cert+key for TLS generation   KubeRay operator    No
+  {rayjob}-files                    Opaque    Scripts + working_dir for jobs   CodeFlare SDK       No (ownerRef cleanup)
 
-Authentication Mechanisms:
-┌─────────────────────────────┬──────────────────────────────┬──────────────────┐
-│ Endpoint                    │ Auth Mechanism               │ Enforcement      │
-├─────────────────────────────┼──────────────────────────────┼──────────────────┤
-│ Kubernetes API              │ Bearer Token                 │ K8s API Server   │
-│ Kubernetes API              │ kubeconfig file              │ K8s API Server   │
-│ Kubernetes API              │ In-cluster SA token          │ K8s API Server   │
-│ Ray Dashboard (OpenShift)   │ Bearer Token (OAuth proxy)   │ OpenShift Route  │
-│ Ray Dashboard (vanilla K8s) │ None                         │ Ingress          │
-└─────────────────────────────┴──────────────────────────────┴──────────────────┘
-
-Crypto Summary:
-- TLS: Python kubernetes client library (verify_ssl=True by default)
-- Certificate Generation: cryptography 40.0.2 (RSA-2048, SHA256, FIPS-approved)
-- CA Cert Path Priority: CF_SDK_CA_CERT_PATH env > /etc/pki/tls/custom-certs/ca-bundle.crt > system trust
-- Risk: skip_tls=True disables all TLS verification (verify_ssl=False)
-- FIPS: cryptography uses platform OpenSSL (FIPS-validated on RHEL/UBI)
-
-Network Flow Summary:
-┌──────────────────┬──────────────┬───────────┬───────────────┬──────────────────┐
-│ Source           │ Destination  │ Port      │ Encryption    │ Auth             │
-├──────────────────┼──────────────┼───────────┼───────────────┼──────────────────┤
-│ SDK              │ K8s API      │ 6443/TCP  │ TLS 1.2+      │ Bearer/kubeconfig│
-│ SDK              │ Ray Dashboard│ 443/TCP   │ TLS (OCP)     │ Bearer (OCP)     │
-│ SDK              │ Ray Dashboard│ 8265/TCP  │ None (vanilla)│ None             │
-│ SDK              │ Ray Client   │ 10001/TCP │ Optional TLS  │ None             │
-│ Ray Head         │ Ray Workers  │ 6379/TCP  │ None/mTLS     │ None             │
-└──────────────────┴──────────────┴───────────┴───────────────┴──────────────────┘
+FIPS Compliance:
+  - Crypto library: cryptography >= 46.0.7 (delegates to system OpenSSL)
+  - Key generation: RSA 3072-bit
+  - Signatures: SHA-256
+  - FIPS compatible: Yes (when host FIPS mode enabled, OpenSSL backend is FIPS-validated)
+  - No non-FIPS algorithms detected (no MD5, RC4, custom RNG)

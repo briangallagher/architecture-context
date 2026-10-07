@@ -1,0 +1,77 @@
+graph TD
+    subgraph "batch-gateway RBAC & Auth Model"
+        direction TB
+
+        subgraph "Authentication Flow"
+            Client["External Client"]
+            PlatformGW["Platform Gateway<br/>(llm-d Inference Gateway)"]
+            APIServer["batch-gateway-apiserver<br/>Port 8000"]
+            LLMd["llm-d Inference Gateway<br/>(Downstream)"]
+
+            Client -->|"1. Bearer Token<br/>(HTTPS/443)"| PlatformGW
+            PlatformGW -->|"2. AuthN/AuthZ enforced<br/>at platform level"| PlatformGW
+            PlatformGW -->|"3. Forward with<br/>Authorization header<br/>X-MaaS-Username header"| APIServer
+            APIServer -->|"4. No local auth validation<br/>Authorization passthrough"| LLMd
+        end
+
+        subgraph "Tenant Scoping"
+            MaaSHeader["X-MaaS-Username Header"]
+            TenantScope["Tenant Scope<br/>(application-level, not auth)"]
+            BatchOps["Batch Operations<br/>Scoped to tenant"]
+
+            MaaSHeader -->|"extracted by"| APIServer
+            APIServer -->|"applies"| TenantScope
+            TenantScope -->|"filters"| BatchOps
+        end
+
+        subgraph "Kubernetes RBAC"
+            Note["No ClusterRoles or<br/>RoleBindings defined<br/><br/>Workloads run with<br/>default ServiceAccount privileges"]
+        end
+
+        subgraph "Secret Access"
+            Secret["batch-gateway-secrets<br/>(Opaque)"]
+            RedisURL["Redis Connection URL"]
+            PGURL["PostgreSQL Connection URL"]
+            InferKey["Inference API Key"]
+            S3Creds["S3 Credentials<br/>(AWS_ACCESS_KEY_ID,<br/>AWS_SECRET_ACCESS_KEY)"]
+
+            Secret --> RedisURL
+            Secret --> PGURL
+            Secret --> InferKey
+            Secret --> S3Creds
+
+            AS_Mount["apiserver<br/>/etc/.secrets/ (RO)"]
+            Proc_Mount["processor<br/>/etc/.secrets/ (RO)"]
+            GC_Mount["gc<br/>/etc/.secrets/ (RO)"]
+
+            Secret -.->|"mounted"| AS_Mount
+            Secret -.->|"mounted"| Proc_Mount
+            Secret -.->|"mounted"| GC_Mount
+        end
+
+        subgraph "Observability Access"
+            ObsPort["Port 8081<br/>(plain HTTP)"]
+            HealthEndpoint["/health"]
+            ReadyEndpoint["/ready"]
+            MetricsEndpoint["/metrics"]
+            PprofEndpoint["/debug/pprof/*"]
+
+            ObsPort --> HealthEndpoint
+            ObsPort --> ReadyEndpoint
+            ObsPort --> MetricsEndpoint
+            ObsPort --> PprofEndpoint
+
+            ObsNote["No authentication<br/>No middleware<br/>Separate from business API"]
+        end
+    end
+
+    style Client fill:#f9f9f9,stroke:#999
+    style PlatformGW fill:#ffe6cc,stroke:#d79b00
+    style APIServer fill:#4a90e2,stroke:#333,color:#fff
+    style LLMd fill:#7ed321,stroke:#333,color:#fff
+    style Secret fill:#f8cecc,stroke:#b85450
+    style Note fill:#fff2cc,stroke:#d6b656
+    style ObsNote fill:#fff2cc,stroke:#d6b656
+    style MaaSHeader fill:#dae8fc,stroke:#6c8ebf
+    style TenantScope fill:#dae8fc,stroke:#6c8ebf
+    style BatchOps fill:#dae8fc,stroke:#6c8ebf

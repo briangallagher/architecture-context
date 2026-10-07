@@ -1,61 +1,66 @@
 graph TD
-    subgraph "Authentication Model"
+    subgraph DeploymentContext["Deployment Context"]
+        DSPOperator["DSP Operator<br/>(rhods-operator / opendatahub-operator)<br/>Manages MLMD server lifecycle"]
+    end
+
+    subgraph MLMDServer["MLMD gRPC Server"]
+        Server["metadata_store_server<br/>Container: odh-mlmd-grpc-server<br/>UID: 65534 (non-root)<br/>Port: 8080/TCP"]
+    end
+
+    subgraph TransportAuth["Transport-Level Authentication"]
+        TLSConfig["SSLConfig (Optional)"]
+        ServerTLS["Server TLS<br/>server_key + server_cert + custom_ca<br/>Crypto: BoringSSL"]
+        ClientMTLS["Client mTLS (Optional)<br/>client_verify flag<br/>Requires valid client certificate"]
+        TLSConfig --> ServerTLS
+        TLSConfig --> ClientMTLS
+    end
+
+    subgraph NoAppAuthZ["Application-Level Authorization"]
         direction TB
-        Note["ML Metadata has NO Kubernetes RBAC.<br/>Access control is entirely network-level."]
+        Warning["NO APPLICATION-LEVEL AUTHZ"]
+        Detail1["All authenticated clients<br/>have FULL read/write access"]
+        Detail2["No per-user scoping"]
+        Detail3["No per-namespace scoping"]
+        Detail4["No per-pipeline scoping"]
+        Warning --- Detail1
+        Warning --- Detail2
+        Warning --- Detail3
+        Warning --- Detail4
     end
 
-    subgraph "Access Control Layers"
-        direction TB
-
-        subgraph "Layer 1: Network Isolation"
-            ClusterIP["ClusterIP Service<br/>Only reachable within cluster"]
-            NetPol["NetworkPolicy<br/>(managed by platform operator)"]
-        end
-
-        subgraph "Layer 2: Optional mTLS (gRPC Server)"
-            TLSConfig["SSLConfig"]
-            ServerKey["server_key<br/>(TLS private key)"]
-            ServerCert["server_cert<br/>(TLS certificate)"]
-            CustomCA["custom_ca<br/>(CA for client verification)"]
-            ClientVerify["client_verify flag"]
-
-            TLSConfig --> ServerKey
-            TLSConfig --> ServerCert
-            TLSConfig --> CustomCA
-            TLSConfig --> ClientVerify
-        end
-
-        subgraph "Layer 3: Upstream Proxy (RHOAI)"
-            KRBP["kube-rbac-proxy<br/>(deployed by platform operator)<br/>Provides K8s RBAC enforcement"]
-        end
+    subgraph NetworkIsolation["Network-Level Isolation (Platform-Managed)"]
+        NetworkPolicy["Kubernetes NetworkPolicy<br/>Deployed by platform operator<br/>Restricts which pods can<br/>reach MLMD port 8080"]
+        SeparateInstances["Separate MLMD Instances<br/>One per DSPA namespace<br/>Database-level tenant boundary"]
     end
 
-    subgraph "Authorization Model"
-        NoAuthz["NO per-RPC authorization<br/>Any authenticated client can:<br/>• Create/Update/Delete all entity types<br/>• Create/Update/Delete all entities<br/>• Modify schema (PutTypes)<br/>• Query all lineage data"]
+    subgraph Secrets["Secrets (Managed by Platform Operator)"]
+        DBCreds["DB Credentials (Opaque)<br/>MySQL/PostgreSQL username + password<br/>Auto-Rotate: No"]
+        TLSServerCert["TLS Server Cert (kubernetes.io/tls)<br/>gRPC TLS termination<br/>Auto-Rotate: Operator-dependent"]
+        TLSClientCA["TLS Client CA (Opaque)<br/>mTLS client verification<br/>Auto-Rotate: No"]
+        DBSSLCerts["DB SSL Certs (Opaque)<br/>MySQL: cert, key, ca, cipher<br/>PostgreSQL: sslcert, sslkey, sslrootcert<br/>Auto-Rotate: No"]
     end
 
-    subgraph "Database Authentication"
-        DBAuth["Database Credentials"]
-        MySQLAuth["MySQL: username/password<br/>(mysql_config_password)"]
-        PGAuth["PostgreSQL: username/password<br/>(postgres_config_password / passfile)"]
-        DBAuth --> MySQLAuth
-        DBAuth --> PGAuth
-    end
+    %% Relationships
+    DSPOperator -->|"deploys & manages"| Server
+    DSPOperator -->|"provisions"| Secrets
+    Server -->|"configured with"| TLSConfig
+    Server -->|"has"| NoAppAuthZ
+    DSPOperator -->|"enforces"| NetworkIsolation
 
-    ClusterIP -->|"network boundary"| TLSConfig
-    ClientVerify -->|"when true, requires<br/>valid client cert"| CustomCA
-    KRBP -->|"proxies to"| ClusterIP
-
-    style Note fill:#fff3cd,stroke:#856404,stroke-width:2px
-    style NoAuthz fill:#f8d7da,stroke:#721c24,stroke-width:2px
-    style ClusterIP fill:#d5e8d4,stroke:#82b366
-    style NetPol fill:#d5e8d4,stroke:#82b366
+    %% Styling
+    style Server fill:#4a90e2,stroke:#333,color:#fff
+    style DSPOperator fill:#7ed321,stroke:#333
+    style Warning fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style Detail1 fill:#f8cecc,stroke:#b85450
+    style Detail2 fill:#f8cecc,stroke:#b85450
+    style Detail3 fill:#f8cecc,stroke:#b85450
+    style Detail4 fill:#f8cecc,stroke:#b85450
+    style NetworkPolicy fill:#d5e8d4,stroke:#82b366
+    style SeparateInstances fill:#d5e8d4,stroke:#82b366
     style TLSConfig fill:#dae8fc,stroke:#6c8ebf
-    style ServerKey fill:#dae8fc,stroke:#6c8ebf
-    style ServerCert fill:#dae8fc,stroke:#6c8ebf
-    style CustomCA fill:#dae8fc,stroke:#6c8ebf
-    style ClientVerify fill:#dae8fc,stroke:#6c8ebf
-    style KRBP fill:#e2d5f1,stroke:#7c4dff
-    style DBAuth fill:#fff2cc,stroke:#d6b656
-    style MySQLAuth fill:#fff2cc,stroke:#d6b656
-    style PGAuth fill:#fff2cc,stroke:#d6b656
+    style ServerTLS fill:#dae8fc,stroke:#6c8ebf
+    style ClientMTLS fill:#dae8fc,stroke:#6c8ebf
+    style DBCreds fill:#e1d5e7,stroke:#9673a6
+    style TLSServerCert fill:#e1d5e7,stroke:#9673a6
+    style TLSClientCA fill:#e1d5e7,stroke:#9673a6
+    style DBSSLCerts fill:#e1d5e7,stroke:#9673a6

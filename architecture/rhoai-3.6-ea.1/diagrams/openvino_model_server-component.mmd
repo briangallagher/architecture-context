@@ -1,0 +1,59 @@
+graph TB
+    subgraph OVMS["OpenVINO Model Server (OVMS)"]
+        direction TB
+        Binary["/ovms/bin/ovms<br/>C++ Inference Engine"]
+
+        subgraph RESTHandlers["REST API Handlers"]
+            TFSV1["TFS V1 Handler<br/>/v1/models/*"]
+            KServeV2["KServe V2 Handler<br/>/v2/models/*"]
+            OpenAIV3["OpenAI V3 Handler<br/>/v3/*"]
+            Metrics["Metrics Handler<br/>/metrics"]
+        end
+
+        subgraph GRPCServices["gRPC Services"]
+            ModelInfer["ModelInfer RPC"]
+            ModelStreamInfer["ModelStreamInfer RPC"]
+            HealthRPC["Health/Metadata RPCs"]
+        end
+
+        Binary --> RESTHandlers
+        Binary --> GRPCServices
+    end
+
+    subgraph OptionalSidecar["Optional: nginx-mtls-auth Sidecar"]
+        NginxProxy["nginx Reverse Proxy<br/>TLS 1.2 + mTLS"]
+        OVMSWrapper["ovms_wrapper Script<br/>Port Reassignment"]
+        NginxProxy --> OVMSWrapper
+    end
+
+    subgraph ServingRuntimes["KServe Serving Runtimes"]
+        ClusterRT["kserve-openvino<br/>ClusterServingRuntime<br/>gRPC:9000 REST:8080"]
+        NamespacedRT["kserve-ovms-2026-2<br/>ServingRuntime (Namespaced)<br/>gRPC:8001 REST:8888"]
+    end
+
+    Client[External Client] -->|REST/gRPC| OVMS
+    Client -->|mTLS| OptionalSidecar
+    OVMSWrapper -->|loopback| Binary
+
+    KServe[KServe Controller] -->|manages via| ServingRuntimes
+    ServingRuntimes -->|deploys| OVMS
+
+    ModelStorage["/mnt/models<br/>Model Storage<br/>(S3, PVC)"] -->|volume mount| Binary
+    Prometheus[Prometheus] -->|scrapes /metrics| Metrics
+
+    style Binary fill:#4a90e2,stroke:#333,color:#fff
+    style TFSV1 fill:#6baed6,stroke:#333
+    style KServeV2 fill:#6baed6,stroke:#333
+    style OpenAIV3 fill:#6baed6,stroke:#333
+    style Metrics fill:#6baed6,stroke:#333
+    style ModelInfer fill:#74c476,stroke:#333
+    style ModelStreamInfer fill:#74c476,stroke:#333
+    style HealthRPC fill:#74c476,stroke:#333
+    style NginxProxy fill:#f5a623,stroke:#333
+    style OVMSWrapper fill:#f5a623,stroke:#333
+    style ClusterRT fill:#9e9ac8,stroke:#333
+    style NamespacedRT fill:#9e9ac8,stroke:#333
+    style KServe fill:#e8e8e8,stroke:#333
+    style ModelStorage fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style Client fill:#f9f9f9,stroke:#333

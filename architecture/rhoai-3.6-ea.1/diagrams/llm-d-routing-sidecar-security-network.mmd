@@ -1,0 +1,72 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["Inference Client<br/>OpenAI-compatible"]
+    end
+
+    subgraph Ingress["INGRESS (OpenShift Router)"]
+        Route["OpenShift Route<br/>${PROJECT_NAME}-route<br/>HTTPS/TLS"]
+        Service["K8s Service (ClusterIP)<br/>${PROJECT_NAME}-service<br/>8080/TCP"]
+    end
+
+    subgraph Pod["POD (Inference Pod)"]
+        direction TB
+
+        subgraph SidecarContainer["llm-d-routing-sidecar"]
+            Listener["TLS Listener<br/>8000/TCP<br/>TLS 1.2+<br/>Self-signed RSA-4096 or cert"]
+            Connector["Connector Handler<br/>nixlv2 / nixl / lmcache"]
+            DefaultProxy["Default Proxy<br/>Catch-all /"]
+            SSRF["AllowlistValidator<br/>SSRF Protection (optional)"]
+        end
+
+        subgraph DecoderContainer["Co-located Engine"]
+            vLLM["vLLM Decoder<br/>localhost:8001"]
+        end
+    end
+
+    subgraph RemotePrefill["REMOTE PODS"]
+        Prefiller["Remote Prefiller Pods<br/>Dynamic host:port"]
+    end
+
+    subgraph ControlPlane["CONTROL PLANE"]
+        K8sAPI["Kubernetes API Server<br/>6443/TCP<br/>TLS 1.2+<br/>ServiceAccount Auth"]
+        InferencePoolCR["InferencePool CR<br/>inference.networking.x-k8s.io/v1alpha2"]
+    end
+
+    %% External to Ingress
+    Client -->|"HTTPS/443<br/>TLS (Route-terminated)<br/>Auth: None"| Route
+
+    %% Ingress to Pod
+    Route -->|"TCP/8080<br/>Cluster-internal"| Service
+    Service -->|"TCP/8000<br/>TLS 1.2+ (default)<br/>AES-GCM + ChaCha20<br/>Auth: None"| Listener
+
+    %% Internal routing
+    Listener --> Connector
+    Listener --> DefaultProxy
+
+    %% Decode path
+    DefaultProxy -->|"HTTP/8001<br/>Optional TLS<br/>(--decoder-use-tls)<br/>localhost only"| vLLM
+
+    %% Prefill path
+    Connector -->|"HTTP(S)/dynamic<br/>Optional TLS 1.2+<br/>(--prefiller-use-tls)<br/>Auth: None"| Prefiller
+
+    %% SSRF control plane
+    SSRF -->|"HTTPS+WSS/6443<br/>TLS 1.2+<br/>ServiceAccount"| K8sAPI
+    K8sAPI --- InferencePoolCR
+    Connector -.->|"validate target"| SSRF
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef pod fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef sidecar fill:#4a90e2,stroke:#333,color:#fff
+    classDef decoder fill:#7ed321,stroke:#333
+    classDef remote fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef controlplane fill:#e8e8e8,stroke:#999,stroke-width:2px
+    classDef warning fill:#e74c3c,stroke:#333,color:#fff
+
+    class Client external
+    class Route,Service ingress
+    class Listener,Connector,DefaultProxy,SSRF sidecar
+    class vLLM decoder
+    class Prefiller remote
+    class K8sAPI,InferencePoolCR controlplane

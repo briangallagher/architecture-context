@@ -2,115 +2,95 @@ graph TB
     subgraph PipelinesComponents["Pipelines Components"]
         direction TB
 
-        subgraph InitContainer["odh-pipelines-components (Init Container)"]
-            GenManaged["generate_managed_pipelines.py<br/>Build-time pipeline compiler"]
-            InitManaged["init_managed_pipelines.py<br/>Runtime artifact copier"]
-            GenManaged -->|"produces"| CompiledYAML["Compiled Pipeline YAMLs<br/>+ managed-pipelines.json"]
-            CompiledYAML -->|"copied by"| InitManaged
+        subgraph InitContainer["Init Container"]
+            InitManagedPipelines["init-managed-pipelines<br/>Stages YAML to shared volume"]
+            GenerateManagedPipelines["generate_managed_pipelines.py<br/>Discovers & compiles pipelines"]
+            GenerateManagedPipelines -->|compiles| InitManagedPipelines
         end
 
-        subgraph KFPLibrary["kfp-components (Python Library)"]
+        subgraph KFPLibrary["KFP Components Library (Python)"]
             direction TB
 
-            subgraph DataProc["Data Processing Components"]
-                DatasetDownload["dataset_download<br/>HF/S3 data fetcher"]
-                TabularLoader["tabular_data_loader<br/>AutoML CSV loader"]
-                TimeseriesLoader["timeseries_data_loader<br/>AutoML TS loader"]
-                DocsDiscovery["documents_discovery<br/>S3 document scanner"]
-                TextExtract["text_extraction<br/>docling PDF/DOCX parser"]
-                DocsIndexing["documents_indexing<br/>OGX vector indexer"]
-                SDGComponent["sdg<br/>Synthetic data generator"]
+            subgraph DataProcessing["Data Processing"]
+                DatasetDownload["dataset_download"]
+                DownloadModel["download_model"]
+                SDG["sdg (Synthetic Data)"]
+                ParseAndChunk["parse_and_chunk"]
+                IngestMilvus["ingest_to_milvus"]
+                YodaProcessor["yoda_data_processor"]
             end
 
-            subgraph Training["Training Components"]
-                LoRA["lora_training<br/>Unsloth LoRA"]
-                SFT["sft_training<br/>InstructLab SFT"]
-                OSFT["osft_training<br/>mini-trainer OSFT"]
-                AutoGluonTrain["autogluon_models_training<br/>Tabular AutoML"]
-                AutoGluonTS["autogluon_timeseries<br/>Timeseries AutoML"]
-                RAGOptim["rag_templates_optimization<br/>ai4rag optimizer"]
+            subgraph Training["Training"]
+                LoRA["LoRA (Unsloth)"]
+                OSFT["OSFT (mini-trainer)"]
+                SFT["SFT (instructlab)"]
+                AutoMLTabular["AutoGluon Tabular"]
+                AutoMLTimeSeries["AutoGluon TimeSeries"]
+                RAGTemplateOpt["RAG Templates Optimization"]
+                SearchSpacePrep["Search Space Preparation"]
             end
 
-            subgraph Evaluation["Evaluation Components"]
-                LMEval["universal_llm_evaluator<br/>lm-eval + vLLM"]
-                Leaderboard["autogluon_leaderboard<br/>Model comparison"]
-                RAGLeaderboard["rag_leaderboard<br/>RAG pattern evaluation"]
+            subgraph Evaluation["Evaluation"]
+                LMEval["lm-eval"]
+                EvalHubKServe["Eval Hub KServe"]
             end
 
-            subgraph Deployment["Deployment Components"]
-                ModelReg["kubeflow_model_registry<br/>Model registration"]
-                ResponsesAPI["build_responses_request_bodies<br/>OGX /v1/responses builder"]
+            subgraph Deployment["Deployment"]
+                ModelDeployment["model_deployment<br/>(vLLM/KServe)"]
+                DeployEmbedding["deploy_embedding_model"]
+                ModelRegistration["kubeflow_model_registry"]
             end
-        end
-
-        subgraph TaskImages["Task Container Images"]
-            AutoMLImage["odh-automl<br/>AutoGluon + scikit-learn<br/>Python 3.11"]
-            AutoRAGImage["odh-autorag<br/>ai4rag + docling + OGX<br/>Python 3.11"]
         end
     end
 
-    %% Init container delivers to KFP API Server
-    InitManaged -->|"/config/managed-pipelines/<br/>shared volume"| KFPAPI["KFP API Server"]
+    %% Shared utilities
+    subgraph SharedUtils["Shared Fine-Tuning Utilities"]
+        DataUtil["data.py"]
+        TrainingUtil["training.py"]
+        SetupUtil["setup.py"]
+        OutputUtil["output.py"]
+    end
 
-    %% Task images used by components
-    AutoMLImage -.->|"base image"| TabularLoader
-    AutoMLImage -.->|"base image"| AutoGluonTrain
-    AutoMLImage -.->|"base image"| Leaderboard
-    AutoRAGImage -.->|"base image"| DocsDiscovery
-    AutoRAGImage -.->|"base image"| TextExtract
-    AutoRAGImage -.->|"base image"| DocsIndexing
-    AutoRAGImage -.->|"base image"| RAGOptim
+    LoRA --> SharedUtils
+    OSFT --> SharedUtils
+    SFT --> SharedUtils
 
-    %% Pipeline composition flows
-    DatasetDownload -->|"PVC"| LoRA
-    DatasetDownload -->|"PVC"| SFT
-    DatasetDownload -->|"PVC"| OSFT
-    LoRA -->|"PVC"| LMEval
-    SFT -->|"PVC"| LMEval
-    OSFT -->|"PVC"| LMEval
-    LMEval -->|"metrics"| ModelReg
+    %% External inputs
+    User["Data Scientist / ML Engineer"] -->|creates pipeline run| KFPAPIServer
+    KFPAPIServer["KFP API Server"] -->|reads YAML| InitManagedPipelines
+    KFPAPIServer -->|executes| KFPLibrary
 
-    TabularLoader -->|"PVC"| AutoGluonTrain
-    AutoGluonTrain -->|"PVC"| Leaderboard
+    %% Pipelines compose components
+    DatasetDownload -->|feeds| LoRA
+    DatasetDownload -->|feeds| OSFT
+    DatasetDownload -->|feeds| SFT
+    LoRA -->|produces model| ModelRegistration
+    OSFT -->|produces model| ModelRegistration
+    SFT -->|produces model| ModelRegistration
+    ModelRegistration -->|triggers| ModelDeployment
+    LMEval -->|evaluates| ModelDeployment
+    EvalHubKServe -->|evaluates| ModelDeployment
 
-    DocsDiscovery -->|"artifact"| TextExtract
-    TextExtract -->|"artifact"| DocsIndexing
-    DocsIndexing -->|"indexed"| RAGOptim
-    RAGOptim -->|"patterns"| ResponsesAPI
+    %% RAG flow
+    ParseAndChunk -->|chunks| IngestMilvus
+    DownloadModel -->|model| DeployEmbedding
 
-    SDGComponent -->|"JSONL"| DatasetDownload
-
-    %% External services
-    S3["S3-compatible Storage<br/>443/TCP HTTPS"]
-    HFHub["HuggingFace Hub<br/>443/TCP HTTPS"]
-    OGXAPI["OGX API<br/>443/TCP HTTPS"]
-    Milvus["Milvus Vector DB<br/>19530/TCP gRPC"]
-    LLMAPI["LLM API (LiteLLM)<br/>443/TCP HTTPS"]
-    KFTrainer["Kubeflow Trainer<br/>TrainJob CRD"]
-
-    DatasetDownload -->|"HTTPS"| S3
-    DatasetDownload -->|"HTTPS"| HFHub
-    TabularLoader -->|"HTTPS"| S3
-    DocsDiscovery -->|"HTTPS"| S3
-    TextExtract -->|"HTTPS"| S3
-    DocsIndexing -->|"HTTPS"| OGXAPI
-    OGXAPI -->|"gRPC"| Milvus
-    RAGOptim -->|"HTTPS"| OGXAPI
-    SDGComponent -->|"HTTPS"| LLMAPI
-    LoRA -->|"CRD"| KFTrainer
-    SFT -->|"CRD"| KFTrainer
-    OSFT -->|"CRD"| KFTrainer
-    ModelReg -->|"HTTP/8080"| ModelRegistry["Kubeflow Model Registry"]
+    %% External dependencies
+    KServe["KServe"] -.->|creates InferenceService| ModelDeployment
+    KServe -.->|creates ServingRuntime| DeployEmbedding
+    KubeflowTrainer["Kubeflow Trainer"] -.->|orchestrates training| SharedUtils
+    Ray["Ray / CodeFlare"] -.->|distributed processing| ParseAndChunk
 
     %% Styling
-    style InitContainer fill:#e6f3ff,stroke:#4a90e2,stroke-width:2px
-    style KFPLibrary fill:#f0f9f0,stroke:#82b366,stroke-width:2px
-    style TaskImages fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    style KFPAPI fill:#e8e8e8,stroke:#666
-    style S3 fill:#f5a623,stroke:#333
-    style HFHub fill:#f5a623,stroke:#333
-    style OGXAPI fill:#f5a623,stroke:#333
-    style Milvus fill:#f5a623,stroke:#333
-    style LLMAPI fill:#f5a623,stroke:#333
-    style KFTrainer fill:#7ed321,stroke:#333
-    style ModelRegistry fill:#7ed321,stroke:#333
+    style PipelinesComponents fill:#e8f4f8,stroke:#4a90e2,stroke-width:2px
+    style InitContainer fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style KFPLibrary fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style DataProcessing fill:#f8cecc,stroke:#b85450
+    style Training fill:#dae8fc,stroke:#6c8ebf
+    style Evaluation fill:#e1d5e7,stroke:#9673a6
+    style Deployment fill:#d5e8d4,stroke:#82b366
+    style SharedUtils fill:#f5f5f5,stroke:#666
+    style KFPAPIServer fill:#4a90e2,color:#fff
+    style KServe fill:#999,stroke:#333
+    style KubeflowTrainer fill:#999,stroke:#333
+    style Ray fill:#999,stroke:#333

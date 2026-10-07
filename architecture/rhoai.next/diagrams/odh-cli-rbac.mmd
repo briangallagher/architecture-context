@@ -1,168 +1,86 @@
 graph TD
-    subgraph UserAuth["Authentication (kubeconfig)"]
-        User["User / ServiceAccount<br/>(via kubeconfig)"]
-        Token["--token flag<br/>(direct Bearer Token)"]
-        Cert["--certificate-authority<br/>(custom CA)"]
+    subgraph "Authentication"
+        User["Authenticated User<br/>(kubeconfig identity)"]
     end
 
-    subgraph CLICommands["CLI Commands (RBAC Requirements)"]
+    subgraph "No Custom RBAC"
+        Note["odh-cli defines no custom roles.<br/>It inherits the user's existing<br/>Kubernetes RBAC permissions."]
+    end
+
+    User -->|"uses existing RBAC"| Note
+
+    subgraph "Required Permissions by Command"
         direction TB
 
-        subgraph ReadOnly["Read-Only Commands (client.Reader)"]
-            Lint["lint<br/>(37 checks)"]
-            Status["status"]
-            Get["get"]
-            Logs["logs"]
-            Backup["backup"]
+        subgraph "Read-Only Commands"
+            Lint["lint<br/>────────────────────<br/>Read: DSC, DSCI, CRDs,<br/>CSVs, Subscriptions,<br/>Namespaces, all workload<br/>CRs (cluster-wide)"]
+
+            Status["status<br/>────────────────────<br/>Read: Nodes, Deployments,<br/>Pods, Events,<br/>ResourceQuotas,<br/>DSC, DSCI, CSVs"]
+
+            Backup["backup<br/>────────────────────<br/>Read: all workload CRs,<br/>ConfigMaps, PVCs, Secrets"]
+
+            Get["get<br/>────────────────────<br/>Read: requested<br/>resource types"]
+
+            Events["events<br/>────────────────────<br/>Read: Events,<br/>Pods, Deployments"]
+
+            Logs["logs<br/>────────────────────<br/>Read: Pods,<br/>Pod/log subresource"]
+
+            Deps["deps<br/>────────────────────<br/>Read: Subscriptions,<br/>CSVs, PackageManifests"]
+
+            ComponentsList["components list/describe<br/>────────────────────<br/>Read: DataScienceCluster"]
         end
 
-        subgraph ReadWrite["Read-Write Commands"]
-            Components["components<br/>enable/disable"]
-            DepsInstall["deps install"]
-            Migrate["migrate"]
+        subgraph "Read-Write Commands"
+            ComponentsToggle["components enable/disable<br/>────────────────────<br/>Patch: DataScienceCluster"]
+
+            DepsInstall["deps install<br/>────────────────────<br/>Create/Update:<br/>Subscriptions,<br/>OperatorGroups"]
+
+            Migrate["migrate<br/>────────────────────<br/>Read/Write: workload CRs,<br/>CRDs, Roles, RoleBindings,<br/>Pods, Deployments"]
         end
     end
 
-    subgraph PlatformAPIs["datasciencecluster.opendatahub.io"]
-        DSC_R["datascienceclusters<br/>get, list"]
-        DSC_RW["datascienceclusters<br/>get, list, patch"]
+    User -->|"read-only"| Lint
+    User -->|"read-only"| Status
+    User -->|"read-only"| Backup
+    User -->|"read-only"| Get
+    User -->|"read-only"| Events
+    User -->|"read-only"| Logs
+    User -->|"read-only"| Deps
+    User -->|"read-only"| ComponentsList
+    User -->|"read-write"| ComponentsToggle
+    User -->|"read-write"| DepsInstall
+    User -->|"read-write"| Migrate
+
+    subgraph "API Resources Accessed"
+        RHOAI_CRDs["RHOAI CRDs<br/>────────────────────<br/>datascienceclusters.datasciencecluster.opendatahub.io<br/>dscinitializations.dscinitialization.opendatahub.io"]
+        Workload_CRDs["Workload CRDs<br/>────────────────────<br/>notebooks.kubeflow.org<br/>datasciencepipelinesapplications.datasciencepipelinesapplications.opendatahub.io<br/>inferenceservices.serving.kserve.io<br/>rayclusters.ray.io<br/>trustyaiservices.trustyai.opendatahub.io"]
+        K8s_Core["Kubernetes Core<br/>────────────────────<br/>pods, pods/log, services,<br/>events, nodes, namespaces,<br/>configmaps, secrets, pvcs"]
+        K8s_RBAC["Kubernetes RBAC<br/>────────────────────<br/>roles, rolebindings,<br/>clusterroles"]
+        OLM_Resources["OLM Resources<br/>────────────────────<br/>subscriptions, csvs,<br/>packagemanifests,<br/>operatorgroups"]
     end
 
-    subgraph InitAPIs["dscinitialization.opendatahub.io"]
-        DSCI_R["dscinitializations<br/>get, list"]
-    end
+    Lint -->|reads| RHOAI_CRDs
+    Lint -->|reads| Workload_CRDs
+    Status -->|reads| K8s_Core
+    Migrate -->|reads/writes| Workload_CRDs
+    Migrate -->|reads/writes| K8s_RBAC
+    DepsInstall -->|creates| OLM_Resources
 
-    subgraph ComponentAPIs["components.platform.opendatahub.io"]
-        CompCRs["dashboards, kserves,<br/>rays, etc.<br/>list"]
-    end
-
-    subgraph ServingAPIs["serving.kserve.io"]
-        InferSvc["inferenceservices<br/>list, get"]
-        ServRt["servingruntimes<br/>list, get"]
-    end
-
-    subgraph KubeflowAPIs["kubeflow.org"]
-        NB["notebooks<br/>list, get"]
-        PTJ["pytorchjobs<br/>list"]
-    end
-
-    subgraph RayAPIs["ray.io"]
-        RC["rayclusters<br/>list, get"]
-        RJ["rayjobs<br/>list, get"]
-    end
-
-    subgraph OLMAPIs["operators.coreos.com"]
-        Subs_R["subscriptions<br/>list, get"]
-        Subs_RW["subscriptions<br/>create, list, get"]
-        CSVs["clusterserviceversions<br/>list, get"]
-        OG["operatorgroups<br/>create, list"]
-    end
-
-    subgraph CoreAPIs["Core API (v1)"]
-        Pods["pods, pods/log<br/>list, get"]
-        Nodes["nodes, events,<br/>resourcequotas<br/>list"]
-        CM_R["configmaps<br/>get, list"]
-        CM_RW["configmaps<br/>get, list, patch"]
-        Secrets["secrets<br/>get, list"]
-        NS["namespaces<br/>create, list"]
-        Deploy["deployments<br/>get, list"]
-        PVC["persistentvolumeclaims<br/>get, list"]
-    end
-
-    subgraph OtherAPIs["Other APIs"]
-        CV["config.openshift.io<br/>clusterversions — get"]
-        CRDs["apiextensions.k8s.io<br/>CRDs — get"]
-        Kuadrant["kuadrant.io<br/>kuadrants — get"]
-        Authorino["authorino.kuadrant.io<br/>authorinos — get"]
-        Llama["stack.llama.io<br/>llamastackdistributions — get"]
-        AW["workload.codeflare.dev<br/>appwrappers — list"]
-    end
-
-    %% Auth to commands
-    User --> ReadOnly
-    User --> ReadWrite
-    Token -.-> User
-    Cert -.-> User
-
-    %% Read-only command permissions
-    Lint --> DSC_R
-    Lint --> DSCI_R
-    Lint --> InferSvc
-    Lint --> ServRt
-    Lint --> NB
-    Lint --> PTJ
-    Lint --> RC
-    Lint --> RJ
-    Lint --> AW
-    Lint --> Kuadrant
-    Lint --> Authorino
-    Lint --> Llama
-    Lint --> CM_R
-    Lint --> Secrets
-    Lint --> Subs_R
-    Lint --> CSVs
-
-    Status --> DSC_R
-    Status --> DSCI_R
-    Status --> Subs_R
-    Status --> CSVs
-    Status --> Deploy
-    Status --> Nodes
-    Status --> Pods
-    Status --> CompCRs
-
-    Get --> InferSvc
-    Get --> ServRt
-    Get --> NB
-
-    Logs --> Pods
-
-    Backup --> NB
-    Backup --> CM_R
-    Backup --> Secrets
-    Backup --> PVC
-
-    %% Read-write command permissions
-    Components --> DSC_RW
-    Components --> CompCRs
-
-    DepsInstall --> Subs_RW
-    DepsInstall --> OG
-    DepsInstall --> NS
-    DepsInstall --> CSVs
-
-    Migrate --> DSC_RW
-    Migrate --> CM_RW
-    Migrate --> Subs_RW
-
-    %% Version detection
-    Lint --> CV
-    Status --> CV
-    Lint --> CRDs
-
-    %% Styling
-    style User fill:#4a90e2,stroke:#333,color:#fff
-    style Token fill:#90caf9,stroke:#333
-    style Cert fill:#90caf9,stroke:#333
-
-    style Lint fill:#c8e6c9,stroke:#388e3c
-    style Status fill:#c8e6c9,stroke:#388e3c
-    style Get fill:#c8e6c9,stroke:#388e3c
-    style Logs fill:#c8e6c9,stroke:#388e3c
-    style Backup fill:#c8e6c9,stroke:#388e3c
-
-    style Components fill:#ffcdd2,stroke:#c62828
-    style DepsInstall fill:#ffcdd2,stroke:#c62828
-    style Migrate fill:#ffcdd2,stroke:#c62828
-
-    style DSC_R fill:#e8f5e9,stroke:#388e3c
-    style DSC_RW fill:#ffebee,stroke:#c62828
-    style DSCI_R fill:#e8f5e9,stroke:#388e3c
-    style CompCRs fill:#e8f5e9,stroke:#388e3c
-    style Subs_R fill:#e8f5e9,stroke:#388e3c
-    style Subs_RW fill:#ffebee,stroke:#c62828
-    style CSVs fill:#e8f5e9,stroke:#388e3c
-    style OG fill:#ffebee,stroke:#c62828
-    style NS fill:#ffebee,stroke:#c62828
-    style CM_R fill:#e8f5e9,stroke:#388e3c
-    style CM_RW fill:#ffebee,stroke:#c62828
+    style User fill:#4a90e2,color:#fff
+    style Note fill:#fff3cd,stroke:#856404,color:#856404
+    style Lint fill:#d4edda,stroke:#155724,color:#155724
+    style Status fill:#d4edda,stroke:#155724,color:#155724
+    style Backup fill:#d4edda,stroke:#155724,color:#155724
+    style Get fill:#d4edda,stroke:#155724,color:#155724
+    style Events fill:#d4edda,stroke:#155724,color:#155724
+    style Logs fill:#d4edda,stroke:#155724,color:#155724
+    style Deps fill:#d4edda,stroke:#155724,color:#155724
+    style ComponentsList fill:#d4edda,stroke:#155724,color:#155724
+    style ComponentsToggle fill:#fff3cd,stroke:#856404,color:#856404
+    style DepsInstall fill:#fff3cd,stroke:#856404,color:#856404
+    style Migrate fill:#f8d7da,stroke:#721c24,color:#721c24
+    style RHOAI_CRDs fill:#f5a623
+    style Workload_CRDs fill:#f5a623
+    style K8s_Core fill:#e8e8e8,stroke:#333
+    style K8s_RBAC fill:#e8e8e8,stroke:#333
+    style OLM_Resources fill:#e8e8e8,stroke:#333

@@ -1,0 +1,47 @@
+sequenceDiagram
+    participant Agent as AI Agent<br/>(MCP Client)
+    participant Transport as Transport Layer<br/>stdio / SSE / streamable-http
+    participant OIDC as OIDC Auth Middleware<br/>(ASGI)
+    participant MCP as FastMCP Server<br/>Port 8000
+    participant Plugin as Plugin Handler<br/>(pluggy)
+    participant K8s as Kubernetes API<br/>6443/TCP HTTPS
+
+    Note over Agent,K8s: Flow 1: Authenticated MCP Tool Call (OIDC Enabled)
+    Agent->>Transport: MCP CallToolRequest
+    Transport->>OIDC: HTTP Request<br/>Authorization: Bearer <JWT>
+    OIDC->>OIDC: Validate JWT<br/>(JWT verification or TokenReview)
+    OIDC->>MCP: Authenticated Request<br/>(user identity extracted)
+    MCP->>MCP: SubjectAccessReview<br/>(per-tool RBAC filter)
+    MCP->>Plugin: Dispatch to plugin tool handler
+    Plugin->>K8s: API Request<br/>(forwarded token or impersonation)<br/>TLS 1.2+
+    K8s-->>Plugin: API Response
+    Plugin-->>MCP: Tool Result
+    MCP-->>OIDC: MCP Response
+    OIDC-->>Transport: HTTP Response
+    Transport-->>Agent: MCP CallToolResult
+
+    Note over Agent,K8s: Flow 2: Unauthenticated stdio (Single-User Mode)
+    Agent->>Transport: MCP CallToolRequest (stdio)
+    Transport->>MCP: Direct (no HTTP)
+    MCP->>Plugin: Dispatch (all tools visible)
+    Plugin->>K8s: API Request<br/>(rhoai-mcp ServiceAccount)<br/>TLS 1.2+
+    K8s-->>Plugin: API Response
+    Plugin-->>MCP: Tool Result
+    MCP-->>Transport: MCP Response
+    Transport-->>Agent: MCP CallToolResult
+
+    Note over Agent,K8s: Flow 3: Health Check (Always Unauthenticated)
+    Agent->>Transport: GET /health
+    Transport->>MCP: Bypass OIDC middleware
+    MCP-->>Transport: 200 OK
+    Transport-->>Agent: Health Response
+
+    Note over Agent,K8s: Flow 4: Platform CRD Operations
+    Plugin->>K8s: Create/Watch InferenceService<br/>(serving.kserve.io)
+    K8s-->>Plugin: InferenceService status
+    Plugin->>K8s: CRUD Notebook<br/>(kubeflow.org)
+    K8s-->>Plugin: Notebook response
+    Plugin->>K8s: CRUD TrainJob<br/>(trainer.kubeflow.org)
+    K8s-->>Plugin: TrainJob response
+    Plugin->>K8s: CRUD DSPA<br/>(datasciencepipelinesapplications.opendatahub.io)
+    K8s-->>Plugin: DSPA response

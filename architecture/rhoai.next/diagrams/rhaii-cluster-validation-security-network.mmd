@@ -1,0 +1,80 @@
+graph TB
+    subgraph UserZone["USER WORKSTATION (Trusted)"]
+        CLI["rhaii-validator CLI<br/>(kubectl rhaii-validate)<br/>Go 1.25 FIPS<br/>Auth: kubeconfig"]
+    end
+
+    subgraph ControlPlane["KUBERNETES CONTROL PLANE"]
+        K8sAPI["Kubernetes API Server<br/>6443/TCP<br/>TLS 1.2+<br/>Bearer Token RBAC"]
+    end
+
+    subgraph ValidationNS["VALIDATION NAMESPACE (rhaii-validation)"]
+        direction TB
+
+        SA["ServiceAccount: rhaii-validator<br/>ClusterRole: empty (SCC only)<br/>automountServiceAccountToken: false"]
+
+        subgraph CheckJobs["PER-NODE CHECK JOBS (Privileged)"]
+            CheckPod["Check Job Pod<br/>Image: odh-rhaii-cluster-validator-rhel9<br/>privileged=true<br/>SA token: disabled"]
+        end
+
+        subgraph BWJobs["BANDWIDTH TEST JOBS"]
+            ServerPod["Server Job Pod<br/>Image: odh-rhaii-validator-tools-rhel9<br/>SA token: disabled"]
+            ClientPod["Client Job Pod<br/>Image: odh-rhaii-validator-tools-rhel9<br/>SA token: disabled"]
+        end
+
+        Report["ConfigMap: validation-report<br/>(JSON results)"]
+    end
+
+    subgraph HostHW["GPU NODE HARDWARE"]
+        GPUSysfs["GPU sysfs<br/>nvidia-smi / rocm-smi<br/>/sys/class/infiniband<br/>/sys/bus/pci/devices"]
+    end
+
+    subgraph Prerequisites["PLATFORM PREREQUISITES (Validated)"]
+        GatewayAPI["Gateway API CRDs"]
+        InferenceExt["Inference Extension CRDs"]
+        LWSCrd["LeaderWorkerSet CRDs"]
+        CertMgr["cert-manager<br/>(cert-manager ns)"]
+        IstioSvc["Istio<br/>(istio-system ns)"]
+        LWSOp["LWS Operator<br/>(openshift-lws-operator ns)"]
+    end
+
+    %% Control plane flows
+    CLI -->|"HTTPS/6443<br/>TLS 1.2+<br/>Bearer Token"| K8sAPI
+    K8sAPI -->|"Job CRUD<br/>Node list<br/>ConfigMap CRUD"| ValidationNS
+
+    %% Hardware access
+    CheckPod -->|"chroot /host<br/>privileged container<br/>no network"| GPUSysfs
+
+    %% Bandwidth test flows (plaintext inter-pod)
+    ClientPod -->|"TCP/5201<br/>plaintext<br/>iperf3"| ServerPod
+    ClientPod -->|"RDMA/18515+<br/>InfiniBand/RoCE<br/>ib_write_bw"| ServerPod
+    ClientPod -->|"RDMA/18515+<br/>ibv_rc_pingpong<br/>pingmesh"| ServerPod
+    ClientPod -->|"TCP/12865<br/>plaintext<br/>latency test"| ServerPod
+
+    %% Results
+    CLI -->|"HTTPS/6443<br/>write results"| Report
+
+    %% Prerequisite validation (read-only)
+    CLI -.->|"CRD GET<br/>HTTPS/6443"| GatewayAPI
+    CLI -.->|"CRD GET<br/>HTTPS/6443"| InferenceExt
+    CLI -.->|"CRD GET<br/>HTTPS/6443"| LWSCrd
+    CLI -.->|"Pod list<br/>HTTPS/6443"| CertMgr
+    CLI -.->|"Pod list<br/>HTTPS/6443"| IstioSvc
+    CLI -.->|"Pod list<br/>HTTPS/6443"| LWSOp
+
+    %% Styling
+    classDef userzone fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef controlplane fill:#e8e8e8,stroke:#666,stroke-width:2px
+    classDef privileged fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef workload fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef hardware fill:#f5f5f5,stroke:#999,stroke-width:2px
+    classDef prereq fill:#dae8fc,stroke:#6c8ebf,stroke-width:1px
+    classDef data fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+
+    class CLI userzone
+    class K8sAPI controlplane
+    class CheckPod privileged
+    class ServerPod,ClientPod workload
+    class GPUSysfs hardware
+    class GatewayAPI,InferenceExt,LWSCrd,CertMgr,IstioSvc,LWSOp prereq
+    class Report data
+    class SA controlplane

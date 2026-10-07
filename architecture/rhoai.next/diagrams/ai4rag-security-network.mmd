@@ -1,73 +1,55 @@
 graph TB
-    subgraph ConsumingService["CONSUMING SERVICE PROCESS (Trusted)"]
+    subgraph CallerProcess["CALLER PROCESS (User / KFP Pipeline)"]
         direction TB
 
-        subgraph Library["ai4rag Library (in-process, no network listeners)"]
+        subgraph Library["ai4rag Library (Python import)"]
             direction TB
 
-            subgraph CoreEngine["Core Engine"]
-                Experiment["AI4RAGExperiment<br/><i>Orchestration</i>"]
-                GAM["GAMOptimizer<br/><i>pygam - in-process</i>"]
-                SearchSpace["SearchSpace<br/><i>scikit-learn - in-process</i>"]
+            subgraph InProcess["IN-PROCESS (No Network)"]
+                Unitxt["Unitxt Evaluator<br/>RAG metrics"]
+                Docling["Docling<br/>PDF/DOCX parser"]
+                PyGAM["pyGAM<br/>HPO optimizer"]
+                ChromaDB["ChromaDB<br/>In-memory vector store"]
             end
 
-            subgraph EvalLayer["Evaluation (in-process)"]
-                Evaluator["UnitxtEvaluator<br/><i>unitxt - in-process</i>"]
+            subgraph EgressClients["EGRESS CLIENTS"]
+                OGXClient["ogx-client SDK<br/>(httpx)"]
+                BotoClient["boto3 SDK"]
             end
-
-            subgraph LocalStorage["Local Storage (in-process)"]
-                ChromaDB["ChromaDB<br/><i>In-memory vector store<br/>No network</i>"]
-            end
-
-            subgraph Handlers["Event Handlers (in-process)"]
-                KFPHandler["KFPEventHandler<br/><i>In-memory aggregation</i>"]
-                LocalHandler["LocalEventHandler<br/><i>Filesystem write only</i>"]
-            end
-
-            OgxClient["OgxClient<br/><i>HTTP client (httpx)<br/>EGRESS ONLY</i>"]
         end
     end
 
     subgraph ExternalServices["EXTERNAL SERVICES"]
-        OGX["OGX Server<br/>Port: Configurable<br/>HTTPS / TLS 1.2+<br/>Auth: API Key (Bearer)"]
-
-        subgraph OGXEndpoints["OGX API Endpoints"]
-            EmbAPI["POST /embeddings"]
-            VSAPI["POST /vector_stores<br/>GET /vector_stores/{id}<br/>DELETE /vector_stores/{id}"]
-            VIOAPI["POST /vector_io/insert<br/>POST /vector_io/query"]
-            ChatAPI["POST /chat/completions"]
-        end
+        OGXServer["OGX Server<br/>Port: 443/TCP<br/>Auth: API Key (Bearer)"]
+        S3["S3-Compatible Storage<br/>Port: 443/TCP<br/>Auth: AWS IAM"]
     end
 
-    %% Flows
-    Experiment -->|in-process| GAM
-    Experiment -->|in-process| SearchSpace
-    Experiment -->|in-process| Evaluator
-    Experiment -->|in-process| ChromaDB
-    Experiment -->|in-process| KFPHandler
-    Experiment -->|in-process| LocalHandler
-    Experiment -->|outbound calls| OgxClient
+    %% Network flows
+    OGXClient -->|"HTTPS/443<br/>TLS 1.2+<br/>API Key (Bearer)<br/>⚠ verify=False fallback"| OGXServer
+    BotoClient -->|"HTTPS/443<br/>TLS 1.2+<br/>AWS IAM credentials<br/>⚠ verify=False fallback"| S3
 
-    OgxClient -->|"HTTPS / TLS 1.2+<br/>API Key (Bearer)<br/>EGRESS ONLY"| OGX
+    %% Credentials
+    subgraph Credentials["CREDENTIALS (Environment Variables)"]
+        direction LR
+        APIKEY["API_KEY<br/>OGX auth"]
+        OGXURL["OGX_CLIENT_BASE_URL<br/>OGX endpoint"]
+        AWSKEY["AWS_ACCESS_KEY_ID<br/>S3 auth"]
+        AWSSECRET["AWS_SECRET_ACCESS_KEY<br/>S3 auth"]
+        S3EP["AWS_S3_ENDPOINT<br/>S3 endpoint"]
+    end
 
-    OGX --- EmbAPI
-    OGX --- VSAPI
-    OGX --- VIOAPI
-    OGX --- ChatAPI
-
-    %% Annotations
-    NoIngress["NO INGRESS<br/>ai4rag exposes no ports,<br/>services, or listeners"]
+    Credentials -.->|"injected via env vars<br/>no auto-rotation"| Library
 
     %% Styling
-    classDef trusted fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef library fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef inprocess fill:#e8f4fd,stroke:#4a90e2
-    classDef external fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef warning fill:#f8cecc,stroke:#b85450,stroke-width:2px,stroke-dasharray: 5 5
+    classDef caller fill:#e8f0fe,stroke:#4a90e2,stroke-width:2px
+    classDef inprocess fill:#d5e8d4,stroke:#82b366,stroke-width:1px
     classDef egress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef external fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef creds fill:#f8cecc,stroke:#b85450,stroke-width:1px
+    classDef warning fill:#ff6b6b,stroke:#c92a2a,stroke-width:2px
 
-    class Experiment,GAM,SearchSpace trusted
-    class Evaluator,ChromaDB,KFPHandler,LocalHandler inprocess
-    class OgxClient egress
-    class OGX,EmbAPI,VSAPI,VIOAPI,ChatAPI external
-    class NoIngress warning
+    class CallerProcess caller
+    class Unitxt,Docling,PyGAM,ChromaDB inprocess
+    class OGXClient,BotoClient egress
+    class OGXServer,S3 external
+    class APIKEY,OGXURL,AWSKEY,AWSSECRET,S3EP creds

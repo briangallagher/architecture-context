@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "component": "kuberay",
+  "reads": [
+    {
+      "path": "ray-operator/Dockerfile.konflux",
+      "line_range": "1-48",
+      "gap_category": ["fips_compliance"],
+      "question": "What build-time FIPS signals are present in the Konflux Dockerfile?",
+      "expected_signal": "CGO_ENABLED, GOEXPERIMENT, strictfipsruntime tags, base image",
+      "outcome": "resolved",
+      "sections": ["Security > FIPS Compliance"]
+    },
+    {
+      "path": "ray-operator/Dockerfile.rhoai",
+      "line_range": "1-34",
+      "gap_category": ["fips_compliance"],
+      "question": "What build-time FIPS signals are present in the RHOAI Dockerfile?",
+      "expected_signal": "CGO_ENABLED, GOEXPERIMENT, strictfipsruntime tags, base image",
+      "outcome": "resolved",
+      "sections": ["Security > FIPS Compliance"]
+    },
+    {
+      "path": "ray-operator/controllers/ray/authentication_controller.go",
+      "line_range": "1-319",
+      "gap_category": ["authentication", "integration_points", "internal_dependencies"],
+      "question": "How does the AuthenticationController enforce authentication on RayCluster endpoints and what runtime dependencies does it inject?",
+      "expected_signal": "Authentication middleware, sidecar injection, kube-rbac-proxy, OIDC/OAuth mode detection, Gateway API integration",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Data Flows", "Authentication & Authorization", "Internal Platform Dependencies"],
+      "scope_reason": "Need to read from imports through Reconcile method, handleOIDCConfiguration, and ensureOIDCResources to understand the full authentication flow; constants define kube-rbac-proxy image and port; no narrower symbol range covers the complete authentication enforcement chain"
+    },
+    {
+      "path": "ray-operator/pkg/tls/tls.go",
+      "line_range": "1-219",
+      "gap_category": ["fips_compliance", "internal_dependencies"],
+      "question": "How does the operator configure TLS and which crypto primitives does it use? Does it read OpenShift cluster TLS profile?",
+      "expected_signal": "crypto/tls usage, cipher suite selection, OpenShift APIServer TLS profile reading, TLS profile watcher",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Security > FIPS Compliance", "Internal Platform Dependencies"],
+      "scope_reason": "Need cipher suite definitions, Resolve function, parseProfile, and SetupWatcher to understand the full TLS configuration chain and FIPS-compatible cipher selection"
+    }
+  ]
+}

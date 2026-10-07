@@ -1,0 +1,169 @@
+{
+  "component": "model-metadata-collection",
+  "reads": [
+    {
+      "expected_signal": "HTTP listener, service definition, auth middleware, or external API calls",
+      "gap_category": [
+        "http_endpoints",
+        "services",
+        "integration_points",
+        "authentication"
+      ],
+      "line_range": "1-117",
+      "outcome": "resolved",
+      "path": "cmd/metadata-report/main.go",
+      "question": "Does the metadata-report CLI expose any HTTP endpoints, services, or have authentication/integration patterns?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis",
+        "Integration Points"
+      ]
+    },
+    {
+      "expected_signal": "HTTP listener, service definition, auth middleware, external API calls, platform dependencies",
+      "gap_category": [
+        "http_endpoints",
+        "services",
+        "integration_points",
+        "authentication",
+        "internal_dependencies"
+      ],
+      "line_range": "1-239",
+      "outcome": "resolved",
+      "path": "cmd/model-extractor/main.go",
+      "question": "Does the model-extractor CLI expose HTTP endpoints, define services, or have integration/auth patterns?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis",
+        "Integration Points",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "EXPOSE directive, CMD with application binary, FIPS build flags, CGO_ENABLED",
+      "gap_category": [
+        "http_endpoints",
+        "services",
+        "fips_compliance"
+      ],
+      "line_range": "1-43",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux",
+      "question": "What does the Konflux container image run and does it expose ports or have FIPS build signals?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis",
+        "FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "EXPOSE directive, CMD with application binary, FIPS build flags",
+      "gap_category": [
+        "http_endpoints",
+        "services",
+        "fips_compliance"
+      ],
+      "line_range": "1-62",
+      "outcome": "resolved",
+      "path": "Dockerfile",
+      "question": "What does the standard container image run and does it expose ports or have FIPS signals?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis",
+        "FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "Import of RHOAI platform modules, crypto libraries, FIPS-related dependencies",
+      "gap_category": [
+        "internal_dependencies",
+        "fips_compliance"
+      ],
+      "line_range": "1-42",
+      "outcome": "resolved",
+      "path": "go.mod",
+      "question": "Does the Go module have internal RHOAI platform dependencies or FIPS-relevant crypto dependencies?",
+      "sections": [
+        "Dependencies",
+        "FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime, -tags strictfipsruntime",
+      "gap_category": [
+        "fips_compliance"
+      ],
+      "line_range": "1-60",
+      "outcome": "resolved",
+      "path": "Makefile",
+      "question": "Are there FIPS build flags (CGO_ENABLED, GOEXPERIMENT, strictfipsruntime) in the build configuration?",
+      "sections": [
+        "FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "API URL, Bearer token header, authentication mechanism",
+      "gap_category": [
+        "integration_points",
+        "authentication"
+      ],
+      "line_range": "1-60",
+      "outcome": "resolved",
+      "path": "internal/huggingface/client.go",
+      "question": "How does the HuggingFace client authenticate and what endpoints does it connect to?",
+      "sections": [
+        "Integration Points",
+        "Architectural Analysis",
+        "Authentication & Authorization"
+      ]
+    },
+    {
+      "expected_signal": "API URL, Bearer token header, authentication mechanism",
+      "gap_category": [
+        "integration_points",
+        "authentication"
+      ],
+      "line_range": "1-60",
+      "outcome": "resolved",
+      "path": "internal/github/client.go",
+      "question": "How does the GitHub client authenticate and what endpoints does it connect to?",
+      "sections": [
+        "Integration Points",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "Registry API calls, authentication chain, image manifest queries",
+      "gap_category": [
+        "integration_points"
+      ],
+      "line_range": "1-60",
+      "outcome": "resolved",
+      "path": "internal/registry/registry.go",
+      "question": "How does the registry client interact with OCI container registries?",
+      "sections": [
+        "Integration Points",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance",
+        "http_endpoints",
+        "services"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "internal/huggingface",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    }
+  ],
+  "schema_version": 1
+}

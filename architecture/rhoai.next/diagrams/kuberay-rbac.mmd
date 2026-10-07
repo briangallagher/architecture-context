@@ -1,99 +1,99 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA["kuberay-operator<br/>(operator namespace)"]
-        ClusterSA["{cluster} SA<br/>(per RayCluster, user namespace)"]
+        SA_Operator["kuberay-operator<br/>(operator SA)"]
+        SA_Autoscaler["{cluster}-autoscaler-sa<br/>(head group SA)"]
+        SA_OIDC["{cluster}-oidc-proxy-sa<br/>(auth proxy SA)"]
     end
 
-    subgraph ClusterRoleBindings["ClusterRole Bindings"]
-        CRB1["kuberay-operator"]
-        CRB2["kuberay-operator-gateway-api"]
-        CRB3["kuberay-operator-configmap"]
+    subgraph ClusterRoleBindings["Cluster Role Bindings"]
+        CRB_Operator["kuberay-operator<br/>(ClusterRoleBinding)"]
     end
 
-    subgraph RoleBindings["Role Bindings"]
-        RB1["kuberay-operator-leader-election<br/>(operator namespace)"]
-        RB2["{cluster} autoscaler<br/>(cluster namespace)"]
+    subgraph RoleBindings["Role Bindings (per-cluster namespace)"]
+        RB_Autoscaler["{cluster-name}<br/>RoleBinding (autoscaler)"]
+        RB_OIDC["{cluster-name}<br/>RoleBinding (oidc-proxy)"]
     end
 
-    %% ClusterRoles
-    subgraph CR_Main["ClusterRole: kuberay-operator"]
-        direction LR
+    subgraph ClusterRole["ClusterRole: kuberay-operator"]
+        direction TB
+
         subgraph CoreAPI["Core API ('')"]
             Pods["pods<br/>get,list,watch,create,<br/>update,patch,delete,<br/>deletecollection"]
-            Services["services<br/>get,list,watch,create,<br/>update,patch,delete"]
-            Secrets["secrets<br/>get,list,watch,delete"]
-            ConfigMaps["configmaps<br/>get,list,watch,create,<br/>update,patch,delete"]
-            SvcAccts["serviceaccounts<br/>get,list,watch,create,<br/>update,patch,delete"]
-            Events["events<br/>get,list,watch,create,<br/>update,patch,delete"]
-            Endpoints["endpoints<br/>get,list,watch"]
+            PodsResize["pods/resize<br/>patch"]
             PodsProxy["pods/proxy<br/>get,patch,update"]
-            SvcProxy["services/proxy<br/>get,create,patch,update"]
+            PodsStatus["pods/status<br/>get,list,watch,create,<br/>update,patch,delete"]
+            ConfigMaps["configmaps<br/>get,list,watch,create,<br/>update,patch,delete"]
+            Events["events<br/>get,list,watch,create,<br/>update,patch,delete"]
+            ServiceAccounts["serviceaccounts<br/>get,list,watch,create,<br/>update,patch,delete"]
+            Services["services<br/>get,list,watch,create,<br/>update,patch,delete"]
+            ServicesProxy["services/proxy<br/>get,create,patch,update"]
+            Secrets["secrets<br/>get,list,watch,<br/>create,delete"]
         end
 
-        subgraph RayAPI["ray.io API"]
-            RayClusters["rayclusters<br/>get,list,watch,create,<br/>update,patch,delete"]
-            RayJobs["rayjobs<br/>get,list,watch,create,<br/>update,patch,delete"]
-            RayServices["rayservices<br/>get,list,watch,create,<br/>update,patch,delete"]
-            RayStatuses["*/status<br/>get,patch,update"]
-            RayFinalizers["*/finalizers<br/>update"]
+        subgraph RayAPI["ray.io"]
+            RayClusters["rayclusters (+status,+finalizers)<br/>get,list,watch,create,<br/>update,patch,delete"]
+            RayJobs["rayjobs (+status,+finalizers)<br/>get,list,watch,create,<br/>update,patch,delete"]
+            RayServices["rayservices (+status,+finalizers)<br/>get,list,watch,create,<br/>update,patch,delete"]
+            RayCronJobs["raycronjobs (+status,+finalizers)<br/>get,list,watch,create,<br/>update,patch,delete"]
         end
 
-        subgraph OtherAPI["Other APIs"]
-            Deployments["apps/deployments<br/>get,list,watch,<br/>patch,update"]
-            Jobs["batch/jobs<br/>get,list,watch,create,<br/>update,patch,delete"]
-            Ingresses["networking/ingresses<br/>networking/networkpolicies<br/>get,list,watch,create,<br/>update,patch,delete"]
-            Routes["route.openshift.io/routes<br/>get,list,watch,create,<br/>update,patch,delete"]
-            CertMgr["cert-manager.io/<br/>certificates,issuers<br/>get,list,watch,create,<br/>update,patch,delete"]
+        subgraph GatewayNetworkAPI["gateway.networking.k8s.io"]
+            Gateways["gateways<br/>get,list,watch,<br/>create,update"]
+            HTTPRoutes["httproutes<br/>get,list,watch,create,<br/>update,patch,delete"]
+            RefGrants["referencegrants<br/>get,list,watch,create,<br/>update,patch,delete"]
         end
 
-        subgraph AuthAPI["Auth & OpenShift APIs"]
-            TokenReview["authentication.k8s.io/<br/>tokenreviews<br/>create"]
-            SAR["authorization.k8s.io/<br/>subjectaccessreviews<br/>create"]
-            OSAuth["config.openshift.io/<br/>authentications,oauths<br/>get,list,watch"]
-            OSKubeAPI["operator.openshift.io/<br/>kubeapiservers<br/>get,list,watch"]
-            RBAC["rbac.authorization.k8s.io/<br/>roles: get,list,watch,<br/>create,delete,update<br/>rolebindings: get,list,<br/>watch,create,delete"]
-            Leases["coordination.k8s.io/<br/>leases<br/>get,list,create,update"]
+        subgraph NetworkingAPI["networking.k8s.io"]
+            Ingresses["ingresses<br/>get,list,watch,create,<br/>update,patch,delete"]
+            NetworkPolicies["networkpolicies<br/>get,list,watch,create,<br/>update,patch,delete"]
         end
-    end
 
-    subgraph CR_Gateway["ClusterRole: kuberay-operator-gateway-api"]
-        Gateways["gateway.networking.k8s.io/<br/>gateways<br/>get,list,watch"]
-        HTTPRoutes["gateway.networking.k8s.io/<br/>httproutes<br/>get,list,watch,create,<br/>update,patch,delete"]
-        RefGrants["gateway.networking.k8s.io/<br/>referencegrants<br/>get,list,watch,create,<br/>update,patch,delete"]
-    end
+        subgraph RBACAPI["rbac.authorization.k8s.io"]
+            Roles["roles<br/>get,list,watch,create,<br/>update,delete"]
+            RoleBindingsRes["rolebindings<br/>get,list,watch,create,<br/>update,patch,delete"]
+            ClusterRoles["clusterroles<br/>get,list,watch"]
+        end
 
-    subgraph CR_ConfigMap["ClusterRole: kuberay-operator-configmap"]
-        CMPerms["configmaps<br/>get,list,watch,create,<br/>update,patch,delete"]
+        subgraph CertManagerAPI["cert-manager.io"]
+            Certificates["certificates (+status)<br/>get,list,watch,create,<br/>update,patch,delete"]
+            Issuers["issuers<br/>get,list,watch,create,<br/>update,patch,delete"]
+        end
+
+        subgraph AuthAPI["Auth APIs"]
+            TokenReviews["tokenreviews<br/>(authentication.k8s.io)<br/>create"]
+            SubjectAccessReviews["subjectaccessreviews<br/>(authorization.k8s.io)<br/>create"]
+        end
+
+        subgraph OpenShiftConfigAPI["config.openshift.io"]
+            APIServers["apiservers<br/>get"]
+            Authentications["authentications (+status)<br/>get,list,watch"]
+            OAuths["oauths (+status)<br/>get,list,watch"]
+        end
     end
 
     %% Bindings
-    SA -->|bound via| CRB1
-    SA -->|bound via| CRB2
-    SA -->|bound via| CRB3
-    SA -->|bound via| RB1
+    SA_Operator -->|bound via| CRB_Operator
+    CRB_Operator -->|grants| ClusterRole
 
-    CRB1 -->|grants| CR_Main
-    CRB2 -->|grants| CR_Gateway
-    CRB3 -->|grants| CR_ConfigMap
-
-    ClusterSA -->|bound via| RB2
-    RB2 -->|grants autoscaler perms| RayClusters
+    SA_Autoscaler -->|bound via| RB_Autoscaler
+    SA_OIDC -->|bound via| RB_OIDC
+    RB_Autoscaler -->|grants| PerClusterRole["{cluster-name} Role<br/>(namespace-scoped)"]
+    RB_OIDC -->|grants| PerClusterRole
 
     %% Styling
-    style SA fill:#4a90e2,color:#fff
-    style ClusterSA fill:#4a90e2,color:#fff
-    style CRB1 fill:#ff9800,color:#fff
-    style CRB2 fill:#ff9800,color:#fff
-    style CRB3 fill:#ff9800,color:#fff
-    style RB1 fill:#ff9800,color:#fff
-    style RB2 fill:#ff9800,color:#fff
-    style CR_Main fill:#fff3e0,stroke:#e65100
-    style CR_Gateway fill:#e8f5e9,stroke:#2e7d32
-    style CR_ConfigMap fill:#e3f2fd,stroke:#1565c0
-    style RayClusters fill:#7ed321
-    style RayJobs fill:#7ed321
-    style RayServices fill:#7ed321
-    style Pods fill:#ef9a9a
-    style Secrets fill:#ef9a9a
-    style TokenReview fill:#ce93d8
-    style SAR fill:#ce93d8
+    style SA_Operator fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Autoscaler fill:#4a90e2,stroke:#333,color:#fff
+    style SA_OIDC fill:#4a90e2,stroke:#333,color:#fff
+    style CRB_Operator fill:#e8e8e8,stroke:#333
+    style ClusterRole fill:#fff3e0,stroke:#f5a623,stroke-width:2px
+    style RayClusters fill:#7ed321,stroke:#333
+    style RayJobs fill:#7ed321,stroke:#333
+    style RayServices fill:#7ed321,stroke:#333
+    style RayCronJobs fill:#7ed321,stroke:#333
+    style HTTPRoutes fill:#7ed321,stroke:#333
+    style RefGrants fill:#7ed321,stroke:#333
+    style NetworkPolicies fill:#7ed321,stroke:#333
+    style Certificates fill:#7ed321,stroke:#333
+    style TokenReviews fill:#e1d5e7,stroke:#9673a6
+    style SubjectAccessReviews fill:#e1d5e7,stroke:#9673a6
+    style PerClusterRole fill:#fff3e0,stroke:#f5a623

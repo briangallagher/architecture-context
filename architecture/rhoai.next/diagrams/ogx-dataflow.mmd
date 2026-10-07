@@ -1,0 +1,68 @@
+sequenceDiagram
+    participant Client as External Client
+    participant Server as OGX Server<br/>8321/TCP HTTP/HTTPS
+    participant Auth as Auth Middleware<br/>(JWT/OAuth2)
+    participant ACL as Access Control<br/>(Cedar-like)
+    participant Quota as Quota Middleware<br/>(Rate Limiting)
+    participant Router as Inference Router
+    participant Agent as Agent Orchestrator
+    participant Safety as Safety Shield
+    participant Tool as Tool Runtime<br/>(Search/MCP)
+    participant OIDC as OIDC Provider<br/>443/TCP HTTPS
+    participant LLM as LLM Provider<br/>(vLLM/Ollama/OpenAI)<br/>varies/TCP
+    participant VectorDB as Vector DB<br/>(Qdrant/Chroma/FAISS)<br/>varies/TCP
+    participant KV as KV Store<br/>(SQLite/PostgreSQL)
+
+    rect rgb(230, 245, 255)
+        Note over Client,LLM: Flow 1: LLM Chat Completion
+        Client->>Server: POST /v1/inference/chat-completion<br/>Auth: Bearer Token (JWT)
+        Server->>Auth: Validate token
+        Auth->>OIDC: GET /.well-known/jwks.json<br/>TLS 1.2+ (cached)
+        OIDC-->>Auth: JWKS public keys
+        Auth-->>Server: Principal (sub, attributes)
+        Server->>ACL: Check permit/forbid rules
+        ACL-->>Server: Authorized
+        Server->>Quota: Check rate limit
+        Quota-->>Server: Within quota
+        Server->>Router: Route to provider (model_id lookup)
+        Router->>LLM: Forward inference request<br/>HTTP/HTTPS, API Key
+        LLM-->>Router: Streaming tokens
+        Router-->>Server: SSE stream + token metrics
+        Server-->>Client: HTTP/HTTPS SSE stream<br/>Content-Type: text/event-stream
+    end
+
+    rect rgb(255, 243, 224)
+        Note over Client,VectorDB: Flow 2: RAG Query
+        Client->>Server: POST /v1/tool-runtime/rag-tool/query<br/>Auth: Bearer Token
+        Server->>Auth: Validate token
+        Auth-->>Server: Authorized
+        Server->>Router: Route to RAG tool runtime
+        Router->>VectorDB: Similarity search<br/>HTTP/gRPC, TLS (configurable)
+        VectorDB-->>Router: Relevant chunks
+        Router->>LLM: Generate answer with context<br/>HTTP/HTTPS, API Key
+        LLM-->>Router: Augmented response
+        Router-->>Server: RAG result
+        Server-->>Client: JSON response
+    end
+
+    rect rgb(232, 245, 233)
+        Note over Client,KV: Flow 3: Agent Turn with Tool Use
+        Client->>Server: POST /v1/agents/{id}/session/{sid}/turn<br/>Auth: Bearer Token
+        Server->>Auth: Validate token
+        Auth-->>Server: Authorized
+        Server->>Agent: Create agent turn
+        Agent->>Safety: Input safety check<br/>HTTP/HTTPS, API Key
+        Safety-->>Agent: Content safe
+        Agent->>LLM: Initial inference (with tools)<br/>HTTP/HTTPS, API Key
+        LLM-->>Agent: Response with tool_calls
+        Agent->>Tool: Invoke tool (search/MCP)<br/>HTTPS/443, API Key
+        Tool-->>Agent: Tool results
+        Agent->>LLM: Follow-up inference (with tool results)
+        LLM-->>Agent: Final response
+        Agent->>Safety: Output safety check
+        Safety-->>Agent: Content safe
+        Agent->>KV: Persist session/turn state<br/>SQLite/TCP
+        KV-->>Agent: Stored
+        Agent-->>Server: Streaming turn events
+        Server-->>Client: HTTP/HTTPS SSE stream
+    end

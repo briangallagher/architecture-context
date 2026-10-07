@@ -1,0 +1,33 @@
+graph LR
+    TrustyAI["TrustyAI Explainability<br/>Service"]
+
+    %% Internal RHOAI Dependencies
+    TrustyAI -->|"receives inference payloads<br/>HTTP POST /consumer/kserve/v2"| ModelMesh["KServe/ModelMesh"]
+    TrustyAI -->|"exports metrics<br/>GET /q/metrics"| Prometheus["Prometheus"]
+
+    %% Optional Dependencies
+    TrustyAI -.->|"JDBC persistence<br/>(disabled by default)"| MariaDB["MariaDB/MySQL"]
+
+    %% Platform Dependencies
+    TrustyAI -->|"inference data storage<br/>/inputs"| PVC["PVC Storage<br/>trustyai-service-pvc"]
+    TrustyAI -->|"ConfigMap operations<br/>(cluster-scoped)"| K8sAPI["Kubernetes API<br/>ConfigMaps"]
+
+    %% Ingress
+    Route["OpenShift Route<br/>(trustyai)"] -->|"HTTP port 80 → 8080<br/>(no TLS)"| TrustyAI
+
+    %% Integration Points (inbound)
+    ModelMesh -->|"payload forwarding<br/>configured by init container"| TrustyAI
+
+    %% Clients
+    DataScientist["Data Scientist"] -->|"fairness/drift metrics<br/>REST API"| Route
+    Prometheus -->|"scrapes metrics<br/>prometheus.io/scrape"| TrustyAI
+
+    %% Styling
+    style TrustyAI fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style ModelMesh fill:#7ed321,stroke:#333,color:#fff
+    style Prometheus fill:#7ed321,stroke:#333,color:#fff
+    style MariaDB fill:#999,stroke:#333,color:#fff
+    style PVC fill:#f5a623,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style Route fill:#ffe6cc,stroke:#d79b00
+    style DataScientist fill:#f9f9f9,stroke:#999

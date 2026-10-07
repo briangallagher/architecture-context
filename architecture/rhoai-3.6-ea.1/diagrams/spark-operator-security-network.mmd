@@ -1,0 +1,73 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        User["User / CI"]
+    end
+
+    subgraph ControlPlane["KUBERNETES CONTROL PLANE"]
+        KubeAPI["kube-apiserver<br/>6443/TCP<br/>TLS 1.2+<br/>RBAC AuthZ"]
+    end
+
+    subgraph SparkNS["SPARK OPERATOR NAMESPACE"]
+        direction TB
+
+        subgraph WebhookDeploy["spark-operator-webhook"]
+            Webhook["Webhook Server<br/>443/TCP TLS<br/>SA: spark-operator-webhook<br/>Fail policy on all endpoints"]
+            HealthW["Health Probes<br/>:8081/healthz, /readyz<br/>HTTP, unauthenticated"]
+        end
+
+        subgraph ControllerDeploy["spark-operator-controller"]
+            Controller["Controller<br/>SA: spark-operator-controller<br/>Watches: SparkApp, ScheduledSparkApp,<br/>SparkConnect, WebhookConfigs"]
+            HealthC["Health Probes<br/>:8081/healthz, /readyz<br/>HTTP, unauthenticated"]
+        end
+
+        subgraph ModuleDeploy["spark-operator-module (RHOAI)"]
+            Module["Module Controller<br/>SA: module-controller-manager<br/>Watches: SparkOperator CR"]
+        end
+
+        WebhookSvc["spark-operator-webhook-svc<br/>ClusterIP 443/TCP"]
+        WebhookCert["spark-operator-webhook-certs<br/>TLS Secret<br/>RBAC resourceNames restricted"]
+    end
+
+    subgraph PlatformServices["INTERNAL PLATFORM SERVICES"]
+        CertManager["cert-manager<br/>Certificate/Issuer CRDs<br/>TLS 1.2+"]
+        Prometheus["prometheus-operator<br/>PodMonitor CRDs<br/>TLS 1.2+"]
+        ODHOp["ODH Operator<br/>Creates SparkOperator CR<br/>TLS 1.2+"]
+        OSAPIServer["OpenShift APIServer<br/>TLS profile config<br/>config.openshift.io/v1"]
+    end
+
+    %% External flows
+    User -->|"HTTPS/6443<br/>TLS 1.2+<br/>User token"| KubeAPI
+
+    %% Admission flow
+    KubeAPI -->|"HTTPS/443<br/>TLS<br/>Kubernetes admission"| WebhookSvc
+    WebhookSvc --> Webhook
+
+    %% Controller watches
+    KubeAPI -->|"Watch/6443<br/>TLS 1.2+<br/>SA token"| Controller
+    Controller -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token<br/>Create Pods, Services, ConfigMaps"| KubeAPI
+
+    %% Module flows
+    ODHOp -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token"| KubeAPI
+    KubeAPI -->|"Watch/6443<br/>TLS 1.2+<br/>SA token"| Module
+    Module -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token<br/>Deploy stack"| KubeAPI
+
+    %% Platform integrations
+    Module -.->|"CRD CRUD<br/>via K8s API"| CertManager
+    Module -.->|"CRD CRUD<br/>via K8s API"| Prometheus
+    Controller -.->|"Read TLS profile<br/>at startup"| OSAPIServer
+
+    %% Certificate
+    Webhook -.->|"reads"| WebhookCert
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef controlplane fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef operator fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef platform fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef secret fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    class User external
+    class KubeAPI controlplane
+    class Webhook,Controller,Module,HealthW,HealthC,WebhookSvc operator
+    class CertManager,Prometheus,ODHOp,OSAPIServer platform
+    class WebhookCert secret

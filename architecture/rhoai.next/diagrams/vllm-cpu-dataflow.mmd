@@ -1,45 +1,49 @@
 sequenceDiagram
-    participant Client as External Client
-    participant KServe as KServe Gateway<br/>(Route/HTTPRoute)
-    participant API as OpenAI API Server<br/>8000/TCP HTTP
-    participant Engine as V1 AsyncLLM Engine<br/>(in-process)
-    participant PyTorch as PyTorch CPU Backend<br/>(in-process C++)
-    participant HF as Hugging Face Hub<br/>443/TCP HTTPS
-    participant S3 as S3 Storage<br/>443/TCP HTTPS
+    participant Client as External Client<br/>(via KServe)
+    participant FastAPI as FastAPI Server<br/>8000/TCP HTTP<br/>Optional TLS
+    participant Rust as Rust Frontend<br/>(PyO3)
+    participant Input as InputProcessor
+    participant ZMQ1 as ZMQ PUSH<br/>(IPC)
+    participant Engine as EngineCore<br/>Scheduler
+    participant Exec as Model Executor<br/>CPU Backend
+    participant ZMQ2 as ZMQ PUB<br/>(IPC)
+    participant Output as OutputProcessor
+    participant HF as HuggingFace Hub<br/>443/TCP HTTPS
 
-    Note over API,PyTorch: Flow 1: OpenAI Chat Completion Request
+    Note over FastAPI,HF: Flow 1: Chat Completion Request
 
-    Client->>KServe: POST /v1/chat/completions<br/>HTTP, Optional TLS
-    KServe->>API: Forward request<br/>HTTP 8000/TCP
-    API->>API: AuthenticationMiddleware<br/>Validate API Key (if configured)
-    API->>Engine: generate() call<br/>(in-process Python)
-    Engine->>PyTorch: Tensor computation<br/>(Python/C++ FFI)
-    PyTorch-->>Engine: Generated tokens
-    Engine-->>API: Token stream
-    API-->>KServe: SSE stream (streaming)<br/>or JSON response
-    KServe-->>Client: Response
+    Client->>FastAPI: POST /v1/chat/completions<br/>Optional Bearer Token
+    FastAPI->>Rust: Tokenize + render chat template
+    Rust-->>FastAPI: Tokenized input
+    FastAPI->>Input: Processed request
+    Input->>ZMQ1: msgspec serialized
+    ZMQ1->>Engine: PUSH to EngineCore
+    Engine->>Exec: Schedule batch<br/>PagedAttention KV cache
+    Exec->>Exec: PyTorch CPU inference<br/>NUMA-aware allocation
+    Exec-->>Engine: Tensor output
+    Engine->>ZMQ2: PUB result
+    ZMQ2->>Output: msgspec deserialized
+    Output-->>FastAPI: Formatted response
+    FastAPI-->>Client: JSON / SSE stream
 
-    Note over Engine,S3: Flow 2: Model Loading at Startup
+    Note over FastAPI,HF: Flow 2: Model Loading at Startup
 
-    Engine->>HF: GET model weights & tokenizer<br/>HTTPS 443/TCP TLS 1.2+<br/>Auth: Bearer HF_TOKEN
-    HF-->>Engine: Model artifacts
-    Engine->>Engine: Load to local filesystem
-    Engine->>PyTorch: Load model weights<br/>(in-process Python/C++)
-    PyTorch-->>Engine: Model ready
+    FastAPI->>HF: GET model config + weights<br/>TLS 1.2+ / HF_TOKEN Bearer
+    HF-->>FastAPI: safetensors / torch files
+    FastAPI->>Exec: BaseModelLoader<br/>15+ format plugins
+    Exec->>Exec: Memory-map weights<br/>NUMA-aware CPU placement
 
-    alt S3 Model Source
-        Engine->>S3: GET model weights<br/>HTTPS 443/TCP TLS 1.2+<br/>Auth: AWS IAM (S3_ACCESS_KEY_ID)
-        S3-->>Engine: Model artifacts
-    end
+    Note over FastAPI,HF: Flow 3: gRPC Inference
 
-    Note over Client,API: Flow 3: gRPC Inference Request
+    participant GRPC as gRPC Server<br/>50051/TCP<br/>Insecure
 
-    participant GRPCClient as gRPC Client
-    participant GRPC as gRPC Server<br/>50051/TCP Insecure
-
-    GRPCClient->>GRPC: gRPC Inference Request<br/>HTTP/2 50051/TCP<br/>No TLS, No Auth
-    GRPC->>Engine: generate() call<br/>(in-process Python)
-    Engine->>PyTorch: Tensor computation<br/>(Python/C++ FFI)
-    PyTorch-->>Engine: Generated tokens
-    Engine-->>GRPC: Token stream
-    GRPC-->>GRPCClient: gRPC Response<br/>HTTP/2 50051/TCP
+    Client->>GRPC: GenerateRequest (protobuf)
+    GRPC->>Input: Processed request
+    Input->>ZMQ1: msgspec serialized
+    ZMQ1->>Engine: PUSH to EngineCore
+    Engine->>Exec: Schedule + execute
+    Exec-->>Engine: Result
+    Engine->>ZMQ2: PUB result
+    ZMQ2->>Output: msgspec deserialized
+    Output-->>GRPC: GenerateResponse
+    GRPC-->>Client: Unary / Stream response

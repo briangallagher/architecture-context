@@ -1,107 +1,98 @@
 graph TB
-    subgraph CaikitFramework["Caikit Framework"]
+    subgraph CaikitFramework["Caikit AI Runtime Framework"]
         direction TB
 
         subgraph Core["caikit.core"]
-            ModuleSystem["Module System<br/>@module decorator"]
-            TaskSystem["Task System<br/>@task decorator"]
-            DataModel["Data Model<br/>dataobject, streams"]
-            ModelMgr["Model Manager<br/>load, save, train"]
-            Backends["Backend System<br/>pluggable backends"]
-            Registries["Registries<br/>module & task registry"]
+            ModuleSystem["Module System<br/>@module decorator<br/>Task registration"]
+            DataModel["Data Model<br/>@dataobject decorator<br/>Auto protobuf gen"]
+            TaskDefs["Task Definitions<br/>@task decorator<br/>NLP, TS, Vision"]
+            ModelMgmt["Model Management<br/>Loader / Saver<br/>Model lifecycle"]
+            Backends["Pluggable Backends<br/>LocalBackend<br/>Custom backends"]
+            Factory["Factory System<br/>Extensible components"]
+        end
 
-            TaskSystem -->|defines contracts for| ModuleSystem
-            ModuleSystem -->|registers in| Registries
-            ModuleSystem -->|uses| DataModel
-            ModuleSystem -->|managed by| ModelMgr
-            ModelMgr -->|delegates to| Backends
+        subgraph Interfaces["caikit.interfaces"]
+            NLP["NLP Tasks<br/>TextGeneration<br/>Classification<br/>Embeddings<br/>Reranking"]
+            TimeSeries["TimeSeries Tasks<br/>Forecasting<br/>DataFrame support"]
+            Vision["Vision Tasks<br/>Image processing"]
+            RuntimeIF["Runtime Data Models<br/>Info, Management<br/>Training"]
         end
 
         subgraph Runtime["caikit.runtime"]
             direction TB
-            GRPCServer["gRPC Server<br/>configurable port/TCP"]
-            HTTPServer["HTTP Server<br/>FastAPI + uvicorn"]
-            MetricsServer["Metrics Server<br/>Prometheus"]
 
-            subgraph Servicers["Shared Servicers"]
-                PredictServicer["GlobalPredictServicer"]
-                TrainServicer["GlobalTrainServicer"]
-                ModelMgmtServicer["ModelManagementServicer"]
-                ModelRuntimeServicer["ModelRuntimeServicer<br/>(ModelMesh sidecar)"]
-                InfoServicer["InfoServicer"]
-                TrainingMgmtServicer["TrainingManagementServicer"]
+            subgraph Servers["Dual-Protocol Servers"]
+                GRPCServer["gRPC Server<br/>8085/TCP<br/>TLS/mTLS"]
+                HTTPServer["HTTP Server (FastAPI)<br/>8080/TCP<br/>TLS/mTLS<br/>JSON + SSE"]
             end
 
-            ServiceFactory["ServiceFactory<br/>dynamic service generation"]
-            RuntimeModelMgr["Runtime ModelManager"]
-            Batcher["Request Batcher"]
+            subgraph Servicers["Shared Servicers"]
+                PredictServicer["GlobalPredictServicer<br/>Inference routing"]
+                TrainServicer["GlobalTrainServicer<br/>Training orchestration"]
+                InfoServicer["InfoServicer<br/>Models & version info"]
+                MgmtServicer["ModelManagementServicer<br/>Deploy/Undeploy"]
+                TrainMgmtServicer["TrainingManagementServicer<br/>Status/Cancel"]
+            end
 
-            GRPCServer --> PredictServicer
-            GRPCServer --> TrainServicer
-            GRPCServer --> ModelMgmtServicer
-            GRPCServer --> ModelRuntimeServicer
-            GRPCServer --> InfoServicer
-            HTTPServer --> PredictServicer
-            HTTPServer --> TrainServicer
-            HTTPServer --> ModelMgmtServicer
-            HTTPServer --> TrainingMgmtServicer
-            PredictServicer --> RuntimeModelMgr
-            TrainServicer --> RuntimeModelMgr
-            RuntimeModelMgr --> Batcher
-            ServiceFactory -->|generates| GRPCServer
-            ServiceFactory -->|generates| HTTPServer
+            ModelManager["ModelManager<br/>Model loading/caching<br/>Thread-safe registry"]
+            ServiceGen["Service Generation<br/>Dynamic proto/route<br/>generation at startup"]
+            Metrics["Prometheus Metrics<br/>8086/TCP<br/>RPC meter"]
+            Tracing["OpenTelemetry Tracing<br/>OTLP export"]
+            Batcher["Request Batcher<br/>Per-model batching"]
+
+            subgraph ModelMeshIPC["ModelMesh Integration"]
+                ModelRuntimeSvc["ModelRuntimeServicer<br/>Unix socket gRPC<br/>loadModel/unloadModel"]
+            end
         end
 
-        subgraph Interfaces["caikit.interfaces"]
-            NLP["NLP<br/>text gen, embedding,<br/>classification, reranking"]
-            TimeSeries["Time Series<br/>forecasting, anomaly<br/>detection, evaluation"]
-            Vision["Vision<br/>image processing"]
-            Common["Common<br/>vectors, files,<br/>streams, remote"]
-            RuntimeIF["Runtime<br/>model mgmt, training<br/>mgmt, runtime info"]
+        subgraph HealthProbe["caikit_health_probe"]
+            Probe["Health Probe CLI<br/>Separate process<br/>gRPC + HTTP checks<br/>psutil liveness"]
         end
-
-        HealthProbe["caikit_health_probe<br/>CLI utility"]
     end
 
-    %% External integrations
-    Client["Client"] -->|gRPC / HTTP| GRPCServer
-    Client -->|HTTP / HTTPS| HTTPServer
+    %% Internal relationships
+    GRPCServer -->|delegates| PredictServicer
+    GRPCServer -->|delegates| TrainServicer
+    HTTPServer -->|delegates| PredictServicer
+    HTTPServer -->|delegates| TrainServicer
+    PredictServicer -->|lookups| ModelManager
+    TrainServicer -->|submits| ModelManager
+    ModelManager -->|loads| ModuleSystem
+    ServiceGen -->|introspects| TaskDefs
+    ServiceGen -->|generates| GRPCServer
+    ServiceGen -->|generates| HTTPServer
+    ModuleSystem -->|uses| DataModel
+    ModuleSystem -->|registers| TaskDefs
+    ModelRuntimeSvc -->|manages| ModelManager
 
-    ModelMesh["ModelMesh"] -->|ModelRuntime gRPC<br/>Unix socket / TCP| ModelRuntimeServicer
-    KServe["KServe<br/>ServingRuntime"] -.->|container colocation| CaikitFramework
+    %% External connections
+    Client[Client Application] -->|gRPC :8085| GRPCServer
+    Client -->|HTTP :8080| HTTPServer
+    ModelMesh[ModelMesh Controller] -->|Unix socket| ModelRuntimeSvc
+    Probe -->|health check| GRPCServer
+    Probe -->|health check| HTTPServer
+    PromScraper[Prometheus] -->|scrape :8086| Metrics
+    OTelCollector[OTel Collector] <-->|traces| Tracing
 
-    RuntimeModelMgr -->|loads models| LocalFS["Local Filesystem"]
-    RuntimeModelMgr -->|loads models| S3["S3 Storage"]
-
-    HealthProbe -->|probes| GRPCServer
-    HealthProbe -->|probes| HTTPServer
-
-    Prometheus["Prometheus"] -->|scrapes| MetricsServer
-    OTel["OTel Collector"] <-->|OTLP traces| Runtime
-
-    %% Core provides to Runtime
-    Core -->|module/task abstractions| ServiceFactory
-
-    %% Interfaces define tasks for Core
-    NLP -->|task definitions| TaskSystem
-    TimeSeries -->|task definitions| TaskSystem
-    Vision -->|data models| DataModel
+    %% Downstream consumers
+    CaikitNLP[caikit-nlp] -->|imports| ModuleSystem
+    CaikitTGIS[caikit-tgis-serving] -->|imports| ModuleSystem
+    KServe[KServe ServingRuntime] -->|runs| Runtime
 
     %% Styling
-    style CaikitFramework fill:#f0f4ff,stroke:#4a90e2,stroke-width:2px
-    style Core fill:#dbeafe,stroke:#3b82f6,stroke-width:2px
-    style Runtime fill:#d1fae5,stroke:#10b981,stroke-width:2px
-    style Interfaces fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
-    style Servicers fill:#e0e7ff,stroke:#6366f1,stroke-width:1px
+    style CaikitFramework fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style Core fill:#dcedc8,stroke:#689f38,stroke-width:2px
+    style Interfaces fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style Runtime fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style HealthProbe fill:#fce4ec,stroke:#c62828,stroke-width:2px
+    style Servers fill:#e8eaf6,stroke:#3f51b5
+    style Servicers fill:#e8eaf6,stroke:#3f51b5
+    style ModelMeshIPC fill:#f3e5f5,stroke:#7b1fa2
 
-    style GRPCServer fill:#4a90e2,color:#fff
-    style HTTPServer fill:#4a90e2,color:#fff
-    style MetricsServer fill:#4a90e2,color:#fff
-
-    style ModelMesh fill:#e8e8e8,stroke:#666
-    style KServe fill:#e8e8e8,stroke:#666
-    style S3 fill:#f5a623,stroke:#333
-    style Prometheus fill:#e8e8e8,stroke:#666
-    style OTel fill:#e8e8e8,stroke:#666
-    style Client fill:#f9f9f9,stroke:#999
-    style HealthProbe fill:#7ed321,color:#fff
+    style Client fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style ModelMesh fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style PromScraper fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style OTelCollector fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style CaikitNLP fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style CaikitTGIS fill:#c8e6c9,stroke:#388e3c,stroke-width:2px
+    style KServe fill:#c8e6c9,stroke:#388e3c,stroke-width:2px

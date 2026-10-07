@@ -1,50 +1,57 @@
 graph TB
-    subgraph "vllm-spyre Container Image"
-        direction TB
-        subgraph "vllm-tgis-adapter"
-            HTTPServer["OpenAI-Compatible HTTP Server<br/>Port 8000/TCP"]
-            GRPCServer["TGIS gRPC Server<br/>Port 8033/TCP"]
+    subgraph External["External Clients"]
+        Client[Client Application]
+    end
+
+    subgraph KServePod["KServe Inference Pod"]
+        subgraph Sidecar["Auth Sidecar"]
+            KRBAC["kube-rbac-proxy<br/>8443/TCP HTTPS"]
         end
 
-        subgraph "vLLM Engine"
-            Engine["vLLM Inference Engine<br/>(Python)"]
-            SpyrePlugin["vllm-spyre Plugin"]
+        subgraph VLLMContainer["vllm-spyre Container"]
+            TGIS["vllm_tgis_adapter<br/>(Entrypoint)"]
+            VLLMEngine["vLLM Engine<br/>(IBM Spyre accelerated)"]
+            HTTPApi["OpenAI-compatible API<br/>8000/TCP HTTP"]
+            GRPCApi["TGIS gRPC API<br/>8033/TCP gRPC"]
+
+            TGIS --> VLLMEngine
+            TGIS --> HTTPApi
+            TGIS --> GRPCApi
         end
 
-        HTTPServer -->|"Python call"| Engine
-        GRPCServer -->|"Python call"| Engine
-        Engine -->|"plugin dispatch"| SpyrePlugin
+        KRBAC -->|"HTTP/8000<br/>localhost"| HTTPApi
+        KRBAC -->|"gRPC/8033<br/>localhost"| GRPCApi
     end
 
-    subgraph "Platform-Injected Sidecar"
-        RBAC["kube-rbac-proxy<br/>Port 8443/TCP<br/>TLS 1.2+ / Bearer Token"]
+    subgraph Platform["RHOAI Platform"]
+        KServe["KServe Controller<br/>(ServingRuntime CR)"]
+        Prometheus["Prometheus<br/>(Metrics Scrape)"]
     end
 
-    Client["External Client"] -->|"HTTPS/8443<br/>Bearer Token"| RBAC
-    KServeMMesh["KServe / ModelMesh"] -->|"HTTPS/8443<br/>Bearer Token"| RBAC
-    RBAC -->|"HTTP/8000<br/>localhost"| HTTPServer
-    RBAC -->|"gRPC/8033<br/>localhost"| GRPCServer
-
-    SpyrePlugin -->|"VFIO passthrough"| Spyre["IBM Spyre<br/>AI Accelerator<br/>(Hardware)"]
-
-    ModelPVC["HuggingFace Model Weights<br/>(PVC / Volume Mount)"] -.->|"filesystem mount<br/>HF_HUB_OFFLINE=1"| Engine
-
-    subgraph "Build Pipeline"
-        BaseImage["rhaiis/vllm-spyre-rhel9<br/>(Pre-built Base Image)"]
-        Konflux["Konflux Pipeline<br/>(Supply Chain Attestation)"]
-        BaseImage -->|"FROM"| Konflux
+    subgraph Storage["Model Storage"]
+        PVC["PVC Mount<br/>(Model Weights)"]
+        HFHub["HuggingFace Hub<br/>443/TCP HTTPS<br/>(Optional)"]
     end
 
-    Konflux -.->|"produces"| HTTPServer
+    subgraph Hardware["Accelerator Hardware"]
+        Spyre["IBM Spyre<br/>Accelerator"]
+    end
 
-    style HTTPServer fill:#4a90e2,stroke:#333,color:#fff
-    style GRPCServer fill:#4a90e2,stroke:#333,color:#fff
-    style Engine fill:#4a90e2,stroke:#333,color:#fff
-    style SpyrePlugin fill:#4a90e2,stroke:#333,color:#fff
-    style RBAC fill:#f5a623,stroke:#333,color:#fff
-    style Spyre fill:#e74c3c,stroke:#333,color:#fff
-    style ModelPVC fill:#7ed321,stroke:#333,color:#fff
-    style BaseImage fill:#999,stroke:#333,color:#fff
-    style Konflux fill:#999,stroke:#333,color:#fff
-    style Client fill:#f9f9f9,stroke:#999
-    style KServeMMesh fill:#f9f9f9,stroke:#999
+    Client -->|"HTTPS/8443<br/>TLS 1.2+<br/>Bearer Token"| KRBAC
+    KServe -->|"deploys & manages"| KServePod
+    VLLMEngine -->|"loads model"| PVC
+    VLLMEngine -->|"downloads model<br/>(if not pre-staged)"| HFHub
+    VLLMEngine -->|"hardware acceleration"| Spyre
+    Prometheus -->|"scrapes /metrics<br/>HTTP/8000"| HTTPApi
+
+    style KRBAC fill:#e8a838,stroke:#333,stroke-width:2px
+    style TGIS fill:#4a90e2,stroke:#333,stroke-width:2px
+    style VLLMEngine fill:#4a90e2,stroke:#333,stroke-width:2px
+    style HTTPApi fill:#4a90e2,stroke:#333,stroke-width:2px
+    style GRPCApi fill:#4a90e2,stroke:#333,stroke-width:2px
+    style KServe fill:#7ed321,stroke:#333,stroke-width:2px
+    style Prometheus fill:#7ed321,stroke:#333,stroke-width:2px
+    style PVC fill:#f5a623,stroke:#333,stroke-width:2px
+    style HFHub fill:#f5a623,stroke:#333,stroke-width:2px
+    style Spyre fill:#9b59b6,stroke:#333,stroke-width:2px
+    style Client fill:#e8e8e8,stroke:#333,stroke-width:2px

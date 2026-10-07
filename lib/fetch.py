@@ -2,14 +2,23 @@
 
 import asyncio
 import fnmatch
+import json
 import os
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
+from lib.repo_naming import checkout_name
+
 _log_file = None
+
+# Keep organization fetches bounded: a shallow checkout is sufficient for
+# source analysis, and gh-org-clone runs a small number of clones concurrently.
+GH_ORG_CLONE_DEPTH = 1
+GH_ORG_CLONE_WORKERS = 4
 
 
 def _log(msg: str) -> None:
@@ -32,6 +41,10 @@ def _prepare_env() -> dict:
     """
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
+    # The managed execution environment may expose ~/.cache as read-only.
+    # Keep Go build artifacts local and disposable without requiring .env or
+    # user-shell setup.
+    env.setdefault("GOCACHE", "/tmp/odh-architecture-context-go-cache")
     return env
 
 
@@ -149,84 +162,40 @@ async def _ensure_gh_org_clone() -> str:
 
 async def _ensure_arch_analyzer() -> str:
     """
-    Ensure arch-analyzer is available, installing it if necessary.
+    Build and return the in-repository arch-analyzer.
 
     Returns:
         Path to the arch-analyzer executable
     """
-    arch_analyzer_name = "arch-analyzer"
-
-    # First check if it's already in PATH
-    arch_analyzer_path = shutil.which(arch_analyzer_name)
-    if arch_analyzer_path:
-        _log(f"Found {arch_analyzer_name} in PATH: {arch_analyzer_path}")
-        return arch_analyzer_name
-
-    # Check if it's already installed in ./bin
+    name = "arch-analyzer"
     local_bin = Path("bin").absolute()
-    local_arch_analyzer = local_bin / arch_analyzer_name
-    if local_arch_analyzer.exists():
-        _log(f"Found {arch_analyzer_name} in ./bin: {local_arch_analyzer}")
-        os.environ["PATH"] = f"{local_bin}:{os.environ.get('PATH', '')}"
-        return str(local_arch_analyzer)
+    local_binary = local_bin / name
+    source_dir = Path("src/arch-analyzer").absolute()
+    if not source_dir.exists():
+        raise RuntimeError(f"Source directory not found: {source_dir}")
 
-    # Not found - need to clone and build
-    _log(f"{arch_analyzer_name} not found in PATH or ./bin")
-    _log("Installing arch-analyzer from https://github.com/ugiordan/architecture-analyzer")
-
-    tmp_dir = Path("tmp").absolute()
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-
-    clone_dir = tmp_dir / "architecture-analyzer"
-
-    env = _prepare_env()
-
-    # Clone the repository if not already present
-    if not clone_dir.exists():
-        _log(f"Cloning to {clone_dir}...")
-        proc = await asyncio.create_subprocess_exec(
-            "git", "clone",
-            "https://github.com/ugiordan/architecture-analyzer",
-            str(clone_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(
-                "Failed to clone architecture-analyzer:"
-                f" {stderr.decode()}"
-            )
-        _log("Clone successful")
-    else:
-        _log(f"Using existing clone at {clone_dir}")
-
-    # Build the project
-    _log("Building arch-analyzer...")
+    _log(f"Building {name} from {source_dir}")
     local_bin.mkdir(parents=True, exist_ok=True)
+    env = _prepare_env()
     proc = await asyncio.create_subprocess_exec(
-        "go", "build", "-o", str(local_arch_analyzer), "./cmd/arch-analyzer",
-        cwd=str(clone_dir),
+        "go", "build", "-o", str(local_binary), ".",
+        cwd=str(source_dir),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(f"Failed to build arch-analyzer: {stderr.decode()}")
+        raise RuntimeError(f"Failed to build {name}: {stderr.decode()}")
 
-    if not local_arch_analyzer.exists():
+    if not local_binary.exists():
         raise RuntimeError(
-            f"Build succeeded but binary not found"
-            f" at {local_arch_analyzer}"
+            f"Build succeeded but binary not found at {local_binary}"
         )
 
-    _log(f"Successfully built and installed arch-analyzer to {local_arch_analyzer}")
-
+    _log(f"Successfully built {name} to {local_binary}")
     os.environ["PATH"] = f"{local_bin}:{os.environ.get('PATH', '')}"
-
-    return str(local_arch_analyzer)
+    return str(local_binary)
 
 
 async def _ensure_arch_query() -> str:
@@ -341,7 +310,7 @@ async def _clone_org(
     checkouts_dir: Path,
     branch: str = None,
     suffix: str = None,
-    exclude: str = None,
+    exclude: list[str] | str = None,
     ssh: bool = False,
 ) -> None:
     """Clone all repositories from a single GitHub org.
@@ -352,7 +321,7 @@ async def _clone_org(
         checkouts_dir: Base checkouts directory
         branch: Optional branch to clone
         suffix: Optional directory suffix (e.g., org.suffix/)
-        exclude: Comma-separated glob patterns to exclude
+        exclude: Glob patterns to exclude (list or comma-separated string)
         ssh: If True, pass -ssh to gh-org-clone
     """
     if suffix:
@@ -364,16 +333,29 @@ async def _clone_org(
     if branch:
         _log(f"Branch filter: {branch}")
     if exclude:
-        _log(f"Exclude patterns: {exclude}")
+        if isinstance(exclude, str):
+            exclude_patterns = [
+                p.strip() for p in exclude.split(",") if p.strip()
+            ]
+        else:
+            exclude_patterns = [p.strip() for p in exclude if p.strip()]
+        _log(f"Exclude patterns: {', '.join(exclude_patterns)}")
+    else:
+        exclude_patterns = []
 
-    cmd = [gh_org_clone_cmd, "-path", str(checkouts_dir)]
+    cmd = [
+        gh_org_clone_cmd,
+        "-path", str(checkouts_dir),
+        "-depth", str(GH_ORG_CLONE_DEPTH),
+        "-workers", str(GH_ORG_CLONE_WORKERS),
+    ]
 
     if branch:
         cmd.extend(["-branch", branch])
     if suffix:
         cmd.extend(["-suffix", suffix])
-    if exclude:
-        cmd.extend(["-exclude", exclude])
+    for pattern in exclude_patterns:
+        cmd.extend(["-exclude", pattern])
     if ssh:
         cmd.append("-ssh")
 
@@ -443,6 +425,68 @@ def _apply_exclude_files(repo_path: Path, patterns: list, repo_name: str) -> Non
                 _log(f"  exclude_files [{repo_name}]: removed {rel}")
 
 
+def _version_sort_key(branch: str) -> tuple:
+    """Extract a numeric version tuple from a branch name for sorting.
+
+    Splits on the last '-' and parses the suffix as dot-separated integers.
+    Non-numeric segments are ignored so branches like 'release-main' sort
+    before any numeric version.
+    """
+    suffix = branch.rsplit("-", 1)[-1]
+    parts = suffix.split(".")
+    return tuple(int(p) for p in parts if p.isdigit())
+
+
+async def _resolve_branch_glob(
+    org: str,
+    repo: str,
+    pattern: str,
+    protocol: str = "https",
+) -> str | None:
+    """Resolve a branch glob pattern to the latest matching branch.
+
+    Queries remote refs with ``git ls-remote --heads``, filters by the glob
+    pattern, sorts by the numeric version suffix, and returns the latest.
+    Returns None if no branches match.
+    """
+    if protocol == "ssh":
+        url = f"git@github.com:{org}/{repo}.git"
+    else:
+        url = f"https://github.com/{org}/{repo}.git"
+
+    env = _prepare_env()
+    proc = await asyncio.create_subprocess_exec(
+        "git", "ls-remote", "--heads", url, pattern,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except asyncio.TimeoutError:
+        proc.terminate()
+        await proc.wait()
+        return None
+    if proc.returncode != 0:
+        return None
+
+    branches = []
+    for line in stdout.decode().splitlines():
+        parts = line.split("\t", 1)
+        if len(parts) == 2:
+            ref = parts[1].strip()
+            if ref.startswith("refs/heads/"):
+                name = ref[len("refs/heads/"):]
+                if "/" not in name and fnmatch.fnmatch(name, pattern):
+                    branches.append(name)
+
+    if not branches:
+        return None
+
+    branches.sort(key=_version_sort_key)
+    return branches[-1]
+
+
 async def _clone_repo(
     checkouts_dir: Path,
     org: str,
@@ -452,13 +496,61 @@ async def _clone_repo(
     pull: bool = False,
     exclude_files: list = None,
     protocol: str = "https",
+    name_prefix: str = "",
 ) -> None:
     """Clone an individual repository."""
     org_dir = f"{org}.{suffix}" if suffix else org
-    repo_path = checkouts_dir / org_dir / repo
+    repo_path = checkouts_dir / org_dir / checkout_name(repo, name_prefix)
+
+    if branch and any(c in branch for c in ("*", "?")):
+        resolved = await _resolve_branch_glob(org, repo, branch, protocol)
+        if resolved is None:
+            _log(f"  Skipped {org}/{repo} (no branches match '{branch}')")
+            return
+        _log(f"  {org}/{repo}: resolved '{branch}' -> '{resolved}'")
+        branch = resolved
 
     if repo_path.exists():
         if pull and (repo_path / ".git").exists():
+            if branch:
+                env = _prepare_env()
+                current = await asyncio.create_subprocess_exec(
+                    "git", "rev-parse", "--abbrev-ref", "HEAD",
+                    cwd=str(repo_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                )
+                cur_out, _ = await current.communicate()
+                current_branch = cur_out.decode().strip()
+                if current_branch != branch:
+                    fetch = await asyncio.create_subprocess_exec(
+                        "git", "fetch", "origin", branch,
+                        cwd=str(repo_path),
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=env,
+                    )
+                    await fetch.communicate()
+                    if fetch.returncode != 0:
+                        _log(f"  {org}/{repo}: fetch {branch} failed, skipping")
+                        if exclude_files:
+                            _apply_exclude_files(repo_path, exclude_files, repo)
+                        return
+                    checkout = await asyncio.create_subprocess_exec(
+                        "git", "checkout", branch,
+                        cwd=str(repo_path),
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=env,
+                    )
+                    await checkout.communicate()
+                    if checkout.returncode != 0:
+                        _log(f"  {org}/{repo}: failed to switch to {branch}")
+                        if exclude_files:
+                            _apply_exclude_files(repo_path, exclude_files, repo)
+                        return
+                    _log(f"  {org}/{repo}: switched {current_branch} -> {branch}")
             env = _prepare_env()
             proc = await asyncio.create_subprocess_exec(
                 "git", "pull", "--ff-only",
@@ -517,6 +609,155 @@ async def _clone_repo(
             _log(f"  Failed to clone {org}/{repo}")
     elif exclude_files:
         _apply_exclude_files(repo_path, exclude_files, repo)
+
+
+async def _list_remote_branches(repo_path: Path) -> list[str]:
+    """Return remote branch names for a completed checkout."""
+    proc = await asyncio.create_subprocess_exec(
+        "git", "ls-remote", "--heads", "origin",
+        cwd=str(repo_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=_prepare_env(),
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=60
+        )
+    except asyncio.TimeoutError as exc:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError(
+            f"Timed out listing remote branches for {repo_path}"
+        ) from exc
+    if proc.returncode != 0:
+        detail = stderr.decode(errors="replace").strip()
+        raise RuntimeError(
+            f"Unable to list remote branches for {repo_path}: "
+            f"{detail or f'git exited {proc.returncode}'}"
+        )
+
+    branches = set()
+    for line in stdout.decode(errors="replace").splitlines():
+        fields = line.split("\t", 1)
+        if len(fields) == 2 and fields[1].startswith("refs/heads/"):
+            ref = fields[1]
+            branches.add(ref.removeprefix("refs/heads/"))
+    return sorted(branches)
+
+
+async def _apply_repo_branch_policies(
+    checkouts_path: Path,
+    platform: str,
+    suffix: str | None,
+    org_dir_names: set[str],
+    policies: list[dict],
+) -> None:
+    """Record remote-branch eligibility for configured org checkout trees."""
+    compiled_policies = {}
+    for index, policy in enumerate(policies):
+        if not isinstance(policy, dict):
+            raise ValueError(
+                f"repo_branch_policies[{index}] must be a mapping"
+            )
+        org = policy.get("org")
+        expression = policy.get("require_branch_regex")
+        if not isinstance(org, str) or not org.strip():
+            raise ValueError(
+                f"repo_branch_policies[{index}].org must be a non-empty string"
+            )
+        if not isinstance(expression, str) or not expression.strip():
+            raise ValueError(
+                "repo_branch_policies[{}].require_branch_regex must be a "
+                "non-empty string".format(index)
+            )
+        try:
+            pattern = re.compile(expression)
+        except re.error as exc:
+            raise ValueError(
+                f"Invalid repo branch regex for {org!r}: {exc}"
+            ) from exc
+        org_dir_name = f"{org}.{suffix}" if suffix else org
+        if org in compiled_policies:
+            raise ValueError(
+                f"Multiple repo branch policies are configured for {org!r}"
+            )
+        if org_dir_name not in org_dir_names:
+            raise ValueError(
+                f"repo branch policy org {org!r} is not fetched by platform "
+                f"{platform!r}"
+            )
+        compiled_policies[org] = (org_dir_name, expression, pattern)
+
+    # Remove stale reports if a platform's policy was deleted or moved.
+    active_report_paths = {
+        checkouts_path / org_dir_name / "repo-branch-policy.json"
+        for org_dir_name, _expression, _pattern in compiled_policies.values()
+    }
+    for org_dir_name in org_dir_names:
+        report_path = (
+            checkouts_path / org_dir_name / "repo-branch-policy.json"
+        )
+        if report_path.exists() and report_path not in active_report_paths:
+            report_path.unlink()
+
+    semaphore = asyncio.Semaphore(8)
+
+    async def inspect_checkout(repo_path: Path, pattern: re.Pattern) -> dict:
+        if not (repo_path / ".git").exists():
+            raise RuntimeError(
+                f"Cannot apply remote branch policy to non-git checkout: "
+                f"{repo_path}"
+            )
+        async with semaphore:
+            branches = await _list_remote_branches(repo_path)
+        matches = [name for name in branches if pattern.fullmatch(name)]
+        return {
+            "repo": repo_path.name,
+            "eligible": bool(matches),
+            "matching_branches": matches,
+            "reason": (
+                "matched_required_branch_regex"
+                if matches else "no_remote_branch_matched_regex"
+            ),
+        }
+
+    for org, (org_dir_name, expression, pattern) in compiled_policies.items():
+        org_dir = checkouts_path / org_dir_name
+        if not org_dir.is_dir():
+            raise FileNotFoundError(
+                f"Checkout directory required by repo branch policy is missing: "
+                f"{org_dir}"
+            )
+        repo_paths = sorted(
+            (path for path in org_dir.iterdir() if path.is_dir()),
+            key=lambda path: path.name,
+        )
+        results = await asyncio.gather(
+            *(inspect_checkout(path, pattern) for path in repo_paths)
+        )
+        report = {
+            "platform": platform,
+            "org": org,
+            "require_branch_regex": expression,
+            "evaluated_at": datetime.now(timezone.utc).isoformat(),
+            "repositories": results,
+        }
+        report_path = org_dir / "repo-branch-policy.json"
+        temporary_path = report_path.with_suffix(".json.tmp")
+        temporary_path.write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
+        )
+        temporary_path.replace(report_path)
+
+        rejected = [item["repo"] for item in results if not item["eligible"]]
+        _log(
+            f"Remote branch policy for {org}: "
+            f"{len(results) - len(rejected)} eligible, "
+            f"{len(rejected)} excluded; report: {report_path}"
+        )
+        if rejected:
+            _log("  Excluded for missing matching branch: " + ", ".join(rejected))
 
 
 async def fetch_repositories(
@@ -579,11 +820,18 @@ async def fetch_repositories(
                     suffix = branch
 
             # Merge exclude patterns from config and CLI
-            config_excludes = config.get("exclude_repos", [])
-            all_excludes = list(config_excludes)
+            config_excludes = config.get("exclude_repos") or []
+            if isinstance(config_excludes, str):
+                all_excludes = [config_excludes]
+            else:
+                all_excludes = list(config_excludes)
             if exclude:
                 all_excludes.extend(exclude.split(","))
-            exclude_str = ",".join(all_excludes) if all_excludes else None
+            exclude_patterns = [
+                pattern.strip()
+                for pattern in all_excludes
+                if isinstance(pattern, str) and pattern.strip()
+            ]
 
             platform_org_dirs = set()
 
@@ -596,7 +844,7 @@ async def fetch_repositories(
                 platform_org_dirs.add(org_dir_name)
                 await _clone_org(gh_org_clone_cmd, cfg_org, checkouts_path,
                                  branch=branch, suffix=suffix,
-                                 exclude=exclude_str, ssh=use_ssh)
+                                 exclude=exclude_patterns, ssh=use_ssh)
                 if pull:
                     await _pull_existing_repos(checkouts_path, cfg_org, suffix=suffix)
 
@@ -619,7 +867,7 @@ async def fetch_repositories(
                 platform_org_dirs.add(org_dir_name)
                 await _clone_org(gh_org_clone_cmd, org_name, checkouts_path,
                                  branch=org_branch, suffix=org_suffix,
-                                 exclude=exclude_str,
+                                 exclude=exclude_patterns,
                                  ssh=org_protocol == "ssh")
                 if pull:
                     await _pull_existing_repos(
@@ -645,7 +893,30 @@ async def fetch_repositories(
                         branch=repo_branch, suffix=repo_suffix, pull=pull,
                         exclude_files=entry.get("exclude_files"),
                         protocol=entry.get("protocol", "https"),
+                        name_prefix=entry.get("name_prefix", ""),
                     )
+
+            # Clone sync config repo if declared
+            sync_config = config.get("sync_config")
+            if sync_config:
+                sc_org = sync_config["org"]
+                sc_repo = sync_config["repo"]
+                sc_branch = sync_config.get("branch")
+                sc_protocol = sync_config.get("protocol", "ssh")
+                await _clone_repo(
+                    checkouts_path, sc_org, sc_repo,
+                    branch=sc_branch, suffix=suffix, pull=pull,
+                    protocol=sc_protocol,
+                )
+
+            branch_policies = config.get("repo_branch_policies", [])
+            await _apply_repo_branch_policies(
+                checkouts_path,
+                platform,
+                suffix,
+                platform_org_dirs,
+                branch_policies,
+            )
 
             # Apply platform-wide post_checkout exclude_files rules
             post_checkout = config.get("post_checkout", [])

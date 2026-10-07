@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "component": "rhoai-mcp",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "rhoai-mcp-broad-clusterrole-001",
+      "claim": "The rhoai-mcp ClusterRole grants cluster-wide CRUD access to secrets, namespaces, PVCs, pods, and PVs, plus full lifecycle control over CRDs in four API groups, creating a broad blast radius if the service account or OIDC token is compromised.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/security/rbac_cluster_roles"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "src/rhoai_mcp/server.py:82-118"
+        }
+      ],
+      "reasoning": "The ClusterRole has 12 rules covering 13 distinct resource types with verbs including create, delete, and patch. When OIDC is disabled (the default for stdio transport), any process with access to the MCP server inherits this full privilege set. The tool-level RBAC filtering only activates when OIDC is explicitly enabled.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "rhoai-mcp-plugin-architecture-002",
+      "claim": "The pluggy-based plugin system allows domain capabilities to be selectively enabled or disabled, supporting both full-featured and constrained deployment profiles without code changes.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/rhoai_mcp/server.py:284-316"
+        },
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/external_dependencies"
+        }
+      ],
+      "reasoning": "The PluginManager loads core domain plugins filtered by RHOAI_MCP_ENABLED_PLUGINS and discovers external plugins via entry points. Each plugin registers tools, resources, and prompts independently, and also provides RBAC permission mappings consumed by the tool-filtering layer.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "rhoai-mcp-oidc-default-off-003",
+      "claim": "OIDC authentication is disabled by default (oidc_enabled=False), meaning the default stdio transport deployment has no authentication or authorization layer, relying entirely on the service account's cluster-wide permissions.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/rhoai_mcp/config.py:241-243"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "src/rhoai_mcp/server.py:325-327"
+        }
+      ],
+      "reasoning": "The design prioritizes ease of local development and Claude Desktop integration (stdio transport) where OIDC is unnecessary. Multi-user HTTP deployments must explicitly enable OIDC. This is a deliberate trade-off documented in the configuration defaults.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

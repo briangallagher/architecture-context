@@ -1,73 +1,75 @@
 graph TB
-    subgraph MLflowComponent["MLflow Server Component"]
+    subgraph MLflow["MLflow Server (Port 5000)"]
         direction TB
-        subgraph FastAPILayer["FastAPI Layer (ASGI)"]
-            GatewayRouter["Gateway Router<br/>/gateway/*"]
-            OTelRouter["OTLP Router<br/>/v1/traces"]
-            JobRouter["Job Router<br/>/ajax-api/3.0/jobs/*"]
-            GraphQLRouter["GraphQL Router<br/>/graphql"]
+
+        subgraph FastAPILayer["FastAPI Application Layer"]
+            FastAPI["FastAPI App<br/>(create_fastapi_app)"]
+            SecurityMW["Security Middleware<br/>CORS / Host Validation / Headers"]
+            AuthMW["Auth Middleware<br/>(kubernetes-auth / basic-auth)"]
         end
 
-        subgraph FlaskLayer["Flask Layer (WSGI via WSGIMiddleware)"]
-            TrackingAPI["Tracking API<br/>/api/2.0/mlflow/*"]
-            ModelRegistryAPI["Model Registry API<br/>/api/2.0/mlflow/registered-models/*"]
-            AjaxAPI["AJAX API<br/>/ajax-api/2.0/mlflow/*"]
-            WorkspaceAPI["Workspace API<br/>/api/3.0/mlflow/workspaces/*"]
+        subgraph AsyncRoutes["Native Async Routes (FastAPI)"]
+            OTLPEndpoint["/otel/v1/traces<br/>OTLP Trace Ingestion"]
+            GatewayEndpoint["/gateway/{endpoint}/invocations<br/>AI Gateway"]
+            MCPEndpoint["/mcp/servers/{id}/*<br/>MCP Registry"]
+            JobsEndpoint["Jobs Manager"]
         end
 
-        subgraph Plugins["Kubernetes Plugins (mlflow-kubernetes-plugins)"]
-            K8sAuth["Kubernetes Auth Plugin<br/>SelfSubjectAccessReview"]
-            K8sWorkspace["Kubernetes Workspace Provider<br/>Namespace-to-Workspace mapping"]
+        subgraph FlaskWSGI["Flask WSGI (Legacy Routes)"]
+            WSGIBridge["EfficientWSGIMiddleware"]
+            TrackingAPI["/api/2.0/mlflow/*<br/>Tracking Service v2"]
+            TrackingAPIv3["/api/3.0/mlflow/*<br/>Service v3"]
+            AjaxAPI["/ajax-api/*<br/>UI Ajax Endpoints"]
+            GraphQLAPI["/graphql<br/>GraphQL API"]
+            ArtifactProxy["/api/2.0/mlflow-artifacts/*<br/>Artifact Proxy"]
+            WebhookAPI["/api/2.0/mlflow/webhooks/*<br/>Webhooks"]
         end
 
-        subgraph Security["Security Layer"]
-            CryptoEngine["Secrets Encryption Engine<br/>AES-256-GCM / PBKDF2"]
-            FastAPISec["FastAPI Security<br/>Bearer Token extraction"]
+        subgraph UI["Web UI"]
+            ReactUI["React/TypeScript UI<br/>(Standalone + Module Federation)"]
         end
 
-        PrometheusExp["Prometheus Exporter<br/>/metrics"]
+        subgraph Plugins["Plugins"]
+            K8sAuth["mlflow-kubernetes-plugins<br/>Workspace Provider + Auth"]
+        end
 
-        FastAPILayer -->|mounts via WSGIMiddleware| FlaskLayer
-        FlaskLayer -->|authenticates via| K8sAuth
-        FastAPILayer -->|authenticates via| FastAPISec
-        FastAPISec -->|delegates to| K8sAuth
-        K8sAuth -->|resolves workspace| K8sWorkspace
-        GatewayRouter -->|encrypts/decrypts keys| CryptoEngine
+        FastAPI --> SecurityMW
+        SecurityMW --> AuthMW
+        AuthMW --> AsyncRoutes
+        AuthMW --> WSGIBridge
+        WSGIBridge --> FlaskWSGI
     end
 
-    subgraph UI["MLflow UI"]
-        ReactUI["React/TypeScript Frontend<br/>Module Federation"]
-    end
+    %% External interactions
+    Client["ML Training Client<br/>(mlflow SDK)"] -->|"HTTP/HTTPS :5000<br/>kubernetes-auth token"| FastAPI
+    Dashboard["RHOAI Dashboard"] -->|"Module Federation<br/>(JS import)"| ReactUI
+    K8sAuth -->|"REST API :6443<br/>TokenReview / NS listing"| K8sAPI["Kubernetes API Server"]
 
-    User["Data Scientist / SDK Client"] -->|HTTPS/443| ODHGateway["ODH Data Science Gateway<br/>HTTPRoute /mlflow"]
-    Browser["Browser (ODH Dashboard)"] -->|HTTPS/443| ODHGateway
-    ODHGateway -->|HTTP/5000| FastAPILayer
+    %% Data stores
+    FastAPI -->|"PostgreSQL :5432<br/>Username/password"| PostgreSQL["PostgreSQL<br/>Metadata Store"]
+    FastAPI -->|"HTTPS :443/9000<br/>AWS IAM / Access Key"| S3["S3-Compatible Storage<br/>Artifact Store"]
 
-    ReactUI -->|/ajax-api/*<br/>X-MLFLOW-WORKSPACE header| AjaxAPI
+    %% AI Gateway egress
+    GatewayEndpoint -->|"HTTPS :443<br/>API Key"| LLMProviders["External LLM Providers<br/>(OpenAI, Anthropic, etc.)"]
 
-    K8sAuth -->|SelfSubjectAccessReview<br/>HTTPS/6443| K8sAPI["Kubernetes API Server"]
-    K8sWorkspace -->|Namespace list/watch<br/>HTTPS/6443| K8sAPI
+    %% Monitoring
+    Prometheus["Prometheus"] -->|"HTTP scrape :5000"| FastAPI
 
-    TrackingAPI -->|SQL/5432| PostgreSQL["PostgreSQL<br/>Metadata Store"]
-    ModelRegistryAPI -->|SQL/5432| PostgreSQL
-    TrackingAPI -->|HTTPS/443| S3["S3-compatible Storage<br/>Artifact Store"]
+    %% Operator
+    Operator["rhods-operator"] -->|"Manages resources"| MLflow
 
-    GatewayRouter -->|HTTPS/443| LLMProviders["LLM Provider APIs<br/>(OpenAI, Anthropic, Gemini)"]
-
-    PrometheusExp -.->|scrape /metrics| Prometheus["Prometheus"]
-
-    style MLflowComponent fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
-    style FastAPILayer fill:#d5e8d4,stroke:#82b366
-    style FlaskLayer fill:#dae8fc,stroke:#6c8ebf
-    style Plugins fill:#fff2cc,stroke:#d6b656
-    style Security fill:#f8cecc,stroke:#b85450
-    style UI fill:#e1d5e7,stroke:#9673a6
-
-    style ODHGateway fill:#ffe6cc,stroke:#d79b00
-    style K8sAPI fill:#f5f5f5,stroke:#666
-    style PostgreSQL fill:#f5f5f5,stroke:#666
-    style S3 fill:#f5f5f5,stroke:#666
-    style LLMProviders fill:#f5f5f5,stroke:#666
-    style Prometheus fill:#f5f5f5,stroke:#666
-    style User fill:#fff,stroke:#333
-    style Browser fill:#fff,stroke:#333
+    %% Styles
+    style FastAPI fill:#4a90e2,stroke:#333,color:#fff
+    style SecurityMW fill:#e74c3c,stroke:#333,color:#fff
+    style AuthMW fill:#e74c3c,stroke:#333,color:#fff
+    style WSGIBridge fill:#9b59b6,stroke:#333,color:#fff
+    style ReactUI fill:#2ecc71,stroke:#333,color:#fff
+    style K8sAuth fill:#f39c12,stroke:#333,color:#fff
+    style PostgreSQL fill:#336791,stroke:#333,color:#fff
+    style S3 fill:#f5a623,stroke:#333
+    style K8sAPI fill:#326ce5,stroke:#333,color:#fff
+    style LLMProviders fill:#999,stroke:#333
+    style Prometheus fill:#e6522c,stroke:#333,color:#fff
+    style Operator fill:#7ed321,stroke:#333
+    style Client fill:#f9f9f9,stroke:#333
+    style Dashboard fill:#7ed321,stroke:#333

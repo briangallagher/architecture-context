@@ -1,0 +1,55 @@
+graph LR
+    Notebooks["Notebooks<br/>Workbench Images"]
+
+    %% Internal RHOAI Dependencies
+    Notebooks -->|"StatefulSet mgmt<br/>sidecar injection<br/>idle culling"| NotebookController["odh-notebook-controller"]
+    Notebooks -.->|"kfp SDK v2.17.0<br/>pipeline authoring"| KFP["Kubeflow Pipelines"]
+    Notebooks -.->|"codeflare-sdk v0.38.2<br/>distributed training"| CodeFlare["CodeFlare"]
+
+    %% ML Framework Dependencies
+    Notebooks -->|"ML framework"| PyTorch["PyTorch 2.11.0"]
+    Notebooks -->|"ML framework"| TensorFlow["TensorFlow 2.21.0+redhat"]
+    Notebooks -->|"model compression"| LLMCompressor["LLMCompressor 0.12.0"]
+    Notebooks -->|"ML library"| ScikitLearn["scikit-learn 1.9.0"]
+    Notebooks -->|"AI transformers"| Transformers["transformers 5.10.1"]
+
+    %% Runtime Dependencies
+    Notebooks -->|"notebook IDE"| JupyterLab["JupyterLab 4.6.2"]
+    Notebooks -->|"data library"| Pandas["pandas 2.3.3"]
+    Notebooks -->|"numeric library"| NumPy["numpy 2.5.1"]
+    Notebooks -->|"experiment tracking"| MLflow["MLflow 3.15.1"]
+    Notebooks -->|"explainability"| TrustyAI["TrustyAI 0.6.3"]
+
+    %% External Service Dependencies
+    Notebooks -->|"object storage<br/>boto3 v1.43.63"| S3["S3-Compatible Storage"]
+    Notebooks -->|"cluster API<br/>kubernetes v36.0.3"| K8sAPI["Kubernetes API"]
+
+    %% Build Dependencies
+    Notebooks -->|"base images"| UBI9["UBI9 Base Images"]
+    Notebooks -->|"hermetic builds"| Konflux["Konflux Pipelines"]
+    Notebooks -->|"FIPS validation"| CheckPayload["check-payload"]
+
+    %% Authentication
+    Notebooks -->|"auth sidecar"| OAuthProxy["oauth-proxy"]
+
+    %% Styling
+    style Notebooks fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style NotebookController fill:#7ed321,stroke:#333,color:#fff
+    style KFP fill:#7ed321,stroke:#333,color:#fff
+    style CodeFlare fill:#7ed321,stroke:#333,color:#fff
+    style OAuthProxy fill:#7ed321,stroke:#333,color:#fff
+    style PyTorch fill:#ee4c2c,stroke:#333,color:#fff
+    style TensorFlow fill:#ff6f00,stroke:#333,color:#fff
+    style LLMCompressor fill:#ee4c2c,stroke:#333,color:#fff
+    style ScikitLearn fill:#f7931e,stroke:#333,color:#fff
+    style Transformers fill:#ffd21e,stroke:#333
+    style JupyterLab fill:#f37626,stroke:#333,color:#fff
+    style Pandas fill:#130654,stroke:#333,color:#fff
+    style NumPy fill:#4dabcf,stroke:#333,color:#fff
+    style MLflow fill:#0194e2,stroke:#333,color:#fff
+    style TrustyAI fill:#7ed321,stroke:#333,color:#fff
+    style S3 fill:#f5a623,stroke:#333,color:#fff
+    style K8sAPI fill:#326ce5,stroke:#333,color:#fff
+    style UBI9 fill:#cc0000,stroke:#333,color:#fff
+    style Konflux fill:#999,stroke:#333,color:#fff
+    style CheckPayload fill:#999,stroke:#333,color:#fff

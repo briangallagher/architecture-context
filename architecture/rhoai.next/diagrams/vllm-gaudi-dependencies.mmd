@@ -1,57 +1,61 @@
 graph LR
-    VllmGaudi["vllm-gaudi<br/>HPU Plugin"]
+    VLLMGaudi["vllm-gaudi<br/>HPU Plugin"]
 
-    %% Core Runtime Dependencies (Required)
-    VllmGaudi -->|"plugin framework<br/>v0.16.0"| VLLMCore["vLLM Core<br/>v0.16.0"]
-    VllmGaudi -->|"HPU drivers<br/>v1.23.0"| SynapseAI["Intel SynapseAI<br/>v1.23.0"]
-    VllmGaudi -->|"tensor ops<br/>v2.9.0"| PyTorch["PyTorch (Habana)<br/>v2.9.0"]
-    VllmGaudi -->|"distributed exec<br/>>=2.48.0"| Ray["Ray<br/>>=2.48.0"]
-    VllmGaudi -->|"model loading<br/>>=4.56.0"| Transformers["HuggingFace<br/>Transformers"]
+    %% Core External Dependencies
+    VLLMGaudi -->|"plugin extends<br/>(entry points)"| VLLM["vLLM v0.16.0"]
+    VLLMGaudi -->|"HPU backend"| PyTorch["PyTorch 2.9.0"]
+    VLLMGaudi -->|"device driver<br/>graph compiler"| SynapseAI["Habana SynapseAI<br/>1.23.0 (rev 695)"]
+    VLLMGaudi -->|"HPU bridge<br/>FusedSDPA, HCCL"| HabanaFW["habana_frameworks<br/>.torch"]
+    VLLMGaudi -->|"media loading"| MediaLoader["habana-media-loader<br/>1.23.0"]
 
-    %% Supporting Libraries (Required)
-    VllmGaudi -->|"data ops"| Pandas["pandas<br/>>=2.2.3"]
-    VllmGaudi -->|"JIT compile"| Numba["numba<br/>>=0.58.0"]
-    VllmGaudi -->|"numerical"| NumPy["numpy<br/>>=1.26.0"]
-    VllmGaudi -->|"image pipeline"| MediaLoader["habana-media-loader<br/>v1.23.0.x"]
+    %% ML/Data Dependencies
+    VLLMGaudi -->|"model loading<br/>tokenization"| Transformers["transformers<br/>>=4.56.0, <5"]
+    VLLMGaudi -->|"numerical ops"| NumPy["numpy >=1.26.0"]
+    VLLMGaudi -->|"data processing"| Pandas["pandas >=2.2.3"]
+    VLLMGaudi -->|"JIT compilation"| Numba["numba >=0.58.0"]
+    VLLMGaudi -.->|"tensor rearrange<br/>(optional)"| Einops["einops"]
 
-    %% Optional Dependencies
-    VllmGaudi -.->|"INC FP8 quant"| NeuralCompressor["neural_compressor<br/>(optional)"]
-    VllmGaudi -.->|"KV cache transfer<br/>v0.7.0"| NIXL["NIXL<br/>v0.7.0 (optional)"]
-    NIXL -.->|"RDMA transport"| UCX["UCX + gaudi_gdr<br/>(optional)"]
+    %% Distributed Dependencies
+    VLLMGaudi -->|"multi-HPU<br/>orchestration"| Ray["Ray >=2.48.0"]
+    VLLMGaudi -.->|"KV cache transfer<br/>(optional)"| NIXL["NIXL"]
 
-    %% Internal Platform Dependencies
-    KServe["KServe"] -->|"deploys as<br/>ServingRuntime"| VllmGaudi
-    Dashboard["RHOAI Dashboard"] -->|"image reference<br/>runtime selection"| VllmGaudi
-    ModelStorage["Model Storage<br/>(S3 / PVC)"] -->|"model weights<br/>volume mount"| VllmGaudi
+    %% Internal Platform Dependencies (RHOAI)
+    KServe["KServe<br/>ServingRuntime"] -->|"deploys as<br/>container image"| VLLMGaudi
+    RHODSOp["rhods-operator"] -->|"creates<br/>ServingRuntime CRs"| KServe
+    KubeRBAC["kube-rbac-proxy"] -->|"auth sidecar<br/>8443→8000"| VLLMGaudi
+    GatewayAPI["Gateway API<br/>(HTTPRoute)"] -->|"ingress<br/>routing"| KubeRBAC
 
-    %% External Services (Runtime Egress)
-    VllmGaudi -->|"model download<br/>HTTPS/443"| HFHub["HuggingFace Hub<br/>huggingface.co"]
-    VllmGaudi -->|"model download<br/>HTTPS/443"| S3["S3-Compatible<br/>Storage"]
+    %% External Services
+    VLLMGaudi -->|"model weights<br/>HTTPS/443"| S3["S3 / PVC<br/>Model Storage"]
+    VLLMGaudi -->|"models & tokenizers<br/>HTTPS/443"| HFHub["HuggingFace Hub"]
 
     %% Styling
-    style VllmGaudi fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style VLLMGaudi fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
-    %% Required external deps
-    style VLLMCore fill:#999,stroke:#333,color:#fff
-    style SynapseAI fill:#999,stroke:#333,color:#fff
+    %% Core dependencies (required)
+    style VLLM fill:#999,stroke:#333,color:#fff
     style PyTorch fill:#999,stroke:#333,color:#fff
-    style Ray fill:#999,stroke:#333,color:#fff
-    style Transformers fill:#999,stroke:#333,color:#fff
-    style Pandas fill:#999,stroke:#333,color:#fff
-    style Numba fill:#999,stroke:#333,color:#fff
-    style NumPy fill:#999,stroke:#333,color:#fff
+    style SynapseAI fill:#999,stroke:#333,color:#fff
+    style HabanaFW fill:#999,stroke:#333,color:#fff
     style MediaLoader fill:#999,stroke:#333,color:#fff
 
-    %% Optional deps
-    style NeuralCompressor fill:#bbb,stroke:#333,stroke-dasharray: 5 5,color:#fff
-    style NIXL fill:#bbb,stroke:#333,stroke-dasharray: 5 5,color:#fff
-    style UCX fill:#bbb,stroke:#333,stroke-dasharray: 5 5,color:#fff
+    %% ML dependencies
+    style Transformers fill:#b0b0b0,stroke:#333,color:#fff
+    style NumPy fill:#b0b0b0,stroke:#333,color:#fff
+    style Pandas fill:#b0b0b0,stroke:#333,color:#fff
+    style Numba fill:#b0b0b0,stroke:#333,color:#fff
+    style Einops fill:#d0d0d0,stroke:#333
 
-    %% Internal platform
+    %% Distributed
+    style Ray fill:#999,stroke:#333,color:#fff
+    style NIXL fill:#d0d0d0,stroke:#333
+
+    %% Platform (Internal RHOAI)
     style KServe fill:#7ed321,stroke:#333,color:#fff
-    style Dashboard fill:#7ed321,stroke:#333,color:#fff
-    style ModelStorage fill:#7ed321,stroke:#333,color:#fff
+    style RHODSOp fill:#7ed321,stroke:#333,color:#fff
+    style KubeRBAC fill:#7ed321,stroke:#333,color:#fff
+    style GatewayAPI fill:#7ed321,stroke:#333,color:#fff
 
     %% External services
-    style HFHub fill:#f5a623,stroke:#333,color:#fff
     style S3 fill:#f5a623,stroke:#333,color:#fff
+    style HFHub fill:#f5a623,stroke:#333,color:#fff

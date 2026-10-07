@@ -1,0 +1,36 @@
+graph TB
+    subgraph InternalCluster["INTERNAL CLUSTER (Service-to-Service)"]
+        direction TB
+
+        subgraph Orchestrator_NS["Guardrails Namespace"]
+            Orchestrator["FMS Guardrails Orchestrator<br/>Sends text for PII detection"]
+        end
+
+        subgraph Detector_NS["Detector Namespace"]
+            Detector["Regex Detector<br/>8080/TCP HTTP<br/>No TLS | No Auth<br/>Runs as: root<br/>Image: UBI9-minimal"]
+        end
+    end
+
+    %% Flows
+    Orchestrator -->|"HTTP/8080<br/>Plaintext<br/>No Auth<br/>POST /api/v1/text/contents"| Detector
+    Detector -->|"HTTP Response<br/>Plaintext<br/>JSON detection results"| Orchestrator
+
+    %% No egress
+    NoEgress["No Egress<br/>Pure in-memory processing<br/>No outbound connections"]
+    Detector -.->|"(none)"| NoEgress
+
+    %% Network isolation note
+    NetPolicy["Network-Level Security<br/>(assumed external)<br/>- NetworkPolicy<br/>- Service Mesh mTLS<br/>- Pod isolation"]
+
+    Detector -.->|"relies on"| NetPolicy
+
+    %% Styling
+    classDef internal fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef detector fill:#4a90e2,stroke:#333,stroke-width:3px,color:#fff
+    classDef noegress fill:#f9f9f9,stroke:#ccc,stroke-dasharray: 5 5
+    classDef netpolicy fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+
+    class Orchestrator internal
+    class Detector detector
+    class NoEgress noegress
+    class NetPolicy netpolicy

@@ -1,0 +1,67 @@
+graph TB
+    subgraph MustGather["must-gather Pod (Ephemeral)"]
+        direction TB
+        Entrypoint["/usr/bin/gather<br/>Main Entrypoint"]
+        GatherSH["gather.sh<br/>Orchestrator"]
+        CommonSH["common.sh<br/>Shared Utilities"]
+        XKSUtil["xks_util.sh<br/>Cross-K8s Abstraction"]
+
+        Entrypoint --> GatherSH
+        GatherSH --> CommonSH
+        GatherSH --> XKSUtil
+
+        subgraph ComponentScripts["Component Gather Scripts"]
+            direction LR
+            KServeG["kserve/gather"]
+            DSPipelines["pipelines/gather"]
+            ModelReg["model-registry/gather"]
+            Notebooks["notebooks/gather"]
+            KubeRay["kuberay/gather"]
+            Kueue["kueue/gather"]
+            TrustyAI["trustyai/gather"]
+            LLMd["llm-d/gather"]
+            AIGateway["aigateway/gather"]
+            OGX["ogx/gather"]
+        end
+
+        GatherSH -->|"dispatches<br/>(parallel or single)"| ComponentScripts
+    end
+
+    subgraph ClusterDetection["Cluster Detection"]
+        OpenShift["OpenShift<br/>(oc adm inspect)"]
+        AKS["AKS<br/>(kubectl_inspect)"]
+        EKS["EKS<br/>(kubectl_inspect)"]
+        CKS["CoreWeave K8s<br/>(kubectl_inspect)"]
+    end
+
+    XKSUtil -->|detects| ClusterDetection
+
+    User[User / SRE] -->|"oc adm must-gather<br/>--image=must-gather"| MustGather
+
+    MustGather -->|"read-only API calls<br/>443/TCP HTTPS"| K8sAPI[Kubernetes API Server]
+
+    MustGather -->|writes| LocalFS["/must-gather<br/>Local Filesystem"]
+    LocalFS -->|"copied by framework"| Workstation["User Workstation"]
+
+    subgraph ClusterResources["Collected Resources"]
+        direction LR
+        DSCI["DSCInitialization CRs"]
+        DSC["DataScienceCluster CRs"]
+        CSV["ClusterServiceVersions"]
+        Pods["Pod Logs"]
+        NSResources["Namespace Resources"]
+        HelmReleases["Helm Releases"]
+    end
+
+    K8sAPI --> ClusterResources
+
+    style MustGather fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    style Entrypoint fill:#357abd,stroke:#333,color:#fff
+    style GatherSH fill:#357abd,stroke:#333,color:#fff
+    style CommonSH fill:#357abd,stroke:#333,color:#fff
+    style XKSUtil fill:#357abd,stroke:#333,color:#fff
+    style User fill:#f5a623,stroke:#333
+    style K8sAPI fill:#999,stroke:#333
+    style LocalFS fill:#7ed321,stroke:#333
+    style Workstation fill:#f5a623,stroke:#333
+    style ClusterResources fill:#e8e8e8,stroke:#999

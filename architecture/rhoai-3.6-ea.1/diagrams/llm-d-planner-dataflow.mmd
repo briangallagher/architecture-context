@@ -1,0 +1,55 @@
+sequenceDiagram
+    participant User as Platform Operator
+    participant RouteUI as OpenShift Route<br/>(planner)<br/>HTTPS TLS
+    participant RouteAPI as OpenShift Route<br/>(planner-backend)<br/>HTTPS TLS
+    participant UI as Streamlit UI<br/>8501/TCP HTTP
+    participant Backend as FastAPI Backend<br/>8000/TCP HTTP
+    participant SQLite as SQLite DB<br/>/app/db/planner.db
+    participant Ollama as Ollama<br/>11434/TCP HTTP
+    participant OpenAI as OpenAI-compatible API<br/>HTTPS
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+
+    Note over User, K8sAPI: User Request Flow
+    User->>RouteUI: HTTPS (TLS terminated)
+    RouteUI->>UI: HTTP/8501
+    UI->>Backend: HTTP/8000 (ClusterIP)
+    Backend-->>UI: JSON Response
+    UI-->>RouteUI: Response
+    RouteUI-->>User: HTTPS Response
+
+    Note over User, K8sAPI: Direct API Access Flow
+    User->>RouteAPI: POST /api/v1/recommend<br/>HTTPS (TLS terminated)
+    RouteAPI->>Backend: HTTP/8000
+    Backend-->>RouteAPI: JSON Response
+    RouteAPI-->>User: HTTPS Response
+
+    Note over User, K8sAPI: LLM Inference Flow (Ollama)
+    User->>RouteUI: Request capacity plan
+    RouteUI->>UI: HTTP/8501
+    UI->>Backend: POST /api/v1/extract<br/>HTTP/8000
+    Backend->>Ollama: POST /api/chat<br/>HTTP/11434 (ClusterIP, no TLS)
+    Ollama-->>Backend: LLM Response
+    Backend-->>UI: Structured extraction
+    UI-->>User: Rendered plan
+
+    Note over User, K8sAPI: LLM Inference Flow (OpenAI-compatible)
+    UI->>Backend: POST /api/v1/extract<br/>HTTP/8000
+    Backend->>OpenAI: POST /v1/chat/completions<br/>HTTPS (OpenAI SDK)<br/>Auth: OPENAI_API_KEY
+    OpenAI-->>Backend: LLM Response
+    Backend-->>UI: Structured extraction
+
+    Note over User, K8sAPI: GPU Detection Flow
+    UI->>Backend: GET /api/v1/gpu-types<br/>HTTP/8000
+    Backend->>K8sAPI: list_node()<br/>HTTPS/6443<br/>Auth: ServiceAccount token
+    K8sAPI-->>Backend: Node list<br/>(nvidia.com/gpu.product labels)
+    Backend-->>Backend: Cache result (TTL 300s)
+    Backend-->>UI: Available GPU types
+
+    Note over User, K8sAPI: Data Persistence Flow
+    User->>RouteAPI: POST /api/v1/db/upload-benchmarks<br/>HTTPS
+    RouteAPI->>Backend: HTTP/8000
+    Backend->>Backend: Verify DB_ADMIN_PASSWORD
+    Backend->>SQLite: Write benchmark data<br/>(PVC-backed)
+    SQLite-->>Backend: OK
+    Backend-->>RouteAPI: Upload result
+    RouteAPI-->>User: HTTPS Response

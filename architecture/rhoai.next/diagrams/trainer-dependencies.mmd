@@ -1,55 +1,53 @@
 graph LR
     Trainer["Kubeflow Trainer<br/>Operator"]
 
-    %% External Dependencies (Required)
-    Trainer -->|"workload orchestration<br/>creates JobSet CRs"| JobSet["JobSet Controller<br/>v0.10.1<br/>(required)"]
-    Trainer -->|"webhook TLS certs<br/>self-signed CA + auto-rotation"| CertController["cert-controller<br/>v0.14.0 (OPA)<br/>(required)"]
-    Trainer -->|"operator framework<br/>reconciliation, webhooks,<br/>leader election"| ControllerRuntime["controller-runtime<br/>v0.22.3<br/>(required)"]
+    %% Required External Dependencies
+    Trainer -->|"creates JobSets<br/>(required)"| JobSet["JobSet Controller<br/>v0.10.1"]
+    Trainer -->|"operator framework<br/>(required)"| ControllerRuntime["controller-runtime<br/>v0.22.3"]
+    Trainer -->|"webhook TLS certs<br/>(required)"| CertController["cert-controller<br/>v0.14.0"]
 
-    %% External Dependencies (Optional)
-    Trainer -.->|"co-scheduling<br/>PodGroup CRs"| SchedulerPlugins["scheduler-plugins<br/>v0.34.1-devel<br/>(optional)"]
-    Trainer -.->|"gang-scheduling<br/>PodGroup CRs"| Volcano["Volcano<br/>v1.13.1<br/>(optional)"]
+    %% Optional External Dependencies
+    Trainer -.->|"CoScheduling PodGroups<br/>(optional)"| SchedulerPlugins["scheduler-plugins<br/>v0.34.1-devel"]
+    Trainer -.->|"Volcano PodGroups<br/>(optional)"| Volcano["Volcano<br/>v1.13.1"]
 
-    %% Kubernetes API
-    Trainer -->|"CRD CRUD + Watch<br/>HTTPS/443 TLS 1.2+<br/>SA Token"| K8sAPI["Kubernetes API<br/>Server"]
+    %% Platform Dependencies
+    Trainer -->|"reads TLS profile"| OpenShiftAPI["OpenShift APIServer<br/>config.openshift.io"]
+    Trainer -->|"CRD reconciliation<br/>resource CRUD"| K8sAPI["Kubernetes API Server"]
+    Trainer -->|"watches"| RuntimeClass["Kubernetes RuntimeClass<br/>node.k8s.io"]
+    Trainer -->|"watches"| LimitRange["Kubernetes LimitRange"]
 
-    %% Internal RHOAI Platform Dependencies
-    RhodsOperator["rhods-operator /<br/>opendatahub-operator"] -->|"deploys manifests<br/>kustomize"| Trainer
-    Trainer -->|"creates ImageStreams<br/>for training hub images"| ImageStreamAPI["OpenShift<br/>ImageStream API"]
-    Prometheus["Prometheus /<br/>OpenShift Monitoring"] -->|"PodMonitor scrape<br/>HTTPS/8443 TLS"| Trainer
+    %% Internal Platform Dependencies
+    RhodsOperator["rhods-operator /<br/>opendatahub-operator"] -->|"deploys via<br/>kustomize"| Trainer
 
-    %% Integration Points (bidirectional / consumers)
-    Kueue["Kueue<br/>(MultiKueue)"] -.->|"managedBy field<br/>delegation"| Trainer
-    Trainer -->|"HTTP/28080<br/>plaintext metrics<br/>polling (RHOAI)"| TrainingPods["Training Pods"]
+    %% Integration Points - Inbound
+    Dashboard["ODH Dashboard"] -.->|"UI management<br/>(via CRDs)"| Trainer
+    Prometheus["Prometheus"] -->|"scrapes :8443<br/>PodMonitor"| Trainer
 
-    %% Dynamically Created Resources
-    subgraph DynamicResources["Dynamically Created Resources"]
-        direction TB
-        JobSetCR["JobSet CRs"]
-        PodGroupCR["PodGroup CRs"]
-        SSHSecrets["SSH Secrets<br/>(ECDSA P-521)"]
-        HostfileCM["Hostfile ConfigMaps"]
-        NetPolCR["NetworkPolicies<br/>(per-TrainJob)"]
-    end
-
-    Trainer -->|"creates at runtime"| DynamicResources
+    %% Integration Points - Outbound
+    Trainer -->|"downloads datasets<br/>HTTPS"| Storage["S3 / GCS / PVC<br/>Object Storage"]
 
     %% Styling
     style Trainer fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
-    style JobSet fill:#999,stroke:#333,color:#fff
-    style CertController fill:#999,stroke:#333,color:#fff
-    style ControllerRuntime fill:#999,stroke:#333,color:#fff
-    style SchedulerPlugins fill:#bbb,stroke:#333,stroke-dasharray: 5 5
-    style Volcano fill:#bbb,stroke:#333,stroke-dasharray: 5 5
-    style K8sAPI fill:#f5a623,stroke:#333
-    style RhodsOperator fill:#7ed321,stroke:#333,color:#fff
-    style ImageStreamAPI fill:#7ed321,stroke:#333,color:#fff
-    style Prometheus fill:#7ed321,stroke:#333,color:#fff
-    style Kueue fill:#7ed321,stroke:#333,color:#fff
-    style TrainingPods fill:#e74c3c,stroke:#333,color:#fff
-    style DynamicResources fill:#fff2cc,stroke:#d6b656
-    style JobSetCR fill:#fff2cc,stroke:#d6b656
-    style PodGroupCR fill:#fff2cc,stroke:#d6b656
-    style SSHSecrets fill:#fff2cc,stroke:#d6b656
-    style HostfileCM fill:#fff2cc,stroke:#d6b656
-    style NetPolCR fill:#fff2cc,stroke:#d6b656
+
+    %% Required (solid borders)
+    style JobSet fill:#e8e8e8,stroke:#333,stroke-width:2px
+    style ControllerRuntime fill:#e8e8e8,stroke:#333,stroke-width:2px
+    style CertController fill:#e8e8e8,stroke:#333,stroke-width:2px
+
+    %% Optional (dashed borders)
+    style SchedulerPlugins fill:#f0f0f0,stroke:#999,stroke-width:1px,stroke-dasharray:5
+    style Volcano fill:#f0f0f0,stroke:#999,stroke-width:1px,stroke-dasharray:5
+
+    %% Platform
+    style OpenShiftAPI fill:#6c8ebf,color:#fff
+    style K8sAPI fill:#6c8ebf,color:#fff
+    style RuntimeClass fill:#6c8ebf,color:#fff
+    style LimitRange fill:#6c8ebf,color:#fff
+
+    %% Internal Platform
+    style RhodsOperator fill:#7ed321,stroke:#333
+    style Dashboard fill:#7ed321,stroke:#333
+
+    %% External Services
+    style Storage fill:#f5a623,stroke:#333
+    style Prometheus fill:#e6522c,stroke:#333,color:#fff

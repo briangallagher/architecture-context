@@ -1,57 +1,59 @@
 workspace {
     model {
-        user = person "Data Scientist / ML Engineer" "Submits distributed training jobs via kubectl, SDK, or ODH Dashboard"
+        user = person "Data Scientist" "Creates and manages distributed ML training jobs via TrainJob CRs"
 
-        trainer = softwareSystem "Kubeflow Trainer" "Kubernetes-native operator for orchestrating distributed ML training jobs across PyTorch, MPI, DeepSpeed, and TorchTune" {
-            controller = container "trainer-controller-manager" "Manages TrainJob, TrainingRuntime, and ClusterTrainingRuntime CRDs; reconciles into JobSets, PodGroups, Secrets, ConfigMaps, NetworkPolicies" "Go Operator (controller-runtime)"
-            torchPlugin = container "Torch Plugin" "Configures PyTorch torchrun/torchtune distributed env vars, rendezvous, container ports" "Runtime Plugin"
-            mpiPlugin = container "MPI Plugin" "Manages SSH key generation, hostfile generation, OpenMPI environment" "Runtime Plugin"
-            coschedulingPlugin = container "Coscheduling Plugin" "Creates PodGroup CRs for gang-scheduling via scheduler-plugins" "Runtime Plugin"
-            volcanoPlugin = container "Volcano Plugin" "Creates PodGroup CRs for gang-scheduling via Volcano" "Runtime Plugin"
-            jobsetPlugin = container "JobSet Plugin" "Builds and reconciles JobSet resources, tracks status back to TrainJob" "Runtime Plugin"
-            webhookServer = container "Webhook Server" "Validates TrainJob, TrainingRuntime, ClusterTrainingRuntime on create/update" "Validating Webhooks (9443/TCP)"
-            rhaiProgression = container "RHAI Progression Tracking" "Polls training pod metrics via HTTP, stores progress in TrainJob annotations" "RHOAI Feature Module"
-            rhaiNetPolicy = container "RHAI NetworkPolicy" "Creates per-TrainJob NetworkPolicies for pod isolation and metrics security" "RHOAI Feature Module"
+        trainer = softwareSystem "Kubeflow Trainer" "Kubernetes operator that manages distributed ML training jobs on OpenShift" {
+            controllerManager = container "trainer-controller-manager" "Reconciles TrainJob, TrainingRuntime, and ClusterTrainingRuntime CRDs; creates JobSet resources" "Go Operator (controller-runtime)"
+            webhookServer = container "Webhook Server" "Validates TrainJob, TrainingRuntime, and ClusterTrainingRuntime resources" "Go HTTPS Service :9443"
+            torchPlugin = container "Torch Plugin" "Enforces PyTorch distributed training policies, injects PET env vars, configures torchrun/TorchTune" "Go Plugin"
+            mpiPlugin = container "MPI Plugin" "Generates SSH keys (ECDSA P-521), creates hostfile ConfigMaps, configures OpenMPI" "Go Plugin"
+            coschedulingPlugin = container "CoScheduling Plugin" "Creates scheduler-plugins PodGroups for gang scheduling" "Go Plugin"
+            volcanoPlugin = container "Volcano Plugin" "Creates Volcano PodGroups for gang scheduling with queue support" "Go Plugin"
+            jobsetPlugin = container "JobSet Plugin" "Builds and manages JobSet resources, maps TrainJob status" "Go Plugin"
+            rhaiProgression = container "RHAI Progression Tracker" "HTTP metrics polling, training progress annotation updates" "Go (RHOAI extension)"
+            rhaiNetPolicy = container "RHAI NetworkPolicy Manager" "Creates per-TrainJob NetworkPolicies for pod isolation" "Go (RHOAI extension)"
+            datasetInitializer = container "dataset-initializer" "Downloads and pre-processes training datasets from storage URIs" "Python Init Container"
+            modelInitializer = container "model-initializer" "Downloads pre-trained models from storage URIs" "Python Init Container"
+            dataCache = container "data-cache" "Distributed data caching for training datasets" "Rust Sidecar"
         }
 
-        # External Dependencies
-        jobset = softwareSystem "JobSet Controller" "Orchestrates training pods as replicated jobs (sigs.k8s.io/jobset v0.10.1)" "External Dependency"
-        schedulerPlugins = softwareSystem "scheduler-plugins" "Co-scheduling via PodGroup CRs (v0.34.1-devel)" "External Dependency"
-        volcano = softwareSystem "Volcano" "Alternative gang-scheduling backend (v1.13.1)" "External Dependency"
-        certController = softwareSystem "cert-controller" "Manages webhook TLS certificates - self-signed CA, auto-rotation (OPA v0.14.0)" "External Dependency"
-        k8sApi = softwareSystem "Kubernetes API Server" "Core Kubernetes control plane" "Infrastructure"
+        jobset = softwareSystem "JobSet Controller" "Manages replicated jobs for distributed training topology" "External Dependency"
+        schedulerPlugins = softwareSystem "scheduler-plugins (CoScheduling)" "PodGroup CRD for gang scheduling" "Optional External"
+        volcano = softwareSystem "Volcano Scheduler" "PodGroup CRD for gang scheduling with queue and network topology" "Optional External"
+        certController = softwareSystem "cert-controller" "Self-signed certificate management for webhook server" "External Dependency"
+        openshiftAPI = softwareSystem "OpenShift APIServer" "Provides cluster TLS security profile configuration" "Platform"
+        k8sAPI = softwareSystem "Kubernetes API Server" "Kubernetes control plane" "Platform"
+        rhodsOperator = softwareSystem "rhods-operator / opendatahub-operator" "Platform operator that deploys trainer manifests" "Internal Platform"
+        prometheus = softwareSystem "Prometheus" "Collects controller metrics via PodMonitor" "Monitoring"
+        objectStorage = softwareSystem "Object Storage (S3/GCS)" "Model artifact and dataset storage" "External Service"
 
-        # Internal Platform Dependencies
-        rhodsOperator = softwareSystem "rhods-operator / opendatahub-operator" "Platform operator that deploys Trainer manifests from manifests/rhoai/" "Internal RHOAI"
-        prometheus = softwareSystem "Prometheus / OpenShift Monitoring" "Metrics collection via PodMonitor scraping controller :8443/metrics" "Internal RHOAI"
-        imageStreamAPI = softwareSystem "OpenShift ImageStream API" "RHOAI overlay creates ImageStreams for training hub workbench images" "Internal RHOAI"
-        kueue = softwareSystem "Kueue" "MultiKueue delegation for managed training jobs" "Internal RHOAI"
+        # User interactions
+        user -> trainer "Creates TrainJob CRs via kubectl/API"
+        user -> k8sAPI "Authenticates via kubeconfig"
 
-        # Relationships - User
-        user -> trainer "Creates TrainJob CRs via kubectl/SDK" "HTTPS/443"
+        # Trainer → External dependencies
+        trainer -> jobset "Creates JobSet resources for distributed training topology" "Kubernetes API / TLS 1.2+"
+        trainer -> schedulerPlugins "Creates PodGroups for gang scheduling" "Kubernetes API / TLS 1.2+"
+        trainer -> volcano "Creates PodGroups for gang scheduling" "Kubernetes API / TLS 1.2+"
+        trainer -> certController "Manages webhook TLS certificates" "In-process"
+        trainer -> openshiftAPI "Reads cluster TLS security profile" "HTTPS/443 / SA token"
+        trainer -> k8sAPI "CRD reconciliation, resource CRUD" "HTTPS/443 / SA token"
+        trainer -> objectStorage "Downloads datasets and models" "HTTPS / Secret credentials"
 
-        # Relationships - Controller outbound
-        trainer -> k8sApi "CRUD on CRDs, JobSets, PodGroups, Secrets, ConfigMaps, NetworkPolicies, Events" "HTTPS/443 TLS 1.2+ SA Token"
-        trainer -> jobset "Creates JobSet CRs for workload orchestration" "via K8s API HTTPS/443"
-        trainer -> schedulerPlugins "Creates PodGroup CRs for co-scheduling" "via K8s API HTTPS/443"
-        trainer -> volcano "Creates PodGroup CRs for gang-scheduling" "via K8s API HTTPS/443"
+        # Inbound
+        rhodsOperator -> trainer "Deploys trainer manifests via kustomize"
+        prometheus -> trainer "Scrapes metrics" "HTTPS/8443 / TLS"
+        k8sAPI -> trainer "Webhook validation calls" "HTTPS/9443 / Client cert"
 
-        # Relationships - Internal integrations
-        certController -> trainer "Manages webhook TLS certificate lifecycle" "Library integration"
-        rhodsOperator -> trainer "Deploys manifests via kustomize" "Manifest consumption"
-        prometheus -> trainer "Scrapes controller metrics" "HTTPS/8443 TLS"
-        trainer -> imageStreamAPI "Creates ImageStreams for training hub images" "via K8s API HTTPS/443"
-        kueue -> trainer "Delegates TrainJobs with managedBy annotation" "CRD field delegation"
-
-        # Relationships - Internal container
-        controller -> webhookServer "Validates CRs" "HTTPS/9443 TLS"
-        controller -> torchPlugin "Configures PyTorch distributed training" "In-process"
-        controller -> mpiPlugin "Configures MPI training" "In-process"
-        controller -> coschedulingPlugin "Creates PodGroups" "In-process"
-        controller -> volcanoPlugin "Creates Volcano PodGroups" "In-process"
-        controller -> jobsetPlugin "Creates and reconciles JobSets" "In-process"
-        controller -> rhaiProgression "Polls training pod metrics" "HTTP/28080 plaintext"
-        controller -> rhaiNetPolicy "Creates per-TrainJob NetworkPolicies" "In-process"
+        # Internal container relationships
+        controllerManager -> webhookServer "Serves validating webhooks"
+        controllerManager -> torchPlugin "Delegates PyTorch ML policy"
+        controllerManager -> mpiPlugin "Delegates MPI ML policy"
+        controllerManager -> coschedulingPlugin "Delegates CoScheduling gang policy"
+        controllerManager -> volcanoPlugin "Delegates Volcano gang policy"
+        controllerManager -> jobsetPlugin "Builds JobSet apply configurations"
+        controllerManager -> rhaiProgression "Polls training pod metrics (RHOAI)"
+        controllerManager -> rhaiNetPolicy "Manages per-TrainJob NetworkPolicies (RHOAI)"
     }
 
     views {
@@ -70,28 +72,37 @@ workspace {
                 background #999999
                 color #ffffff
             }
-            element "Internal RHOAI" {
-                background #7ed321
+            element "Optional External" {
+                background #bbbbbb
                 color #ffffff
             }
-            element "Infrastructure" {
-                background #4a90e2
+            element "Platform" {
+                background #6c8ebf
                 color #ffffff
             }
-            element "Runtime Plugin" {
-                background #6bb5e0
+            element "Internal Platform" {
+                background #82b366
                 color #ffffff
             }
-            element "RHOAI Feature Module" {
-                background #e8a838
+            element "Monitoring" {
+                background #e6522c
                 color #ffffff
             }
-            element "Software System" {
-                background #4a90e2
+            element "External Service" {
+                background #d6b656
                 color #ffffff
             }
             element "Person" {
                 background #08427b
+                color #ffffff
+                shape person
+            }
+            element "Software System" {
+                background #1168bd
+                color #ffffff
+            }
+            element "Container" {
+                background #438dd5
                 color #ffffff
             }
         }

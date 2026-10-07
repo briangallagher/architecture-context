@@ -1,0 +1,57 @@
+graph TB
+    subgraph ServingPod["IN-PROCESS (Serving Runtime Pod)"]
+        direction TB
+
+        Runtime["Caikit Serving Runtime<br/>(caikit-tgis-serving)<br/>Imports library in-process"]
+
+        subgraph Library["caikit-tgis-backend Library"]
+            direction TB
+            Backend["TGISBackend<br/>BackendBase impl<br/>Model-to-connection mapping"]
+            Connection["TGISConnection<br/>gRPC channel + TLS config<br/>ssl_channel_credentials()"]
+            Subprocess["ManagedTGISSubprocess<br/>Subprocess lifecycle<br/>Auto-recovery daemon thread"]
+            LB["GRPCLoadBalancerProxy<br/>DNS polling (10s interval)<br/>Channel reconnection"]
+        end
+
+        Runtime -->|"Python import<br/>in-process"| Backend
+        Backend -->|"creates"| Connection
+        Backend -->|"launches<br/>(local mode)"| Subprocess
+        Connection -->|"uses"| LB
+    end
+
+    subgraph RemoteServices["REMOTE SERVICES"]
+        TGISRemote["TGIS Server (Remote)<br/>fmaas.GenerationService<br/>Generate, GenerateStream,<br/>Tokenize, ModelInfo"]
+    end
+
+    subgraph LocalServices["LOCAL SERVICES (localhost)"]
+        TGISLocal["TGIS Subprocess<br/>text-generation-launcher<br/>Single model only"]
+    end
+
+    subgraph Infrastructure["INFRASTRUCTURE"]
+        DNS["DNS Resolver"]
+        SharedFS["Shared Filesystem<br/>prompt_dir<br/>No access control"]
+    end
+
+    %% Remote flows
+    Connection -->|"gRPC / configurable port<br/>TLS 1.2+ / mTLS<br/>CA cert + client cert/key"| TGISRemote
+    LB -->|"DNS / 53/UDP<br/>plaintext<br/>No auth"| DNS
+
+    %% Local flows
+    Subprocess -->|"OS subprocess spawn"| TGISLocal
+    Subprocess -->|"HTTP / 3000/TCP<br/>plaintext<br/>Health check polling"| TGISLocal
+    Connection -->|"gRPC / 50055/TCP<br/>plaintext<br/>No auth (localhost)"| TGISLocal
+
+    %% Shared filesystem
+    Backend -->|"File I/O<br/>Prompt artifacts"| SharedFS
+
+    %% Styling
+    classDef inprocess fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef library fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef remote fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef local fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef infra fill:#f5f5f5,stroke:#666,stroke-width:1px
+
+    class Runtime inprocess
+    class Backend,Connection,Subprocess,LB library
+    class TGISRemote remote
+    class TGISLocal local
+    class DNS,SharedFS infra

@@ -2,90 +2,80 @@ graph TB
     subgraph Pod["ModelMesh Serving Pod"]
         direction TB
 
-        subgraph ModelMeshContainer["ModelMesh Container"]
-            ModelMesh[ModelMesh<br/>gRPC Framework]
+        subgraph Puller["model-serving-puller"]
+            PullerGRPC["ModelRuntime gRPC Server<br/>8084/TCP"]
+            PullMan["PullMan Storage Library"]
+            PullerGRPC -->|delegates| PullMan
         end
 
-        subgraph SidecarImage["modelmesh-runtime-adapter Image<br/>(Multi-Binary Sidecar)"]
-            direction TB
-
-            subgraph PullerLayer["Model Download Layer"]
-                Puller["model-serving-puller<br/>8084/TCP gRPC"]
-                Pullman["pullman Library<br/>(Pluggable Storage Providers)"]
-                Puller -->|uses| Pullman
-            end
-
-            subgraph AdapterLayer["Runtime Adapter Layer (one per pod)"]
-                TritonAdapter["model-mesh-triton-adapter<br/>8085/TCP gRPC"]
-                OVMSAdapter["model-mesh-ovms-adapter<br/>8085/TCP gRPC"]
-                MLServerAdapter["model-mesh-mlserver-adapter<br/>8085/TCP gRPC"]
-                TorchServeAdapter["model-mesh-torchserve-adapter<br/>8085/TCP gRPC"]
-            end
+        subgraph Adapters["Runtime Adapters (one per pod)"]
+            direction LR
+            AdapterGRPC["ModelRuntime gRPC Server<br/>8085/TCP"]
         end
 
-        subgraph RuntimeContainer["Model Runtime Container (one per pod)"]
-            Triton["NVIDIA Triton<br/>8001/TCP gRPC"]
-            OVMS["OpenVINO Model Server<br/>8001/TCP HTTP"]
-            MLServer["Seldon MLServer<br/>8001/TCP gRPC"]
-            TorchServe["TorchServe<br/>7071/TCP mgmt gRPC<br/>7070/TCP inference gRPC"]
+        subgraph AdapterVariants["Adapter Implementations"]
+            direction LR
+            TritonAdapter["Triton Adapter"]
+            MLServerAdapter["MLServer Adapter"]
+            OVMSAdapter["OVMS Adapter"]
+            TorchServeAdapter["TorchServe Adapter"]
         end
+
+        subgraph RuntimeServers["Target Runtime (one per pod)"]
+            direction LR
+            Triton["Triton Inference Server<br/>gRPC 8001/TCP"]
+            MLServer["Seldon MLServer<br/>gRPC 8001/TCP"]
+            OVMS["OpenVINO Model Server<br/>HTTP 8001/TCP"]
+            TorchServe["TorchServe<br/>gRPC 7071/TCP mgmt<br/>gRPC 7070/TCP inference"]
+        end
+
+        PullerGRPC -->|"gRPC plaintext<br/>loopback"| AdapterGRPC
+
+        AdapterGRPC --- TritonAdapter
+        AdapterGRPC --- MLServerAdapter
+        AdapterGRPC --- OVMSAdapter
+        AdapterGRPC --- TorchServeAdapter
+
+        TritonAdapter -->|"gRPC<br/>loopback"| Triton
+        MLServerAdapter -->|"gRPC<br/>loopback"| MLServer
+        OVMSAdapter -->|"REST HTTP<br/>loopback"| OVMS
+        TorchServeAdapter -->|"gRPC<br/>loopback"| TorchServe
     end
 
-    subgraph StorageConfig["Mounted Secrets"]
-        StorageCreds["storage-config<br/>(S3/Azure/GCS/HTTP credentials)"]
-    end
-
-    subgraph CloudStorage["Cloud Storage (External)"]
+    subgraph Storage["Cloud Storage Backends"]
         S3["S3 / MinIO / IBM COS<br/>443/TCP HTTPS"]
-        Azure["Azure Blob Storage<br/>443/TCP HTTPS"]
         GCS["Google Cloud Storage<br/>443/TCP HTTPS"]
-        HTTP["HTTP/HTTPS Endpoints<br/>configurable"]
-        PVC["PVC Volumes<br/>(filesystem symlinks)"]
+        Azure["Azure Blob Storage<br/>443/TCP HTTPS"]
+        HTTP["HTTP/HTTPS Sources<br/>configurable"]
+        PVC["Kubernetes PVC<br/>local mount"]
     end
 
-    subgraph ExternalConfig["External Configuration"]
-        ConfigMap["model-serving-config<br/>ConfigMap<br/>(storageHelperImage)"]
-    end
+    ModelMesh["ModelMesh Controller"] -->|"gRPC LoadModel/UnloadModel<br/>8084/TCP"| PullerGRPC
 
-    %% Internal flows
-    ModelMesh -->|"LoadModel/UnloadModel<br/>gRPC localhost"| Puller
-    Puller -->|"Forward after download<br/>gRPC localhost"| TritonAdapter
-    Puller -->|"Forward after download<br/>gRPC localhost"| OVMSAdapter
-    Puller -->|"Forward after download<br/>gRPC localhost"| MLServerAdapter
-    Puller -->|"Forward after download<br/>gRPC localhost"| TorchServeAdapter
+    PullMan -->|"TLS 1.2+"| S3
+    PullMan -->|"TLS 1.2+"| GCS
+    PullMan -->|"TLS 1.2+"| Azure
+    PullMan -->|"Optional TLS/mTLS"| HTTP
+    PullMan -->|"symlink"| PVC
 
-    TritonAdapter -->|"RepositoryModelLoad<br/>gRPC localhost"| Triton
-    OVMSAdapter -->|"POST /v1/config/reload<br/>HTTP localhost"| OVMS
-    MLServerAdapter -->|"RepositoryModelLoad<br/>gRPC localhost"| MLServer
-    TorchServeAdapter -->|"RegisterModel<br/>gRPC localhost"| TorchServe
+    K8sSecrets["Kubernetes Secrets<br/>/storage-config"] -.->|"volume mount"| PullMan
+    ConfigMap["model-serving-config<br/>ConfigMap"] -.->|"image selection"| Pod
 
-    %% Storage flows
-    Pullman -->|"TLS 1.2+<br/>IAM credentials"| S3
-    Pullman -->|"TLS 1.2+<br/>Service Principal"| Azure
-    Pullman -->|"TLS 1.2+<br/>Service Account"| GCS
-    Pullman -->|"Optional TLS/mTLS"| HTTP
-    Pullman -->|"Symlinks"| PVC
-
-    StorageCreds -.->|"mounted at<br/>/storage-config"| Pullman
-
-    ConfigMap -.->|"references image"| SidecarImage
-
-    %% Styling
-    style ModelMesh fill:#4a90e2,stroke:#333,color:#fff
-    style Puller fill:#7ed321,stroke:#333,color:#fff
-    style Pullman fill:#7ed321,stroke:#333,color:#fff
-    style TritonAdapter fill:#f5a623,stroke:#333,color:#fff
-    style OVMSAdapter fill:#f5a623,stroke:#333,color:#fff
-    style MLServerAdapter fill:#f5a623,stroke:#333,color:#fff
-    style TorchServeAdapter fill:#f5a623,stroke:#333,color:#fff
-    style Triton fill:#e8e8e8,stroke:#333
-    style OVMS fill:#e8e8e8,stroke:#333
-    style MLServer fill:#e8e8e8,stroke:#333
-    style TorchServe fill:#e8e8e8,stroke:#333
-    style S3 fill:#ff6b6b,stroke:#333,color:#fff
-    style Azure fill:#ff6b6b,stroke:#333,color:#fff
-    style GCS fill:#ff6b6b,stroke:#333,color:#fff
-    style HTTP fill:#ff6b6b,stroke:#333,color:#fff
-    style PVC fill:#ddd,stroke:#333
-    style StorageCreds fill:#fff2cc,stroke:#d6b656
+    style PullerGRPC fill:#4a90e2,stroke:#333,color:#fff
+    style AdapterGRPC fill:#4a90e2,stroke:#333,color:#fff
+    style TritonAdapter fill:#7ed321,stroke:#333
+    style MLServerAdapter fill:#7ed321,stroke:#333
+    style OVMSAdapter fill:#7ed321,stroke:#333
+    style TorchServeAdapter fill:#7ed321,stroke:#333
+    style Triton fill:#f5a623,stroke:#333
+    style MLServer fill:#f5a623,stroke:#333
+    style OVMS fill:#f5a623,stroke:#333
+    style TorchServe fill:#f5a623,stroke:#333
+    style ModelMesh fill:#9b59b6,stroke:#333,color:#fff
+    style S3 fill:#e8e8e8,stroke:#333
+    style GCS fill:#e8e8e8,stroke:#333
+    style Azure fill:#e8e8e8,stroke:#333
+    style HTTP fill:#e8e8e8,stroke:#333
+    style PVC fill:#e8e8e8,stroke:#333
+    style K8sSecrets fill:#fff2cc,stroke:#d6b656
     style ConfigMap fill:#fff2cc,stroke:#d6b656

@@ -1,0 +1,71 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client<br/>/v1/models, /v1/subscriptions,<br/>/v1/api-keys, /maas-api/*"]
+    end
+
+    subgraph Ingress["INGRESS (Gateway API)"]
+        Gateway["Gateway API<br/>data-science-gateway<br/>Namespace: openshift-ingress<br/>HTTPRoute: maas-api-route"]
+        AuthPolicy["Kuadrant/Authorino AuthPolicy<br/>AuthN: API Key ∣ TokenReview ∣ OIDC JWT<br/>AuthZ: OPA Rego (subscription, tenant isolation)<br/>Injects: X-MaaS-Username, X-MaaS-Group"]
+        Gateway --> AuthPolicy
+    end
+
+    subgraph Application["APPLICATION (Cluster Internal)"]
+        direction TB
+
+        subgraph NS_ODH["Namespace: opendatahub"]
+            MaaSAPI["maas-api<br/>SA: maas-api<br/>:8080/TCP http (internal)<br/>:8443/TCP https (Gateway backend)<br/>:9090/TCP metrics<br/>FIPS: strictfipsruntime"]
+            MaaSController["maas-controller<br/>:8081/TCP health<br/>Webhooks: HTTPS/TLS<br/>FIPS: strictfipsruntime"]
+        end
+    end
+
+    subgraph PlatformServices["PLATFORM SERVICES"]
+        K8sAPI["Kubernetes API<br/>kube-apiserver<br/>:6443/TCP HTTPS<br/>TLS 1.2+<br/>SA token auth"]
+        KuadrantSvc["Kuadrant<br/>AuthPolicy + TokenRateLimitPolicy"]
+        GatewayAPI["Gateway API<br/>HTTPRoute resources"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        PostgreSQL["PostgreSQL Database<br/>pgx driver<br/>TLS (FIPS)<br/>Auth: Secret maas-db-config"]
+        OTel["OpenTelemetry Collector<br/>OTLP/gRPC"]
+    end
+
+    subgraph ConditionalIntegration["CONDITIONAL INTEGRATION"]
+        KServe["KServe<br/>LLMInferenceService<br/>(dynamic watch registration)"]
+    end
+
+    %% External → Ingress
+    Client -->|"HTTPS<br/>API Key (sk-oai-*) ∣<br/>TokenReview ∣ OIDC JWT"| Gateway
+
+    %% Ingress → Application
+    AuthPolicy -->|"HTTPS :8443<br/>TLS (FIPS)<br/>Authenticated headers"| MaaSAPI
+
+    %% Internal auth path (bypasses Gateway)
+    Client -.->|"/v1/tenants (direct)<br/>TokenReview +<br/>SubjectAccessReview"| MaaSAPI
+
+    %% Application → Platform
+    MaaSAPI -->|"HTTPS :6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
+    MaaSController -->|"HTTPS :6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
+    MaaSController -->|"creates"| KuadrantSvc
+    MaaSController -->|"creates/updates"| GatewayAPI
+
+    %% Application → External
+    MaaSAPI -->|"pgx<br/>TLS (FIPS)<br/>Secret creds"| PostgreSQL
+    MaaSAPI -->|"OTLP/gRPC"| OTel
+
+    %% Conditional
+    MaaSController -.->|"conditional watch<br/>dynamic registration"| KServe
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef application fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef platform fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef conditional fill:#e1d5e7,stroke:#9673a6,stroke-width:2px,stroke-dasharray:5
+
+    class Client external
+    class Gateway,AuthPolicy ingress
+    class MaaSAPI,MaaSController application
+    class K8sAPI,KuadrantSvc,GatewayAPI platform
+    class PostgreSQL,OTel externalservice
+    class KServe conditional

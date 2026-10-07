@@ -1,0 +1,108 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  DATA SCIENCE PIPELINE (Trusted - Pipeline Runtime)                     │
+│                                                                          │
+│  [KFP Pipeline Task Pod]                                                 │
+│  - Namespace: {pipeline-namespace}                                       │
+│  - ServiceAccount: pipeline-runner                                       │
+│  - Contains: ai4rag Python library (embedded dependency)                 │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐     │
+│  │  ai4rag Library (in-process)                                    │     │
+│  │                                                                  │     │
+│  │  [S3 Client (boto3)]                                             │     │
+│  │  [MaaS Client (OpenAI SDK / httpx)]                              │     │
+│  │  [Vector Store Clients (pymilvus / psycopg / chromadb)]          │     │
+│  │  [GAM Optimizer]                                                 │     │
+│  │  [KFP Event Handler]                                             │     │
+│  └─────────────────────────────────────────────────────────────────┘     │
+│         │                  │                    │                         │
+│         │ S3 Egress        │ MaaS Egress        │ Vector Store Egress     │
+│         ▼                  ▼                    ▼                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                       │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────┐                    │
+│  │  [S3-Compatible Storage]                         │                    │
+│  │  - Endpoint: Configured by runtime               │                    │
+│  │  - Port: 443/TCP                                 │                    │
+│  │  - Protocol: HTTPS                               │                    │
+│  │  - Encryption: TLS 1.2+                          │                    │
+│  │  - Auth: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY│                   │
+│  │  - Purpose: Document artifact storage             │                    │
+│  │  - Note: verify param defaults True, can be False │                   │
+│  └─────────────────────────────────────────────────┘                    │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────┐                    │
+│  │  [MaaS Endpoint (vLLM / OpenAI-compatible)]      │                    │
+│  │  - Endpoint: Configured by runtime               │                    │
+│  │  - Port: Configured by runtime                   │                    │
+│  │  - Protocol: HTTPS                               │                    │
+│  │  - Encryption: TLS (system default)              │                    │
+│  │  - Auth: API Key (Bearer token)                  │                    │
+│  │  - Purpose: LLM chat completions + embeddings    │                    │
+│  │  - RISK: verify=False fallback on SSL errors     │                    │
+│  │    (bypasses certificate validation)             │                    │
+│  └─────────────────────────────────────────────────┘                    │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────┐                    │
+│  │  [Milvus Vector Store]                           │                    │
+│  │  - Port: Configured by runtime                   │                    │
+│  │  - Protocol: gRPC                                │                    │
+│  │  - Encryption: TLS (PEM cert injection for       │                    │
+│  │    self-signed endpoints)                        │                    │
+│  │  - Auth: MILVUS_TOKEN                            │                    │
+│  │  - Purpose: Vector similarity search + indexing  │                    │
+│  └─────────────────────────────────────────────────┘                    │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────┐                    │
+│  │  [PGVector (PostgreSQL)]                         │                    │
+│  │  - Port: Configured by runtime (default 5432)    │                    │
+│  │  - Protocol: PostgreSQL wire protocol            │                    │
+│  │  - Encryption: TLS (via libpq)                   │                    │
+│  │  - Auth: PGVECTOR_PASSWORD                       │                    │
+│  │  - Purpose: Vector similarity search + indexing  │                    │
+│  └─────────────────────────────────────────────────┘                    │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────┐                    │
+│  │  [Chroma]                                        │                    │
+│  │  - Port: Configured by runtime                   │                    │
+│  │  - Protocol: HTTP                                │                    │
+│  │  - Encryption: None (ephemeral/persistent) or    │                    │
+│  │    TLS (client/server mode)                      │                    │
+│  │  - Auth: None                                    │                    │
+│  │  - Purpose: Vector similarity search + indexing  │                    │
+│  │  - Modes: ephemeral, persistent, client/server   │                    │
+│  └─────────────────────────────────────────────────┘                    │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No ClusterRoles or RoleBindings defined by ai4rag
+- RBAC is delegated to the consuming pipeline component (KFP)
+- Pipeline ServiceAccount must have permissions for the pipeline namespace
+
+Secrets (Environment Variables - no K8s Secret manifests):
+- AWS_ACCESS_KEY_ID (env var) - S3 access key, provisioned by runtime
+- AWS_SECRET_ACCESS_KEY (env var) - S3 secret key, provisioned by runtime
+- MILVUS_TOKEN (env var) - Milvus authentication token, provisioned by runtime
+- PGVECTOR_PASSWORD (env var) - PostgreSQL password for PGVector, provisioned by runtime
+
+Security Risks:
+- RISK: MaaS client verify=False fallback — on SSL error (self-signed cert),
+  TLS certificate verification is disabled. Logged but proceeds silently.
+  Impact: Bypasses certificate chain validation required for FIPS compliance.
+  Source: ai4rag/components/utils/maas_client.py:56-59
+
+- RISK: S3 client verify parameter — defaults to True but can be set to False
+  by callers, disabling certificate validation.
+  Source: ai4rag/components/utils/s3.py:39
+
+- NOTE: No explicit FIPS crypto provider selection. All TLS operations rely on
+  system OpenSSL inherited from the runtime environment.
+
+Network Notes:
+- ai4rag is a Python library, NOT a network service
+- No inbound network exposure (no HTTP endpoints, no Services, no Ingress)
+- All network traffic is outbound (egress only) from the pipeline task pod
+- No Kubernetes deployment manifests or Service definitions
+- Vector store backend is pluggable (only one active at a time)

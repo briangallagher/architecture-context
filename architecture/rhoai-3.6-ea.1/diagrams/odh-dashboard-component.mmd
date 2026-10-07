@@ -1,0 +1,117 @@
+graph TB
+    subgraph External["External Clients"]
+        Browser[Browser Client]
+    end
+
+    subgraph Ingress["OpenShift Ingress"]
+        Route[OpenShift Route<br/>TLS Termination]
+    end
+
+    subgraph DashboardPod["ODH Dashboard Pod"]
+        direction TB
+
+        subgraph AuthProxy["Auth Proxy"]
+            KubeRBACProxy[kube-rbac-proxy<br/>Port 8443<br/>OpenShift OAuth]
+        end
+
+        subgraph NodeBackend["Node.js Backend"]
+            Fastify[Fastify Server<br/>Port 8080]
+            StaticAssets[Static Asset Server]
+            K8sProxy[K8s API Proxy<br/>/api/k8s/*]
+            ModFedProxy[Module Federation Proxy<br/>/_mf/:name/*]
+            Fastify --> StaticAssets
+            Fastify --> K8sProxy
+            Fastify --> ModFedProxy
+        end
+
+        subgraph Frontend["React Frontend (Host App)"]
+            HostApp[PatternFly SPA<br/>Webpack Module Federation]
+            GenAIUI[gen-ai UI]
+            ModelRegUI[model-registry UI]
+            NotebooksUI[notebooks UI]
+            EvalHubUI[eval-hub UI]
+            AgentOpsUI[agent-ops UI]
+            AutoMLUI[automl UI]
+            AutoRAGUI[autorag UI]
+            MaaSUI[maas UI]
+            MLflowUI[mlflow UI]
+            DataRegUI[data-registry UI]
+            HostApp -->|loads| GenAIUI
+            HostApp -->|loads| ModelRegUI
+            HostApp -->|loads| NotebooksUI
+            HostApp -->|loads| EvalHubUI
+            HostApp -->|loads| AgentOpsUI
+            HostApp -->|loads| AutoMLUI
+            HostApp -->|loads| AutoRAGUI
+            HostApp -->|loads| MaaSUI
+            HostApp -->|loads| MLflowUI
+            HostApp -->|loads| DataRegUI
+        end
+
+        subgraph BFFSidecars["Go BFF Sidecars"]
+            CoreBFF[core-bff<br/>Port 8080]
+            GenAIBFF[gen-ai BFF<br/>Port 8143]
+            ModelRegBFF[model-registry BFF<br/>Port 8043]
+            MaaSBFF[maas BFF<br/>Port 8243]
+            MLflowBFF[mlflow BFF<br/>Port 8343]
+            EvalHubBFF[eval-hub BFF<br/>Port 8543]
+            AutoMLBFF[automl BFF<br/>Port 8643]
+            AutoRAGBFF[autorag BFF<br/>Port 8743]
+            AgentOpsBFF[agent-ops BFF<br/>Port 8843]
+        end
+
+        KubeRBACProxy --> Fastify
+    end
+
+    subgraph Operator["Dashboard Operator"]
+        DashController[Dashboard Controller<br/>controller-runtime v0.23.3]
+        WSController[Workspace Controller]
+        WSKindController[WorkspaceKind Controller]
+        Webhooks[Admission Webhooks<br/>Port 9443]
+    end
+
+    subgraph CRDs["Custom Resources"]
+        DashboardCR[Dashboard CR<br/>components.platform.opendatahub.io/v1alpha1]
+        WorkspaceCR[Workspace CR<br/>kubeflow.org/v1beta1]
+        WorkspaceKindCR[WorkspaceKind CR<br/>kubeflow.org/v1beta1]
+    end
+
+    %% External flows
+    Browser -->|HTTPS| Route
+    Route -->|TLS| KubeRBACProxy
+
+    %% BFF routing
+    GenAIUI -.->|/gen-ai/api/*| GenAIBFF
+    ModelRegUI -.->|/model-registry/api/*| ModelRegBFF
+    EvalHubUI -.->|/eval-hub/api/*| EvalHubBFF
+    AgentOpsUI -.->|/agent-ops/api/*| AgentOpsBFF
+    AutoMLUI -.->|/automl/api/*| AutoMLBFF
+    AutoRAGUI -.->|/autorag/api/*| AutoRAGBFF
+    MaaSUI -.->|/maas/api/*| MaaSBFF
+    MLflowUI -.->|/mlflow/api/*| MLflowBFF
+
+    %% Operator reconciliation
+    DashController -->|reconciles| DashboardCR
+    WSController -->|reconciles| WorkspaceCR
+    WSKindController -->|reconciles| WorkspaceKindCR
+    DashController -->|manages| DashboardPod
+
+    %% Styling
+    style KubeRBACProxy fill:#e8a735,stroke:#333,stroke-width:2px
+    style Fastify fill:#4a90e2,stroke:#333,stroke-width:2px
+    style HostApp fill:#7ed321,stroke:#333,stroke-width:2px
+    style DashController fill:#9b59b6,stroke:#333,stroke-width:2px
+    style WSController fill:#9b59b6,stroke:#333,stroke-width:2px
+    style WSKindController fill:#9b59b6,stroke:#333,stroke-width:2px
+    style DashboardCR fill:#f5a623,stroke:#333
+    style WorkspaceCR fill:#f5a623,stroke:#333
+    style WorkspaceKindCR fill:#f5a623,stroke:#333
+    style CoreBFF fill:#3498db,stroke:#333
+    style GenAIBFF fill:#3498db,stroke:#333
+    style ModelRegBFF fill:#3498db,stroke:#333
+    style MaaSBFF fill:#3498db,stroke:#333
+    style MLflowBFF fill:#3498db,stroke:#333
+    style EvalHubBFF fill:#3498db,stroke:#333
+    style AutoMLBFF fill:#3498db,stroke:#333
+    style AutoRAGBFF fill:#3498db,stroke:#333
+    style AgentOpsBFF fill:#3498db,stroke:#333

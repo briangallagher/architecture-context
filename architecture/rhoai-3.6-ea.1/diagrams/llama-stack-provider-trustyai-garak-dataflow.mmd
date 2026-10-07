@@ -1,0 +1,45 @@
+sequenceDiagram
+    participant EvalHub as eval-hub Orchestrator
+    participant ConfigMap as ConfigMap<br/>/etc/eval-job/spec.json
+    participant Adapter as Garak Adapter<br/>(K8s Job Pod)
+    participant S3 as S3-Compatible Storage<br/>HTTPS
+    participant KFP as Kubeflow Pipelines<br/>Server
+    participant Pipeline as KFP Pipeline Pods
+    participant Model as Target Model<br/>Endpoint
+    participant OCI as OCI Registry
+    participant Sidecar as eval-hub Sidecar<br/>(Callback)
+
+    Note over EvalHub,Sidecar: Simple Mode Flow
+    EvalHub->>ConfigMap: Mount job specification
+    Adapter->>ConfigMap: Read /etc/eval-job/spec.json
+    Adapter->>Adapter: Resolve credentials<br/>(env vars, mounted files,<br/>eval-hub secrets, fallback)
+    Adapter->>Adapter: Redact API keys<br/>from persisted config
+    Adapter->>Adapter: Run Garak subprocess<br/>(in-pod)
+    Adapter->>Model: Scan probes<br/>Auth: API_KEY / OPENAICOMPATIBLE_API_KEY
+    Model-->>Adapter: Model responses
+    Adapter->>Adapter: Parse JSONL results
+    Adapter->>OCI: Persist scan artifacts
+    Adapter->>Sidecar: Report results callback
+
+    Note over EvalHub,Sidecar: KFP Mode Flow
+    EvalHub->>ConfigMap: Mount job specification
+    Adapter->>ConfigMap: Read /etc/eval-job/spec.json
+    Adapter->>Adapter: Resolve credentials<br/>(cascading lookup)
+    Adapter->>S3: Upload scan config & prompts<br/>Auth: AWS credentials (envFrom)
+    Adapter->>KFP: Submit pipeline<br/>Auth: KFP_AUTH_TOKEN
+    KFP->>Pipeline: Create pipeline run
+    Note over Pipeline: Step 1: Validation
+    Note over Pipeline: Step 2: Taxonomy Resolution
+    Note over Pipeline: Step 3: SDG Prompt Generation
+    Note over Pipeline: Step 4: Prompt Preparation
+    Pipeline->>S3: Read config & prompts<br/>Auth: use_secret_as_env
+    Note over Pipeline: Step 5: Garak Scan
+    Pipeline->>Model: Scan probes<br/>Auth: API key from secret
+    Model-->>Pipeline: Model responses
+    Pipeline->>S3: Write JSONL results<br/>Auth: use_secret_as_env
+    Note over Pipeline: Step 6: KFP Output Writing
+    KFP-->>Adapter: Pipeline complete
+    Adapter->>S3: Download scan results
+    Adapter->>Adapter: Parse JSONL results
+    Adapter->>OCI: Persist scan artifacts
+    Adapter->>Sidecar: Report results callback

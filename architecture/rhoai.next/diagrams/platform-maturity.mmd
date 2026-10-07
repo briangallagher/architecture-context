@@ -1,107 +1,90 @@
+%%{init: {'theme':'base'}}%%
 graph LR
-    subgraph Metrics["PLATFORM MATURITY DASHBOARD — RHOAI rhoai.next"]
+    subgraph Metrics["Platform Metrics — RHOAI rhoai.next"]
         direction TB
 
         subgraph ComponentStats["Component Statistics"]
-            direction LR
-            A["Total Components: 72"]
-            B["Operator-based: 20<br/>(Go: 18, Python: 1, Java: 1)"]
-            C["Standalone Services: 25<br/>+ sidecar containers"]
-            D["Container Images: 432<br/>(152 UBI, 72 distroless, 33 Python)"]
+            A["Total Components: 96"]
+            B["Operators/Controllers: 37"]
+            C["Container Images: 554"]
+            D["Kubernetes Services: 285<br/>(211 ClusterIP, 11 KServe-managed,<br/>5 in-process, 3 Gateway API)"]
         end
 
-        subgraph APIMaturity["API Maturity"]
-            direction LR
-            E["CRDs: 142<br/>across 37 API groups"]
-            F["CRD Versions:<br/>v1 (Kueue, Ray, Feast, IS)<br/>v1beta1 (ModelRegistry, AppWrapper)<br/>v1alpha1 (LLMIS, ScheduledWorkflow)"]
-            G["gRPC Services: 81<br/>across all components"]
-            H["Ingress Resources: 84<br/>(28 Routes, 14+ HTTPRoutes,<br/>4 VirtualServices)"]
+        subgraph APIStats["API Surface"]
+            E["CRDs: 187 across 41 API groups"]
+            F["API Endpoints: 630"]
+            G["gRPC Service Definitions: 110"]
+            H["Controller Watches: 689"]
         end
 
         subgraph SecurityPosture["Security Posture"]
-            direction LR
-            I["Auth Mechanisms: 6<br/>kube-rbac-proxy (dominant),<br/>Kuadrant, OAuth, K8s RBAC,<br/>mTLS, HMAC-JWT"]
-            J["FIPS 140-2: Enforced<br/>kube-rbac-proxy layer<br/>6-cipher TLS 1.2 suite"]
-            K["Non-root Containers: 72%<br/>(312 of 432 Dockerfiles)"]
-            L["NetworkPolicies: 28<br/>across 12 components"]
+            I["mTLS Enforcement: MIXED<br/>STRICT: model-registry, MaaS<br/>PERMISSIVE: caikit-tgis<br/>SPIFFE: agent workloads"]
+            J["Auth Mechanisms: 7 distinct patterns<br/>kube-rbac-proxy, Kuadrant, OAuth2,<br/>SPIFFE, Istio AuthZ, OAuth proxy, K8s SA"]
+            K["RBAC Roles: 913 definitions<br/>Network Policies: 37 across 17 components"]
+            L["Container Security: Non-root ALL,<br/>UBI9-min 64, Distroless 20,<br/>Konflux/Tekton hermetic builds"]
         end
 
-        subgraph IngressMigration["Ingress Architecture (In Transition)"]
-            direction LR
-            M["Gateway API: Partial<br/>KServe, Notebooks, KubeRay,<br/>Model Registry, MLflow, Feast"]
-            N["OpenShift Routes: Legacy<br/>CodeFlare, odh-deployer, MaaS"]
-            O["data-science-gateway:<br/>Central TLS termination<br/>Cross-namespace HTTPRoutes"]
+        subgraph FIPSCompliance["FIPS Compliance"]
+            M["Go Components: strictfipsruntime<br/>or GOFIPS140=v1.0.0"]
+            N["Gaps: Rust (ring/rustls not FIPS),<br/>some CGO_ENABLED=0 modules,<br/>Token Broker lacks Konflux"]
+            O["Python: Inherits from base image<br/>OpenSSL FIPS provider"]
         end
 
-        subgraph mTLSCoverage["mTLS Enforcement"]
-            direction LR
-            P["Coverage: MIXED<br/>Not uniform across all traffic"]
-            Q["KubeRay: cert-manager CA"]
-            R["CodeFlare: self-signed openssl"]
-            S["ModelMesh: etcd client certs"]
-            T["KServe: Istio-managed"]
+        subgraph APIMaturity["CRD API Maturity"]
+            P["Stable (v1): DSC, DSCI,<br/>core platform CRDs"]
+            Q["Beta (v1beta1): InferenceService,<br/>established serving APIs"]
+            R["Alpha (v1alpha1/v1alpha2):<br/>LLMInferenceService, InferencePool,<br/>AgentRuntime, SparkConnect,<br/>EvalHub, MCPGatewayExtension,<br/>TrainingRuntime"]
         end
 
         subgraph DeploymentReadiness["Deployment Readiness"]
-            direction LR
-            U["High Availability:<br/>Leader election (all operators)<br/>Stateless replicas (Dashboard)"]
-            V["Disconnected Support:<br/>RELATED_IMAGE pattern<br/>OLM relatedImages, oc-mirror<br/>Digest pinning"]
-            W["Multi-Architecture:<br/>amd64 (full)<br/>arm64, ppc64le, s390x (partial)"]
+            S["High Availability: Leader election<br/>for all singleton operators<br/>StuckTracker 10-min timeout"]
+            T["Disconnected Support: ENABLED<br/>RELATED_IMAGE pattern,<br/>manifest vendoring, Cachi2,<br/>oc-mirror digest pinning"]
+            U["Multi-Architecture:<br/>amd64 (FULL)<br/>arm64 (PARTIAL)<br/>ppc64le (LIMITED)<br/>s390x (LIMITED)"]
         end
 
-        subgraph PlatformArch["Platform Architecture"]
-            direction LR
-            X["Pattern: Operator-of-Operators<br/>3-tier: DSCInit -> DSC -><br/>Component CRs"]
-            Y["Manifest Rendering:<br/>Kustomize (dominant),<br/>Helm (MLflow), Go templates<br/>(DSPO, ModelReg)"]
-            Z["RBAC Entries: 638 total<br/>Kueue: 36, MaaS: 36,<br/>DSPO: 34 (highest)"]
+        subgraph IngressMigration["Ingress Architecture"]
+            V["Gateway API: ACTIVE MIGRATION<br/>HTTPRoutes for notebooks,<br/>dashboard, LLM serving,<br/>model registry"]
+            W["OpenShift Routes: LEGACY<br/>Backward-compat redirects<br/>via nginx pods"]
         end
 
-        subgraph NewInRHOAINext["New in rhoai.next"]
-            direction LR
-            AA["LLMInferenceService CRD<br/>Disaggregated P/D serving"]
-            BB["Gateway API Inference Extension<br/>Envoy ext-proc LLM routing"]
-            CC["llm-d Stack<br/>KV-cache-aware scheduling"]
-            DD["Kubeflow Trainer<br/>TrainJob/TrainingRuntime"]
-            EE["MLflow Operator, Feast,<br/>MaaS, Eval Hub, WVA,<br/>AI Gateway BBR"]
+        subgraph DeploymentModel["Deployment Architecture"]
+            X["Namespaces: 4 platform +<br/>N user namespaces"]
+            Y["Manifest Pattern: Kustomize<br/>vendoring at build time,<br/>RELATED_IMAGE substitution"]
+            Z["Distribution Variants:<br/>ODH / RHOAI / xKS overlays<br/>Go build tag separation"]
         end
     end
 
-    %% Styling
+    %% ─── Styling ───
     style A fill:#4a90e2,color:#fff
     style B fill:#4a90e2,color:#fff
     style C fill:#4a90e2,color:#fff
     style D fill:#4a90e2,color:#fff
 
-    style E fill:#7ed321,color:#fff
-    style F fill:#f5a623,color:#333
-    style G fill:#7ed321,color:#fff
-    style H fill:#f5a623,color:#333
+    style E fill:#9b59b6,color:#fff
+    style F fill:#9b59b6,color:#fff
+    style G fill:#9b59b6,color:#fff
+    style H fill:#9b59b6,color:#fff
 
-    style I fill:#f5a623,color:#333
-    style J fill:#7ed321,color:#fff
+    style I fill:#e67e22,color:#fff
+    style J fill:#e67e22,color:#fff
     style K fill:#7ed321,color:#fff
     style L fill:#7ed321,color:#fff
 
     style M fill:#7ed321,color:#fff
-    style N fill:#f5a623,color:#333
+    style N fill:#e74c3c,color:#fff
     style O fill:#7ed321,color:#fff
 
-    style P fill:#ff6b6b,color:#fff
-    style Q fill:#f5a623,color:#333
-    style R fill:#f5a623,color:#333
-    style S fill:#f5a623,color:#333
-    style T fill:#7ed321,color:#fff
+    style P fill:#7ed321,color:#fff
+    style Q fill:#7ed321,color:#fff
+    style R fill:#e67e22,color:#fff
 
-    style U fill:#7ed321,color:#fff
-    style V fill:#7ed321,color:#fff
-    style W fill:#f5a623,color:#333
+    style S fill:#7ed321,color:#fff
+    style T fill:#7ed321,color:#fff
+    style U fill:#e67e22,color:#fff
+
+    style V fill:#3498db,color:#fff
+    style W fill:#95a5a6,color:#fff
 
     style X fill:#4a90e2,color:#fff
     style Y fill:#4a90e2,color:#fff
     style Z fill:#4a90e2,color:#fff
-
-    style AA fill:#9b59b6,color:#fff
-    style BB fill:#9b59b6,color:#fff
-    style CC fill:#9b59b6,color:#fff
-    style DD fill:#9b59b6,color:#fff
-    style EE fill:#9b59b6,color:#fff

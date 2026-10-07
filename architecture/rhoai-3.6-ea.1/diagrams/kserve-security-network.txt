@@ -1,0 +1,190 @@
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                       │
+│                                                                              │
+│  [External Client / Data Scientist]                                          │
+│         │                                                                    │
+│         │ Port: 443/TCP                                                      │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS 1.2+ (platform-managed)                            │
+│         │ Auth: Bearer Token (optional, validated by router for IG)          │
+│         ▼                                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Platform-Managed)                                                  │
+│                                                                              │
+│  [OpenShift Route / Gateway API HTTPRoute]                                   │
+│  - TLS Termination: TLS 1.2+ (platform TLS security profile)               │
+│  - Configured by: InferenceService / LLMInferenceService controller         │
+│  - Platform-aware cipher suites from apiservers.config.openshift.io         │
+│  - Fallback: Mozilla Intermediate (TLS 1.2 minimum)                         │
+│         │                                                                    │
+│         │ Port: 8080/TCP (model server) or router port                       │
+│         │ Protocol: HTTP                                                     │
+│         │ Encryption: Cluster-internal (platform-dependent)                  │
+│         ▼                                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  INFERENCE PLANE (Cluster Internal)                                          │
+│                                                                              │
+│  [Inference Router] (InferenceGraph requests only)                           │
+│  - Namespace: kserve                                                         │
+│  - Auth: Kubernetes TokenReview (validates Bearer tokens)                    │
+│  - AuthZ: SubjectAccessReview (get on InferenceGraph resource)              │
+│  - Probes: /healthz, /readyz (unauthenticated, port 8081)                   │
+│         │                                                                    │
+│         │ Protocol: HTTP                                                     │
+│         │ Auth: Validated identity from TokenReview                          │
+│         ▼                                                                    │
+│  [Model Server Pods]                                                         │
+│  - Namespace: {user-namespace}                                               │
+│  - ServiceAccount: per-InferenceService                                      │
+│  - HTTP: FastAPI/uvicorn (V2 Inference Protocol) port 8080                   │
+│  - gRPC: GRPCInferenceService (ModelInfer, ModelReady, etc.)                │
+│  - Auth: None (no auth middleware on model server endpoints)                 │
+│  - Sidecar: Pod mutator webhook injects additional containers               │
+│         │                                                                    │
+│         │ Port: 443/TCP                                                      │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS 1.2+                                               │
+│         │ Auth: Cloud IAM / Credentials from storage-config Secret          │
+│         ▼                                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL STORAGE                                                            │
+│                                                                              │
+│  [S3 / GCS / Azure Blob Storage]                                             │
+│  - Purpose: Model artifact storage and download                              │
+│  - Auth: AWS IAM / GCP SA / Azure AD credentials                             │
+│  - Encryption: TLS 1.2+                                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  CONTROL PLANE (Cluster Internal)                                            │
+│                                                                              │
+│  [KServe Manager] (core controller)                                          │
+│  - Namespace: kserve                                                         │
+│  - ServiceAccount: kserve-controller-manager                                 │
+│  - Deployment: kserve-controller-manager                                     │
+│  - Probes: /healthz (8081), /readyz (8081) - unauthenticated                │
+│  - Metrics: localhost:8080 → odh-kube-auth-proxy 8443/TCP TLS              │
+│         │                                                                    │
+│  [LLMISVC Controller]                                                        │
+│  - Namespace: kserve                                                         │
+│  - ServiceAccount: llmisvc SA                                                │
+│  - Leader election: coordination.k8s.io/leases                              │
+│         │                                                                    │
+│  [LocalModel Controller]                                                     │
+│  - Namespace: kserve                                                         │
+│  - ServiceAccount: kserve-localmodel-controller-manager                     │
+│         │                                                                    │
+│  [LocalModelNode Agent]                                                      │
+│  - Namespace: kserve                                                         │
+│  - ServiceAccount: kserve-localmodelnode-agent                              │
+│         │                                                                    │
+│  [KServe Module Operator]                                                    │
+│  - ServiceAccount: kserve-module-controller-manager                         │
+│  - Watches: Kserve CR (components.platform.opendatahub.io)                  │
+│  - FIPS: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime                      │
+│         │                                                                    │
+│         │ Port: 6443/TCP                                                     │
+│         │ Protocol: HTTPS/WSS                                                │
+│         │ Encryption: TLS 1.2+                                               │
+│         │ Auth: ServiceAccount token (in-cluster)                            │
+│         ▼                                                                    │
+│  [Kubernetes API Server]                                                     │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  WEBHOOK PLANE                                                               │
+│                                                                              │
+│  [Webhook Server]                                                            │
+│  - Service: kserve-webhook-server-service                                    │
+│  - Port: 443/TCP → webhook-server                                            │
+│  - Encryption: TLS (cert-manager Certificate CR)                             │
+│  - Auth: Kubernetes admission (kube-apiserver calls webhooks)                │
+│  - Secret: kserve-webhook-server-cert (TLS cert, cert-manager)              │
+│  - Endpoints:                                                                │
+│    - /mutate-serving-kserve-io-v1beta1-inferenceservice (Mutating, Fail)    │
+│    - /mutate-serving-kserve-io-v1alpha1-llminferenceservice (Mutating)      │
+│    - /mutate-serving-kserve-io-v1alpha2-llminferenceservice (Mutating)      │
+│    - /mutate-pods (Mutating, sidecar injection, Fail)                       │
+│    - /validate-serving-kserve-io-v1beta1-inferenceservice (Validating)      │
+│    - /validate-serving-kserve-io-v1alpha1-* (multiple Validating)           │
+│    - /validate-serving-kserve-io-v1alpha2-* (multiple Validating)           │
+│    - /validate-localmodelcaches (Validating)                                │
+│    - /convert (Conversion: v1alpha1 ↔ v1alpha2)                             │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  METRICS & OBSERVABILITY                                                     │
+│                                                                              │
+│  [odh-kube-auth-proxy Sidecar]                                               │
+│  - Port: 8443/TCP (external) → 8080/TCP (localhost)                          │
+│  - Protocol: HTTPS → HTTP                                                    │
+│  - TLS Termination: yes (proxy terminates TLS)                              │
+│  - Auth: Kubernetes RBAC (authenticated metrics access)                      │
+│         │                                                                    │
+│         │ Scraped by Prometheus                                               │
+│         │ Port: 8443/TCP                                                     │
+│         │ Protocol: HTTPS                                                    │
+│         ▼                                                                    │
+│  [Prometheus]                                                                │
+│  - Service: kserve-controller-manager-metrics-service (ClusterIP 8443)      │
+│  - Also: ServiceMonitor / PodMonitor CRs (LLMISVC controller)              │
+│  - Queue proxy (qpext): /metrics endpoint for per-pod inference metrics     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+  ClusterRole: kserve-manager-role
+    SA: kserve-controller-manager
+    Key resources: inferenceservices, inferencegraphs, clusterservingruntimes,
+                   trainedmodels, deployments, services, httproutes,
+                   virtualservices, routes, knative services
+    Verbs: get, list, watch, create, update, patch, delete
+
+  ClusterRole: kserve-llmisvc-manager-role
+    SA: llmisvc serviceaccount
+    Key resources: llminferenceservices, llminferenceserviceconfigs,
+                   deployments, hpa, leaderworkersets, inferencepools,
+                   gateways, httproutes, scaledobjects
+    Verbs: get, list, watch, create, update, patch, delete
+
+  ClusterRole: kserve-localmodel-manager-role
+    SA: kserve-localmodel-controller-manager
+    Key resources: localmodelcaches, localmodelnamespacecaches, localmodelnodes,
+                   persistentvolumes, persistentvolumeclaims, nodes
+    Verbs: get, list, watch, create, update, patch, delete
+
+  ClusterRole: kserve-localmodelnode-agent-role
+    SA: kserve-localmodelnode-agent
+    Key resources: localmodelnodes, jobs, nodes, secrets, clusterstoragecontainers
+    Verbs: get, list, watch, create, update, patch, delete
+
+  ClusterRole: kserve-module-manager-role
+    SA: kserve-module-controller-manager
+    Key resources: kserves (components.platform.opendatahub.io),
+                   deployments, daemonsets, CRDs, webhooks, RBAC resources,
+                   certificates, securitycontextconstraints, networkpolicies
+    Verbs: get, list, watch, create, update, patch, delete
+    Special: bind, escalate on clusterroles/roles
+
+  ClusterRole: kserve-proxy-role
+    SA: kserve-controller-manager
+    Key resources: tokenreviews, subjectaccessreviews
+    Verbs: create
+
+Secrets:
+  - kserve-webhook-server-cert (TLS) - Webhook server certificate, cert-manager provisioned
+  - kserve-webhook-server-secret (Opaque) - Webhook configuration
+  - storage-config (runtime) - S3/GCS/Azure credentials (AWS_ACCESS_KEY_ID, etc.)
+  - HDFS_SECRET_DIR (env) - HDFS secret directory path
+  - AZ_CLIENT_SECRET (env) - Azure client secret
+  - GIT_PASSWORD (env) - Git credentials for model download
+
+TLS Configuration:
+  - Platform-aware: reads OpenShift TLS security profile from apiservers.config.openshift.io
+  - Applies corresponding cipher suites and minimum TLS version
+  - Fallback: Mozilla Intermediate cipher suites, TLS 1.2 minimum
+  - Source: pkg/tls/tls_odh.go:73-100
+
+FIPS Compliance:
+  - kserve-module-controller: FIPS-compliant (CGO_ENABLED=1, strictfipsruntime)
+  - Core manager (upstream Dockerfile): CGO_ENABLED=0 (not FIPS-compliant, Konflux overrides expected)
+  - Python model servers: Inherit FIPS from UBI base OpenSSL (no explicit opt-in)

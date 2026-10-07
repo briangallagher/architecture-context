@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "component": "mlflow-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "mlflow-operator-discovery-gated-deps-001",
+      "claim": "mlflow-operator uses Kubernetes discovery API at startup to conditionally activate watches for five optional CRDs (HTTPRoute, ConsoleLink, ServiceMonitor, MLflowOperator, Auth), avoiding hard dependencies on platform APIs that may not be installed.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/routing.go:46-179"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/mlflow_controller.go:528-552"
+        }
+      ],
+      "reasoning": "The routing.go file contains five discovery functions (IsConsoleLinkAvailable, IsHTTPRouteAvailable, IsServiceMonitorAvailable, IsMLflowOperatorAvailable, IsAuthAvailable) that probe cluster API groups before the controllers register watches. This pattern allows the operator to deploy on clusters without Gateway API or prometheus-operator without failing at startup, but it means the watch set is fixed for the lifetime of the process.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "mlflow-operator-workspace-rbac-002",
+      "claim": "The NamespaceRBACReconciler integrates with the RHOAI platform Auth CRD to propagate workspace-scoped view/edit RoleBindings, creating a cross-component dependency on the platform's centralized authentication configuration.",
+      "category": "cross-component implication",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/namespace_rbac_controller.go:48-106"
+        },
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/rbac"
+        }
+      ],
+      "reasoning": "The NamespaceRBACReconciler watches the Auth CR from services.platform.opendatahub.io/v1alpha1 and uses it to map auth changes to namespace reconciliation. This creates a runtime dependency on a platform-level component (the RHOAI auth service) that is not visible from the operator's RBAC rules alone. Changes to the Auth CR schema or lifecycle would affect workspace RBAC propagation.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "mlflow-operator-helm-rendering-003",
+      "claim": "mlflow-operator embeds Helm charts and renders them at reconciliation time using the helm.sh/helm/v3 library, rather than delegating chart management to an external Helm operator or OLM.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/dependencies"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:37"
+        }
+      ],
+      "reasoning": "The go.mod dependency on helm.sh/helm/v3 and the Dockerfile COPY of charts/mlflow into the container image confirm that the operator bundles and renders Helm charts internally. This is an operator-embedded chart pattern rather than the more common raw-manifest or kustomize-based approach seen in other RHOAI operators.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

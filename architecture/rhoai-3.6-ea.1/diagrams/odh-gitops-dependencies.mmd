@@ -1,0 +1,55 @@
+graph LR
+    ODHGitops["odh-gitops<br/>GitOps Configuration"]
+
+    %% Internal ODH Dependencies
+    ODHGitops -->|"DSC/DSCI CRs"| ODHOperator["opendatahub-operator<br/>(Required)"]
+
+    %% Required Operators (OLM + Helm)
+    ODHGitops -->|"OLM Sub / Helm dep"| CertManager["cert-manager-operator<br/>(Required)"]
+    ODHGitops -->|"OLM Sub / Helm dep"| RHCL["rhcl-operator<br/>Kuadrant<br/>(Required)"]
+    ODHGitops -->|"OLM Subscription"| Kueue["kueue-operator<br/>(Required)"]
+    ODHGitops -->|"OLM Subscription"| JobSet["job-set-operator<br/>(Required)"]
+
+    %% Observability Stack
+    ODHGitops -->|"OLM Subscription"| ClusterObs["cluster-observability-operator<br/>(Required)"]
+    ODHGitops -->|"OLM Subscription"| OTel["opentelemetry-product<br/>(Required)"]
+    ODHGitops -->|"OLM Subscription"| Tempo["tempo-product<br/>(Required)"]
+
+    %% XKS-only Dependencies
+    ODHGitops -->|"Helm sub-chart (XKS)"| Sail["sail-operator<br/>Istio Service Mesh<br/>(Required - XKS)"]
+    ODHGitops -->|"Helm sub-chart (XKS)"| GatewayAPI["gateway-api<br/>CRDs<br/>(Required - XKS)"]
+
+    %% Optional Dependencies
+    ODHGitops -.->|"Helm sub-chart"| LWS["lws-operator<br/>LeaderWorkerSet<br/>(Optional)"]
+    ODHGitops -.->|"OLM Subscription"| CMA["custom-metrics-autoscaler<br/>(Optional)"]
+
+    %% Integration Points
+    OLM["OLM<br/>Operator Lifecycle Manager"] -->|"processes subscriptions"| ODHGitops
+    GatewayAPICtrl["OpenShift Gateway API<br/>443/TCP HTTPS TLS"] -->|"ingress routing"| ODHGitops
+    Kuadrant["Kuadrant<br/>kuadrant-system"] -->|"API policy mgmt"| ODHGitops
+    Authorino["Authorino<br/>TLS Auth"] -->|"TLS bootstrap"| ODHGitops
+    Marketplace["OpenShift Marketplace<br/>CatalogSources"] -->|"operator catalogs"| ODHGitops
+
+    %% Styling
+    style ODHGitops fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style ODHOperator fill:#7ed321,stroke:#333,color:#fff
+
+    style CertManager fill:#999,stroke:#333,color:#fff
+    style RHCL fill:#999,stroke:#333,color:#fff
+    style Kueue fill:#999,stroke:#333,color:#fff
+    style JobSet fill:#999,stroke:#333,color:#fff
+    style ClusterObs fill:#999,stroke:#333,color:#fff
+    style OTel fill:#999,stroke:#333,color:#fff
+    style Tempo fill:#999,stroke:#333,color:#fff
+
+    style Sail fill:#dae8fc,stroke:#6c8ebf
+    style GatewayAPI fill:#dae8fc,stroke:#6c8ebf
+
+    style LWS fill:#e8e8e8,stroke:#999,stroke-dasharray: 5 5
+    style CMA fill:#e8e8e8,stroke:#999,stroke-dasharray: 5 5
+
+    style OLM fill:#f5a623,stroke:#333,color:#fff
+    style GatewayAPICtrl fill:#f5a623,stroke:#333,color:#fff
+    style Kuadrant fill:#f5a623,stroke:#333,color:#fff
+    style Authorino fill:#f5a623,stroke:#333,color:#fff
+    style Marketplace fill:#f5a623,stroke:#333,color:#fff

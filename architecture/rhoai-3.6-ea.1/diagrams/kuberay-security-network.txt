@@ -1,0 +1,128 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [Data Scientist / Client]                                               │
+│         │                                                                │
+│         │ Port: 443/TCP                                                  │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: Bearer Token (OIDC / Integrated OAuth)                   │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Gateway API)                                                   │
+│                                                                          │
+│  [Gateway API Gateway]                                                   │
+│  - HTTPRoute: per-RayCluster (created by AuthenticationController)       │
+│  - ReferenceGrant: cross-namespace service reference                     │
+│  - TLS Termination: TLS 1.2+                                            │
+│         │                                                                │
+│         │ Port: 8443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS                                                │
+│         │ Auth: Service Identity                                         │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  AUTHENTICATION PROXY                                                    │
+│                                                                          │
+│  [kube-rbac-proxy Sidecar]                                               │
+│  - Injected into RayCluster head pods by AuthenticationController        │
+│  - Port: 8443/TCP (external-facing)                                      │
+│  - Auth: TokenReview + SubjectAccessReview against kube-apiserver        │
+│  - Modes: ModeIntegratedOAuth (OpenShift) / ModeOIDC (Kubernetes)        │
+│         │                                                                │
+│         │ Port: internal (localhost)                                      │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: None (pod-local)                                   │
+│         │ Auth: None (trusted sidecar)                                   │
+│         ▼                                                                │
+│  [Ray Head Pod - Dashboard]                                              │
+│  - Namespace: {user-namespace}                                           │
+│  - Ray Dashboard UI + API                                                │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  OPERATOR CONTROL PLANE (redhat-ods-applications)                        │
+│                                                                          │
+│  [kuberay-operator Deployment]                                           │
+│  - Namespace: redhat-ods-applications                                    │
+│  - ServiceAccount: kuberay-operator                                      │
+│  - Image: Built with CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime       │
+│  - Ports:                                                                │
+│    - 8080/TCP: Metrics (Prometheus scrape)                               │
+│    - 8082/TCP: Health probes (/healthz, /readyz)                         │
+│    - HTTPS: Admission webhooks (TLS, cert-manager certs)                 │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS/WSS                                            │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token (in-cluster)                        │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES API SERVER                                                   │
+│                                                                          │
+│  [kube-apiserver]                                                        │
+│  - Port: 6443/TCP                                                        │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: ServiceAccount token                                            │
+│  - RBAC: kuberay-operator ClusterRole                                    │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INTERNAL SERVICES                                                       │
+│                                                                          │
+│  [cert-manager]                                                          │
+│  - Purpose: mTLS certificates for Ray inter-node communication           │
+│  - Resources: Certificate, Issuer CRDs                                   │
+│  - Encryption: TLS 1.2+                                                  │
+│                                                                          │
+│  [Prometheus]                                                            │
+│  - Port: 8080/TCP (scrape target)                                        │
+│  - Protocol: HTTP                                                        │
+│  - Auth: prometheus.io/scrape annotation                                 │
+│                                                                          │
+│  [OpenShift APIServer Config]                                            │
+│  - Resource: apiservers.config.openshift.io/cluster                      │
+│  - Purpose: Read cluster-wide TLS security profile                       │
+│  - Auth: ServiceAccount RBAC                                             │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+ADMISSION WEBHOOKS:
+- /mutate-ray-io-v1-raycluster (mutating, failurePolicy: fail)
+  - Operations: CREATE, UPDATE on rayclusters
+  - Protocol: HTTPS, TLS (cert-manager provisioned)
+- /validate-ray-io-v1-raycluster (validating, failurePolicy: fail)
+  - Operations: CREATE, UPDATE on rayclusters
+- /validate-ray-io-v1-rayjob (validating, failurePolicy: fail)
+  - Operations: CREATE, UPDATE on rayjobs
+- /validate-ray-io-v1-rayservice (validating, failurePolicy: fail)
+  - Operations: CREATE, UPDATE on rayservices
+
+RBAC Summary (kuberay-operator ClusterRole):
+- ray.io: rayclusters, rayjobs, rayservices, raycronjobs (full CRUD + finalizers/status)
+- core: pods, services, secrets, configmaps, serviceaccounts, events (full CRUD)
+- apps: deployments (get, list, patch, update, watch)
+- batch: jobs (full CRUD)
+- cert-manager.io: certificates, issuers (full CRUD)
+- gateway.networking.k8s.io: gateways, httproutes, referencegrants (full CRUD)
+- networking.k8s.io: networkpolicies, ingresses (full CRUD)
+- route.openshift.io: routes (full CRUD)
+- rbac.authorization.k8s.io: roles, rolebindings (CRUD), clusterroles, clusterrolebindings (read)
+- authentication.k8s.io: tokenreviews (create)
+- authorization.k8s.io: subjectaccessreviews (create)
+- operator.openshift.io: kubeapiservers (read)
+
+Network Isolation:
+- NetworkPolicyController creates per-RayCluster NetworkPolicy resources
+- Ray inter-node mTLS via cert-manager Certificate resources
+- Operator webhook server uses OpenShift cluster-wide TLS profile (Intermediate default)
+
+FIPS Compliance:
+- Build: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime, -tags strictfipsruntime
+- Linking: Dynamic (delegates crypto to OpenSSL via UBI9 base image)
+- TLS: Intermediate profile (TLS 1.2+, ECDHE cipher suites, FIPS-approved algorithms)
+- No explicit FIPS mode runtime assertion in application code
+
+Secrets:
+- No application-managed secrets documented
+- cert-manager provisions TLS certificates for webhooks and inter-node mTLS
+- ServiceAccount tokens used for Kubernetes API authentication

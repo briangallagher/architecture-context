@@ -1,0 +1,136 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  CLUSTER INTERNAL (Trusted - Kubernetes Network)                        │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │  Namespace: opendatahub (operator namespace)                       │  │
+│  │                                                                     │  │
+│  │  [mlflow-operator-controller-manager]                               │  │
+│  │  - Image: controller:latest                                         │  │
+│  │  - ServiceAccount: mlflow-operator-controller-manager               │  │
+│  │  - Build: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime             │  │
+│  │  - Base: UBI9-minimal (OpenSSL for FIPS)                            │  │
+│  │                                                                     │  │
+│  │  Exposed Ports:                                                     │  │
+│  │  ┌──────────────────────────────────────────────────────────────┐   │  │
+│  │  │ Port 8443/TCP - Metrics                                      │   │  │
+│  │  │ Protocol: HTTPS                                              │   │  │
+│  │  │ Encryption: TLS (self-signed or operator-provided cert)      │   │  │
+│  │  │ Auth: TokenReview + SubjectAccessReview                      │   │  │
+│  │  │ Service: mlflow-operator-controller-manager-metrics-service   │   │  │
+│  │  │ Type: ClusterIP (internal only)                              │   │  │
+│  │  └──────────────────────────────────────────────────────────────┘   │  │
+│  │  ┌──────────────────────────────────────────────────────────────┐   │  │
+│  │  │ Port 8081/TCP - Health/Readiness Probes                      │   │  │
+│  │  │ Protocol: HTTP                                               │   │  │
+│  │  │ Encryption: None (plaintext)                                 │   │  │
+│  │  │ Auth: None (by design)                                       │   │  │
+│  │  │ Endpoints: /healthz, /readyz                                 │   │  │
+│  │  └──────────────────────────────────────────────────────────────┘   │  │
+│  │                                                                     │  │
+│  │         │                                                           │  │
+│  │         │ Port: 6443/TCP                                            │  │
+│  │         │ Protocol: HTTPS/WSS                                       │  │
+│  │         │ Encryption: TLS 1.2+                                      │  │
+│  │         │ Auth: ServiceAccount token (in-cluster)                   │  │
+│  │         ▼                                                           │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │  Kubernetes API Server                                              │  │
+│  │  - Port: 6443/TCP                                                   │  │
+│  │  - Encryption: TLS 1.2+                                             │  │
+│  │  - Auth: ServiceAccount token                                       │  │
+│  │  - RBAC: mlflow-operator-manager-role (ClusterRole)                 │  │
+│  │                                                                     │  │
+│  │  Watched Resources:                                                 │  │
+│  │  - MLflow (mlflow.opendatahub.io/v1) - Cluster-scoped              │  │
+│  │  - MLflowOperator (components.platform.opendatahub.io/v1alpha1)    │  │
+│  │  - MLflowConfig (mlflow.kubeflow.org/v1) - Namespaced              │  │
+│  │  - Auth (services.platform.opendatahub.io/v1alpha1)                │  │
+│  │  - Namespaces, ConfigMaps, Pods, Secrets                           │  │
+│  │  - Deployments, Services, Jobs, CronJobs, PVCs                     │  │
+│  │  - ClusterRoles, ClusterRoleBindings, RoleBindings                 │  │
+│  │                                                                     │  │
+│  │  Conditional watches (discovery-gated):                             │  │
+│  │  - HTTPRoute (gateway.networking.k8s.io/v1)                        │  │
+│  │  - ConsoleLink (console.openshift.io/v1)                           │  │
+│  │  - ServiceMonitor (monitoring.coreos.com/v1)                       │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │  Namespace: {workspace-namespace}                                   │  │
+│  │  (labeled: opendatahub.io/mlflow-workspace)                        │  │
+│  │                                                                     │  │
+│  │  [MLflow Tracking Server]                                           │  │
+│  │  - Deployment (Helm-rendered)                                       │  │
+│  │  - Service, ServiceAccount, PVC                                     │  │
+│  │  - CronJob, NetworkPolicy                                           │  │
+│  │  - Secret: mlflow-artifact-connection                               │  │
+│  │                                                                     │  │
+│  │  [RoleBindings]                                                     │  │
+│  │  - mlflow-view (read access)                                        │  │
+│  │  - mlflow-edit (write access)                                       │  │
+│  │  - Propagated by NamespaceRBACReconciler                            │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │  OPTIONAL PLATFORM SERVICES (discovery-gated)                       │  │
+│  │                                                                     │  │
+│  │  [Gateway API]                                                      │  │
+│  │  - HTTPRoute created for external traffic routing                   │  │
+│  │  - Protocol: HTTPS, TLS 1.2+                                       │  │
+│  │                                                                     │  │
+│  │  [Prometheus / ServiceMonitor]                                      │  │
+│  │  - Scrapes :8443/metrics                                            │  │
+│  │  - Protocol: HTTPS, TLS                                             │  │
+│  │                                                                     │  │
+│  │  [OpenShift Console]                                                │  │
+│  │  - ConsoleLink created for UI integration                           │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+NO EXTERNAL EGRESS (operator communicates only with Kubernetes API)
+
+RBAC Summary:
+- ClusterRole: mlflow-operator-manager-role
+  - Core: namespaces, pods, secrets (get, list, watch)
+  - CRDs: mlflowoperators, mlflows, mlflowconfigs (full CRUD)
+  - Resources: configmaps, deployments, services, PVCs, cronjobs,
+    jobs, networkpolicies, servicemonitors (full CRUD via Helm)
+  - RBAC: clusterroles, clusterrolebindings, rolebindings (CRUD + bind)
+  - Platform: consolelinks, httproutes (full CRUD)
+  - Auth: services.platform.opendatahub.io/auths (get, list, watch)
+
+- ClusterRole: mlflow-operator-metrics-auth-role
+  - tokenreviews (create)
+  - subjectaccessreviews (create)
+
+- ClusterRole: mlflow-operator-mlflow-view (propagated to workspaces)
+  - mlflows, mlflows/status (get, list, watch)
+  - mlflowconfigs, datasets, experiments, etc. (get, list)
+
+- ClusterRole: mlflow-operator-mlflow-edit (propagated to workspaces)
+  - mlflows (full CRUD + deletecollection)
+  - mlflowconfigs, datasets, experiments, etc. (create, delete, update)
+
+Leader Election:
+- Role: mlflow-operator-leader-election-role (Namespace: opendatahub)
+  - configmaps, leases (full CRUD)
+  - events (create, patch)
+
+Service Accounts:
+- mlflow-operator-controller-manager (Namespace: opendatahub)
+  - Bound to: mlflow-operator-manager-role (ClusterRoleBinding)
+  - Bound to: mlflow-operator-metrics-auth-role (ClusterRoleBinding)
+  - Bound to: mlflow-operator-leader-election-role (RoleBinding)
+
+Secrets:
+- mlflow-artifact-connection (per workspace namespace)
+  - Access restricted via RBAC resourceNames scoping
+  - Only mlflow-operator-controller-manager SA can read
+
+FIPS Compliance:
+- GOEXPERIMENT=strictfipsruntime enforced at build time
+- CGO_ENABLED=1 with dynamic linking to OpenSSL (UBI9)
+- TLS via stdlib crypto/tls (FIPS-approved via OpenSSL backend)

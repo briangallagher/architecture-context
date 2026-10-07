@@ -1,179 +1,202 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  KUBERNETES CLUSTER (OpenShift AI)                                          │
+│  EXTERNAL (Untrusted)                                                       │
 │                                                                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  INIT CONTAINER PHASE (Pod Startup)                                         │
-│                                                                             │
-│  [odh-pipelines-components Init Container]                                  │
-│  - Namespace: {dspa-namespace}                                              │
-│  - ServiceAccount: (KFP API server SA)                                      │
-│  - Image: odh-pipelines-components:tag                                      │
-│  - No network access (filesystem only)                                      │
+│  [Data Scientist / ML Engineer]                                             │
 │         │                                                                   │
-│         │ Path: /config/managed-pipelines/                                  │
-│         │ Protocol: Filesystem (emptyDir volume)                            │
-│         │ Data: managed-pipelines.json + compiled YAML specs                │
+│         │ Protocol: HTTPS                                                   │
+│         │ Port: 443/TCP                                                     │
+│         │ Encryption: TLS 1.2+                                              │
+│         │ Auth: OAuth / Bearer Token                                        │
+│         ▼                                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  RHOAI PLATFORM (Trusted - Platform Services)                               │
+│                                                                             │
+│  [RHOAI Dashboard]                                                          │
+│  - Submits pipeline runs to KFP API Server                                  │
+│         │                                                                   │
+│         │ Port: 443/TCP                                                     │
+│         │ Protocol: HTTPS                                                   │
+│         │ Encryption: TLS 1.2+                                              │
+│         │ Auth: OAuth proxy / SA Token                                      │
 │         ▼                                                                   │
 │  [KFP API Server]                                                           │
-│  - Reads managed-pipelines.json manifest                                    │
-│  - Loads pre-compiled pipeline YAMLs                                        │
+│  - Namespace: {dspa-namespace}                                              │
+│  - ServiceAccount: ds-pipeline-{name}                                       │
+│  - Reads managed pipeline YAML from init container shared volume            │
+│         │                                                                   │
+│         │ Init Container ─────────────────────────────┐                     │
+│         │                                             │                     │
+│         ▼                                             ▼                     │
+│  [odh-pipelines-components (Init)]          [Shared Volume]                 │
+│  - Image: odh-pipelines-components          /config/managed-pipelines       │
+│  - Compiles Python → KFP YAML              (compiled YAML specs)            │
+│  - No network access needed                                                │
 │                                                                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  PIPELINE TASK POD PHASE (Ephemeral KFP Tasks)                              │
+│  KFP TASK PODS (Ephemeral - User Namespace)                                 │
+│  Namespace: {user-namespace}                                                │
+│  ServiceAccount: {pipeline-sa}                                              │
 │                                                                             │
-│  [KFP Task Pods - Fine-Tuning Components]                                   │
-│  - Namespace: {user-namespace}                                              │
-│  - ServiceAccount: {pipeline-runner-sa}                                     │
-│  - Image: default KFP image (lightweight components)                        │
-│  - GPU: nvidia.com/gpu (training + evaluation)                              │
-│  - PVC: 50Gi shared workspace                                              │
-│         │                                                                   │
-│         │ Port: 443/TCP                                                     │
-│         │ Protocol: HTTPS                                                   │
-│         │ Encryption: TLS 1.2+                                              │
-│         │ Auth: Bearer Token (HF_TOKEN from K8s Secret)                     │
-│         ▼                                                                   │
-│  ┌──────────────────────────────────────────────────────────────────┐       │
-│  │  [HuggingFace Hub - huggingface.co]                              │       │
-│  │  - Purpose: Download pre-trained models and datasets             │       │
-│  │  - Auth: Bearer Token (token-gated models/datasets)              │       │
-│  │  - Encryption: TLS 1.2+                                          │       │
-│  └──────────────────────────────────────────────────────────────────┘       │
+│  ┌─────────────────────────────────────────────────────────────────┐        │
+│  │  DATA PROCESSING COMPONENTS                                     │        │
+│  │                                                                 │        │
+│  │  [dataset_download]        [parse_and_chunk]                    │        │
+│  │  [download_model]          [ingest_to_milvus]                   │        │
+│  │  [sdg]                     [yoda_data_processor]                │        │
+│  └─────────────────────────────────────────────────────────────────┘        │
+│         │              │              │              │                       │
+│         │              │              │              │                       │
+│  ┌─────────────────────────────────────────────────────────────────┐        │
+│  │  TRAINING COMPONENTS                                            │        │
+│  │                                                                 │        │
+│  │  [LoRA/Unsloth]   [OSFT/mini-trainer]   [SFT/instructlab]     │        │
+│  │  [AutoGluon Tabular]  [AutoGluon TimeSeries]                   │        │
+│  │  [RAG Templates Optimization]  [Search Space Prep]             │        │
+│  └─────────────────────────────────────────────────────────────────┘        │
+│         │              │                                                    │
+│  ┌─────────────────────────────────────────────────────────────────┐        │
+│  │  EVALUATION & DEPLOYMENT COMPONENTS                             │        │
+│  │                                                                 │        │
+│  │  [lm-eval]   [eval_hub_kserve]   [model_deployment]           │        │
+│  │  [deploy_embedding_model]   [kubeflow_model_registry]          │        │
+│  └─────────────────────────────────────────────────────────────────┘        │
 │                                                                             │
-│  [KFP Task Pods - AutoML Components]                                        │
-│  - Namespace: {user-namespace}                                              │
-│  - ServiceAccount: {pipeline-runner-sa}                                     │
-│  - Image: odh-automl:tag (AutoGluon + scikit-learn)                         │
-│  - PVC: 12Gi shared workspace                                              │
-│         │                                                                   │
-│         │ Port: 443/TCP                                                     │
-│         │ Protocol: HTTPS                                                   │
-│         │ Encryption: TLS 1.2+                                              │
-│         │ Auth: AWS Signature V4 (AccessKey/SecretKey from K8s Secret)      │
-│         ▼                                                                   │
-│  [KFP Task Pods - AutoRAG Components]                                       │
-│  - Namespace: {user-namespace}                                              │
-│  - ServiceAccount: {pipeline-runner-sa}                                     │
-│  - Image: odh-autorag:tag (ai4rag + docling + OGX client)                  │
-│  - Pre-seeded docling models at /opt/app-root/docling-artifacts/models     │
-│         │                            │                                      │
-│         │ Port: 443/TCP              │ Port: 443/TCP                       │
-│         │ Protocol: HTTPS            │ Protocol: HTTPS                     │
-│         │ Encryption: TLS 1.2+       │ Encryption: TLS 1.2+               │
-│         │ Auth: AWS Sig V4           │ Auth: Bearer (OGX_CLIENT_API_KEY)   │
-│         ▼                            ▼                                      │
-│  [KFP Task Pods - SDG Components]                                           │
-│  - Namespace: {user-namespace}                                              │
-│  - ServiceAccount: {pipeline-runner-sa}                                     │
-│  - Image: default KFP image (sdg-hub + LiteLLM)                            │
-│         │                                                                   │
-│         │ Port: 443/TCP                                                     │
-│         │ Protocol: HTTPS                                                   │
-│         │ Encryption: TLS 1.2+                                              │
-│         │ Auth: Bearer Token (LLM_API_KEY from K8s Secret)                  │
-│         ▼                                                                   │
-│                                                                             │
-│  [KFP Task Pods - Deployment Components]                                    │
-│  - Namespace: {user-namespace}                                              │
-│  - ServiceAccount: {pipeline-runner-sa}                                     │
-│         │                                                                   │
-│         │ Port: 8080/TCP                                                    │
-│         │ Protocol: HTTP                                                    │
-│         │ Encryption: plaintext (cluster-internal)                          │
-│         │ Auth: ServiceAccount Token (auto-mounted)                         │
-│         ▼                                                                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  CLUSTER-INTERNAL SERVICES                                                  │
+│  INTERNAL PLATFORM SERVICES (Cluster-Internal)                              │
 │                                                                             │
-│  [Kubeflow Model Registry]                                                  │
+│  [KServe]                                                                   │
+│  - Port: 443/TCP (via Kubernetes API)                                       │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+ (in-cluster CA)                                     │
+│  - Auth: ServiceAccount Token                                               │
+│  - Purpose: Creates InferenceService/ServingRuntime CRDs                    │
+│  - Created services: vLLM (8080/TCP HTTP, KServe auth)                     │
+│                                                                             │
+│  [Kubeflow Trainer]                                                         │
+│  - Port: 443/TCP (via Kubernetes API)                                       │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+ (in-cluster CA)                                     │
+│  - Auth: ServiceAccount Token                                               │
+│  - Purpose: TrainJob CR submission (LoRA/OSFT/SFT)                         │
+│                                                                             │
+│  [Kubeflow Model Registry]                                ⚠ INSECURE       │
 │  - Port: 8080/TCP                                                           │
 │  - Protocol: HTTP                                                           │
-│  - Encryption: plaintext (cluster-internal)                                 │
-│  - Auth: ServiceAccount Token (namespace-scoped)                            │
-│  - Purpose: Register trained models with provenance metadata                │
+│  - Encryption: NONE (plaintext)                                             │
+│  - Auth: NONE                                                               │
+│  - Purpose: Model version registration with provenance                      │
+│  - Risk: Any pod that can reach registry can register models                │
 │                                                                             │
-│  [Kubeflow Trainer (training-operator)]                                     │
-│  - Protocol: Kubernetes API (TrainJob CRD)                                  │
-│  - Purpose: Orchestrate distributed fine-tuning on GPU nodes                │
+│  [Eval Hub]                                                                 │
+│  - Port: 443/TCP                                                            │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+                                                     │
+│  - Auth: Bearer Token / SA Token (X-Tenant header for scoping)             │
+│  - Purpose: Evaluation job submission and result collection                 │
 │                                                                             │
-│  [PersistentVolumeClaim]                                                    │
-│  - Protocol: Filesystem (shared volume)                                     │
-│  - Sizes: 50Gi (fine-tuning), 12Gi (AutoML)                                │
-│  - Purpose: Share datasets, models, logs between pipeline stages            │
+│  [Ray / CodeFlare]                                                          │
+│  - Port: 443/TCP (via Kubernetes API for RayJob CRD)                       │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+                                                     │
+│  - Auth: ServiceAccount Token                                               │
+│  - Purpose: Distributed PDF parsing via RayJob                              │
+│                                                                             │
+│  [Milvus]                                                 ⚠ PLAINTEXT      │
+│  - Port: 19530/TCP                                                          │
+│  - Protocol: gRPC                                                           │
+│  - Encryption: plaintext (configurable)                                     │
+│  - Auth: Token (optional)                                                   │
+│  - Purpose: Vector ingestion and collection management                      │
+│  - Risk: Cross-namespace access without NetworkPolicy enforcement           │
+│                                                                             │
+│  [Kubernetes API]                                                           │
+│  - Port: 443/TCP                                                            │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+ (in-cluster CA)                                     │
+│  - Auth: ServiceAccount Token                                               │
+│  - Purpose: KServe CRD CRUD, RayJob submission, namespace discovery         │
 │                                                                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  EXTERNAL SERVICES                                                          │
 │                                                                             │
-│  [S3-compatible Storage - s3.amazonaws.com / MinIO / Ceph]                  │
-│  - Port: 443/TCP                                                            │
-│  - Protocol: HTTPS                                                          │
+│  [S3/MinIO]                                                                 │
+│  - Port: 443/TCP (S3) or 9000/TCP (MinIO)                                  │
+│  - Protocol: HTTPS/HTTP                                                     │
 │  - Encryption: TLS 1.2+                                                     │
-│  - Auth: AWS Signature V4 (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY)       │
-│  - Purpose: Load/store training data, model artifacts, documents            │
+│  - Auth: AWS IAM credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)     │
+│  - Purpose: Training data, model artifacts, chunk JSONL storage             │
+│  - Risk: verify=False SSL fallback in AutoML S3 client                     │
 │                                                                             │
 │  [HuggingFace Hub - huggingface.co]                                         │
 │  - Port: 443/TCP                                                            │
 │  - Protocol: HTTPS                                                          │
 │  - Encryption: TLS 1.2+                                                     │
-│  - Auth: Bearer Token (HF_TOKEN)                                            │
-│  - Purpose: Download pre-trained models and datasets                        │
+│  - Auth: Bearer Token (HF_TOKEN)                                           │
+│  - Purpose: Model and dataset downloads                                     │
 │                                                                             │
-│  [OGX API - OpenShift GenAI eXtensions]                                     │
+│  [OGX API - OpenShift Generative AI]                                        │
 │  - Port: 443/TCP                                                            │
 │  - Protocol: HTTPS                                                          │
 │  - Encryption: TLS 1.2+                                                     │
-│  - Auth: Bearer Token (OGX_CLIENT_API_KEY)                                  │
-│  - Purpose: Embedding models, vector store ops, generation                  │
-│  - WARNING: OGX_TLS_INSECURE=1 disables cert verification (dev only)       │
+│  - Auth: API key (OGX_CLIENT_API_KEY)                                      │
+│  - Purpose: LLM inference for RAG optimization                              │
 │                                                                             │
-│  [Milvus Vector Database]                                                   │
-│  - Port: 19530/TCP                                                          │
-│  - Protocol: gRPC/HTTP                                                      │
-│  - Encryption: TLS 1.2+                                                     │
-│  - Auth: Via OGX connection                                                 │
-│  - Purpose: Store/retrieve document embeddings for RAG                      │
-│                                                                             │
-│  [LLM API (via LiteLLM)]                                                    │
+│  [LiteLLM API]                                                              │
 │  - Port: 443/TCP                                                            │
 │  - Protocol: HTTPS                                                          │
 │  - Encryption: TLS 1.2+                                                     │
-│  - Auth: Bearer Token (LLM_API_KEY)                                         │
-│  - Purpose: SDG synthetic data generation, RAG evaluation                   │
+│  - Auth: API key (LLM_API_KEY)                                             │
+│  - Purpose: LLM API abstraction for SDG                                     │
 │                                                                             │
-│  [Red Hat AI PyPI Index]                                                     │
+│  [OCI Registry]                                                             │
 │  - Port: 443/TCP                                                            │
 │  - Protocol: HTTPS                                                          │
 │  - Encryption: TLS 1.2+                                                     │
-│  - Auth: None                                                               │
-│  - Purpose: Python package installation (build-time only)                   │
+│  - Auth: Docker config.json (OCI_PULL_SECRET_MODEL_DOWNLOAD)               │
+│  - Purpose: OCI model image pull via skopeo                                 │
+│                                                                             │
+│  [RHEL AI Python Package Index - console.redhat.com]                        │
+│  - Port: 443/TCP                                                            │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+                                                     │
+│  - Auth: None (public)                                                      │
+│  - Purpose: Python package installation at build time                       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-RBAC Summary:
-- No RBAC manifests in this repository
-- Pipeline components run under KFP pipeline runner ServiceAccount
-- Permissions granted by the KFP installation (Data Science Pipelines Application)
-- Model Registry access scoped to namespace via ServiceAccount token
+RBAC Summary (Runtime Requirements - configured by platform operator):
+- ServiceAccount: {pipeline-sa}
+  - API Group: serving.kserve.io
+    Resources: servingruntimes, inferenceservices
+    Verbs: get, list, create, patch, delete
+  - API Group: "" (core)
+    Resources: pods, services, secrets, configmaps
+    Verbs: get, list
+  - API Group: "" (core)
+    Resources: pods/log
+    Verbs: get
+  - API Group: ray.io
+    Resources: rayjobs
+    Verbs: get, list, create, delete
+  - API Group: kubeflow.org
+    Resources: trainjobs
+    Verbs: get, list, create, watch
 
 Secrets:
-- s3-secret (Opaque) - AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_S3_ENDPOINT, AWS_DEFAULT_REGION
-  Provisioned By: User / RHOAI Connections API | Auto-Rotate: No
-- hf-token (Opaque) - HF_TOKEN for HuggingFace Hub authentication
-  Provisioned By: User | Auto-Rotate: No
-- ogx-secret (Opaque) - OGX_CLIENT_API_KEY, OGX_CLIENT_BASE_URL for OGX API access
-  Provisioned By: RHOAI Connections API | Auto-Rotate: No
-- llm-credentials (Opaque) - api_key (LLM_API_KEY) for LiteLLM-backed LLM access
-  Provisioned By: User | Auto-Rotate: No
-- wandb-secret (Opaque) - WANDB_API_KEY for W&B experiment tracking (optional)
-  Provisioned By: User | Auto-Rotate: No
+- s3-secret / minio-secret (Opaque) - S3 credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY), User/Platform provisioned, No auto-rotate
+- hf-token (Opaque) - HuggingFace authentication token, User provisioned, No auto-rotate
+- kubernetes-credentials (Opaque) - KUBERNETES_SERVER_URL, KUBERNETES_AUTH_TOKEN, Platform provisioned, No auto-rotate
+- oci-pull-secret-model-download (kubernetes.io/dockerconfigjson) - Docker config.json for OCI model pulls, User provisioned, No auto-rotate
+- ogx-secret (Opaque) - OGX_CLIENT_BASE_URL, OGX_CLIENT_API_KEY, User/Platform provisioned, No auto-rotate
+- llm-credentials (Opaque) - LLM API key for SDG flows, User provisioned, No auto-rotate
 
-Security Notes:
-- All external egress uses TLS 1.2+ (system OpenSSL from UBI9 base images)
-- No ingress endpoints (ephemeral batch task pods only)
-- Model Registry communication is plaintext HTTP (cluster-internal only)
-- WARNING: documents_indexing component supports OGX_TLS_INSECURE=1 (dev-only TLS bypass)
-  Source: components/data_processing/autorag/documents_indexing/component.py:66-82
-  Risk: If enabled in production, disables certificate verification for OGX API calls
-- FIPS: Python components inherit FIPS-compliant OpenSSL from UBI9/RHAI base images
-- No custom TLS configuration; all crypto via system ssl module
-- Build hermeticity via uv.lock (Python) + Hermeto prefetch (docling models for AutoRAG)
+Security Concerns:
+1. Model Registry uses insecure HTTP (8080/TCP, no TLS, no auth) - any pod that can reach it can register models
+2. S3 client has verify=False SSL fallback in AutoML data loaders - bypasses TLS verification (FIPS gap)
+3. Milvus connections use plaintext gRPC (19530/TCP) - may cross namespaces without NetworkPolicy
+4. Eval Hub tenant isolation relies on X-Tenant header - server-side enforcement required
+
+Multi-Tenancy:
+- Tenant boundary: per-namespace (Kubernetes namespace)
+- Pipeline execution: per-namespace with pipeline ServiceAccount RBAC
+- Shared services: KFP API Server, Model Registry (no tenant isolation), Milvus (app-level scoping)

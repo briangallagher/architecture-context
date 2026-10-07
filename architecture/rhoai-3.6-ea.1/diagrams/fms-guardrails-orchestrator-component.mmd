@@ -1,0 +1,36 @@
+graph TB
+    subgraph "FMS Guardrails Orchestrator"
+        direction TB
+        Server["fms-guardrails-orchestr8<br/>axum REST Server<br/>Port 8033/TCP"]
+        HealthServer["Health Server<br/>Port 8034/TCP"]
+        GRPCClients["tonic gRPC Clients<br/>(chunker + TGIS)"]
+        RESTClients["reqwest REST Clients<br/>(detectors)"]
+        TLSLayer["rustls TLS Layer<br/>(ring provider)"]
+        HeaderRewrite["Header Rewrite<br/>X-Forwarded-Access-Token → Bearer"]
+
+        Server -->|"chunks text"| GRPCClients
+        Server -->|"detects content"| RESTClients
+        Server -->|"optional TLS/mTLS"| TLSLayer
+        Server -->|"rewrites auth"| HeaderRewrite
+    end
+
+    Client[Client] -->|"POST /api/v1/* /api/v2/*<br/>8033/TCP HTTP/HTTPS"| Server
+    Probe["Platform Probe"] -->|"GET /health /info<br/>8034/TCP HTTP"| HealthServer
+
+    GRPCClients -->|"gRPC/8085<br/>TLS optional"| Chunker["Chunker Services<br/>(caikit Chunkers API)"]
+    RESTClients -->|"REST/8080<br/>TLS optional"| Detectors["Detector Services"]
+    GRPCClients -->|"gRPC/8033"| TGIS["TGIS Generation Service"]
+    RESTClients -->|"HTTP/8081"| DetectorHealth["Detector Health Services"]
+
+    style Server fill:#4a90e2,stroke:#333,color:#fff
+    style HealthServer fill:#4a90e2,stroke:#333,color:#fff
+    style GRPCClients fill:#4a90e2,stroke:#333,color:#fff
+    style RESTClients fill:#4a90e2,stroke:#333,color:#fff
+    style TLSLayer fill:#4a90e2,stroke:#333,color:#fff
+    style HeaderRewrite fill:#4a90e2,stroke:#333,color:#fff
+    style Client fill:#f5f5f5,stroke:#999
+    style Probe fill:#f5f5f5,stroke:#999
+    style Chunker fill:#7ed321,stroke:#333,color:#fff
+    style Detectors fill:#7ed321,stroke:#333,color:#fff
+    style TGIS fill:#7ed321,stroke:#333,color:#fff
+    style DetectorHealth fill:#7ed321,stroke:#333,color:#fff

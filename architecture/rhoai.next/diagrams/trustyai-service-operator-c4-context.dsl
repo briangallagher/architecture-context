@@ -1,59 +1,99 @@
 workspace {
     model {
-        dataScientist = person "Data Scientist" "Creates ML models, runs evaluations, configures guardrails"
-        platformAdmin = person "Platform Admin" "Deploys and configures TrustyAI services on OpenShift"
+        dataScientist = person "Data Scientist" "Creates ML models, runs evaluations, deploys guardrails"
+        platformAdmin = person "Platform Admin" "Manages RHOAI platform components via DSC"
 
-        trustyaiOperator = softwareSystem "TrustyAI Service Operator" "Multi-controller operator managing AI trustworthiness services for RHOAI" {
-            manager = container "Operator Manager" "Multi-controller binary with plugin-based service registry" "Go 1.24 / controller-runtime"
-            tasController = container "TAS Controller" "Manages TrustyAI explainability service deployments" "Go Controller"
-            lmesController = container "LMES Controller" "Manages LMEvalJob pods for language model evaluation" "Go Controller"
-            jobMgrController = container "Job Manager Controller" "Kueue framework adapter for LMEvalJob workload scheduling" "Go Controller"
-            gorchController = container "GORCH Controller" "Manages guardrails orchestrator with auto-config from KServe" "Go Controller"
-            nemoController = container "NemoGuardrails Controller" "Manages NVIDIA NeMo Guardrails deployments" "Go Controller"
-            evalhubController = container "EvalHub Controller" "Manages centralized evaluation hub with multi-tenant support" "Go Controller"
-            lmesDriver = container "ta-lmes-driver" "Sidecar/init-container driver for LMEval job coordination" "Go CLI"
+        trustyaiOperator = softwareSystem "TrustyAI Service Operator" "Multi-controller operator managing AI fairness, evaluation, and guardrails services" {
+            manager = container "Operator Manager" "Hosts 6 controllers: TAS, LMES, EvalHub, GORCH, NemoGuardrails, MODULE" "Go (controller-runtime)"
+            lmesDriver = container "LMES Driver" "Init container coordinating LM evaluation jobs with lm-evaluation-harness" "Go CLI"
+
+            tasController = component "TAS Controller" "Manages TrustyAIService CRs for AI fairness/explainability monitoring" "Go Controller" {
+                tags "Controller"
+            }
+            lmesController = component "LMES Controller" "Manages LMEvalJob CRs for language model evaluation" "Go Controller" {
+                tags "Controller"
+            }
+            evalHubController = component "EvalHub Controller" "Manages EvalHub CRs for multi-tenant evaluation hub" "Go Controller" {
+                tags "Controller"
+            }
+            gorchController = component "GORCH Controller" "Manages GuardrailsOrchestrator CRs with KServe auto-discovery" "Go Controller" {
+                tags "Controller"
+            }
+            nemoController = component "NemoGuardrails Controller" "Manages NemoGuardrails CRs with Istio EnvoyFilter integration" "Go Controller" {
+                tags "Controller"
+            }
+            moduleController = component "MODULE Controller" "Reconciles cluster-scoped TrustyAI CR for DSC module lifecycle" "Go Controller" {
+                tags "Controller"
+            }
         }
 
-        kserve = softwareSystem "KServe" "ML model serving platform providing InferenceService CRDs" "Internal RHOAI"
-        istio = softwareSystem "Istio Service Mesh" "Service mesh for traffic management and mTLS" "External"
-        kueue = softwareSystem "Kueue" "Job scheduling and workload management" "External"
-        prometheus = softwareSystem "Prometheus" "Metrics collection and monitoring via ServiceMonitor CRDs" "External"
-        openshiftRouter = softwareSystem "OpenShift Router" "Ingress via OpenShift Routes with TLS termination" "External"
-        kubeRbacProxy = softwareSystem "kube-rbac-proxy" "Authentication sidecar with FIPS 140-2 TLS and K8s TokenReview" "External"
-        certManager = softwareSystem "OpenShift Service CA" "Automatic TLS certificate provisioning via annotations" "External"
-        mlflow = softwareSystem "MLflow" "Experiment tracking and model registry" "Internal RHOAI"
+        # Internal Platform Systems
+        rhodsOperator = softwareSystem "RHOAI Platform Operator" "Manages platform component lifecycle via DSC" "Internal RHOAI" {
+            tags "Internal"
+        }
+        kserve = softwareSystem "KServe" "Serverless ML inference platform" "Internal RHOAI" {
+            tags "Internal"
+        }
+        prometheus = softwareSystem "Prometheus" "Metrics collection and alerting" "Internal RHOAI" {
+            tags "Internal"
+        }
+        kueue = softwareSystem "Kueue" "Job queuing and resource management" "Internal RHOAI" {
+            tags "Internal"
+        }
 
-        s3Storage = softwareSystem "S3-Compatible Storage" "Object storage for LMEval datasets and model artifacts" "External"
-        ociRegistry = softwareSystem "OCI Registry" "Container/artifact registry for LMEval result upload" "External"
-        huggingFace = softwareSystem "HuggingFace Hub" "Model and dataset repository (online mode)" "External"
-        database = softwareSystem "Database (MariaDB/PostgreSQL)" "Persistent storage for TAS and EvalHub" "External"
-        otelCollector = softwareSystem "OTEL Collector" "OpenTelemetry telemetry collection" "External"
+        # External Infrastructure
+        istio = softwareSystem "Istio / Service Mesh" "Traffic management, mTLS, EnvoyFilters" "External" {
+            tags "External"
+        }
+        certManager = softwareSystem "cert-manager / service-serving-cert" "TLS certificate lifecycle management" "External" {
+            tags "External"
+        }
+        kubeRbacProxy = softwareSystem "kube-rbac-proxy" "Auth enforcement sidecar (TokenReview + SAR)" "External" {
+            tags "External"
+        }
+        k8sAPI = softwareSystem "Kubernetes API Server" "Cluster control plane" "External" {
+            tags "External"
+        }
 
-        dataScientist -> trustyaiOperator "Creates TrustyAIService, LMEvalJob, GuardrailsOrchestrator, EvalHub CRs" "kubectl / RHOAI Dashboard"
-        platformAdmin -> trustyaiOperator "Deploys operator, configures --enable-services" "Kustomize / OLM"
+        # External Services
+        s3Storage = softwareSystem "S3-Compatible Storage" "Model artifacts and evaluation results" "External Service" {
+            tags "ExternalService"
+        }
+        ociRegistry = softwareSystem "OCI Registry" "Container image and result storage" "External Service" {
+            tags "ExternalService"
+        }
+        postgresql = softwareSystem "PostgreSQL" "Persistent storage for TAS and EvalHub" "External Service" {
+            tags "ExternalService"
+        }
+        mlflow = softwareSystem "MLflow" "Experiment tracking for EvalHub" "External Service" {
+            tags "ExternalService"
+        }
+        mcpGateway = softwareSystem "MCP Gateway (Kuadrant)" "Model Context Protocol gateway extension" "External" {
+            tags "External"
+        }
 
-        trustyaiOperator -> kserve "Watches/patches InferenceServices, reads ServingRuntimes" "HTTPS/443 (K8s API)"
-        trustyaiOperator -> istio "Creates DestinationRules and VirtualServices (conditional)" "HTTPS/443 (K8s API)"
-        trustyaiOperator -> kueue "Creates Workloads for LMEvalJob scheduling" "HTTPS/443 (K8s API)"
-        trustyaiOperator -> prometheus "Creates ServiceMonitors for metrics scraping" "HTTPS/443 (K8s API)"
-        trustyaiOperator -> openshiftRouter "Creates Routes for external HTTPS access" "HTTPS/443 (K8s API)"
-        trustyaiOperator -> kubeRbacProxy "Deploys as sidecar for Bearer Token auth" "HTTPS/8443"
-        trustyaiOperator -> certManager "Annotates Services for auto TLS cert generation" "Annotation trigger"
-        trustyaiOperator -> mlflow "EvalHub experiment tracking via projected SA token" "HTTPS"
+        # Relationships — Users
+        dataScientist -> trustyaiOperator "Creates TrustyAIService, LMEvalJob, EvalHub, GuardrailsOrchestrator, NemoGuardrails CRs"
+        platformAdmin -> rhodsOperator "Enables TrustyAI module via DSC"
+        rhodsOperator -> trustyaiOperator "Creates TrustyAI CR (module registration)"
 
-        trustyaiOperator -> s3Storage "LMEval offline dataset download" "HTTPS/443"
-        trustyaiOperator -> ociRegistry "LMEval result upload" "HTTPS/443"
-        trustyaiOperator -> huggingFace "LMEval model/dataset download (online mode)" "HTTPS/443"
-        trustyaiOperator -> database "TAS/EvalHub persistent storage" "TCP/TLS"
-        trustyaiOperator -> otelCollector "GORCH/EvalHub telemetry export" "gRPC/HTTP"
+        # Relationships — Internal
+        trustyaiOperator -> kserve "Patches InferenceServices (TAS logger), auto-discovers endpoints (GORCH)" "HTTPS/6443 (via k8s API)"
+        trustyaiOperator -> prometheus "Creates ServiceMonitors for metrics scraping"
+        trustyaiOperator -> kueue "Optional workload queuing for LMES jobs" "HTTPS/6443 (via k8s API)"
+        trustyaiOperator -> k8sAPI "CR CRUD, leader election, pod exec, RBAC" "HTTPS/6443"
+        trustyaiOperator -> istio "Creates DestinationRules, VirtualServices (TAS), EnvoyFilters (NemoGuardrails)"
+        trustyaiOperator -> certManager "TLS certificate generation via service annotations"
+        trustyaiOperator -> mcpGateway "Discovers MCPGatewayExtension resources (NemoGuardrails)" "HTTPS/6443 (via k8s API)"
 
-        manager -> tasController "Registers and enables"
-        manager -> lmesController "Registers and enables"
-        manager -> jobMgrController "Registers and enables"
-        manager -> gorchController "Registers and enables"
-        manager -> nemoController "Registers and enables"
-        manager -> evalhubController "Registers and enables"
-        lmesController -> lmesDriver "Injects as init container + runs in main container"
+        # Relationships — External Services
+        trustyaiOperator -> s3Storage "LMES: download assets, upload results" "HTTPS/443"
+        trustyaiOperator -> ociRegistry "LMES: upload results to OCI" "HTTPS/443"
+        trustyaiOperator -> postgresql "TAS/EvalHub: persistent data storage" "TCP/5432"
+        trustyaiOperator -> mlflow "EvalHub: experiment tracking" "HTTPS/443"
+
+        # Relationships — Security
+        trustyaiOperator -> kubeRbacProxy "Injects as sidecar in all user-facing deployments"
     }
 
     views {
@@ -69,15 +109,7 @@ workspace {
 
         styles {
             element "Software System" {
-                background #4a90e2
-                color #ffffff
-            }
-            element "External" {
-                background #999999
-                color #ffffff
-            }
-            element "Internal RHOAI" {
-                background #7ed321
+                background #438dd5
                 color #ffffff
             }
             element "Person" {
@@ -87,6 +119,25 @@ workspace {
             }
             element "Container" {
                 background #438dd5
+                color #ffffff
+            }
+            element "Component" {
+                background #85bbf0
+                color #000000
+            }
+            element "Controller" {
+                background #85bbf0
+            }
+            element "External" {
+                background #999999
+                color #ffffff
+            }
+            element "Internal" {
+                background #7ed321
+                color #ffffff
+            }
+            element "ExternalService" {
+                background #f5a623
                 color #ffffff
             }
         }

@@ -1,0 +1,51 @@
+graph TD
+    subgraph "Job Orchestration RBAC"
+        OperatorSA["TrustyAI Operator<br/>ServiceAccount<br/>(manages Job lifecycle)"]
+    end
+
+    subgraph "lm-evaluation-harness Pod Security"
+        direction TB
+        PodSpec["Pod Security Context"]
+        NonRoot["Non-Root User: 65532"]
+        NoPrivEsc["No Privilege Escalation"]
+        PodSpec --> NonRoot
+        PodSpec --> NoPrivEsc
+    end
+
+    subgraph "Secrets (Environment Variables)"
+        direction TB
+        OPENAI["OPENAI_API_KEY<br/>Type: Opaque<br/>Provisioned: Runtime"]
+        ANTHROPIC["ANTHROPIC_API_KEY<br/>Type: Opaque<br/>Provisioned: Runtime"]
+        WATSONX["WATSONX_API_KEY<br/>Type: Opaque<br/>Provisioned: Runtime"]
+        HF["HF_TOKEN<br/>Type: Opaque<br/>Provisioned: Runtime"]
+        AWS["AWS_SECRET_ACCESS_KEY<br/>Type: Opaque<br/>Provisioned: Runtime"]
+    end
+
+    subgraph "External API Access"
+        OpenAIAPI["OpenAI API<br/>Bearer Token Auth"]
+        AnthropicAPI["Anthropic API<br/>x-api-key Auth"]
+        WatsonXAPI["watsonx API<br/>API Key Auth"]
+        HuggingFace["Hugging Face Hub<br/>Bearer Token Auth"]
+        S3["S3 Storage<br/>AWS Sig v4 Auth"]
+    end
+
+    OperatorSA -->|"creates Job<br/>Kubernetes RBAC"| PodSpec
+
+    OPENAI -->|"injected as env var"| OpenAIAPI
+    ANTHROPIC -->|"injected as env var"| AnthropicAPI
+    WATSONX -->|"injected as env var"| WatsonXAPI
+    HF -->|"injected as env var"| HuggingFace
+    AWS -->|"injected as env var"| S3
+
+    Note["Note: No ClusterRoles or RoleBindings<br/>are defined in this repository.<br/>RBAC is managed by the TrustyAI operator."]
+
+    style OperatorSA fill:#4a90e2,stroke:#333,color:#fff
+    style NonRoot fill:#7ed321,stroke:#333
+    style NoPrivEsc fill:#7ed321,stroke:#333
+    style PodSpec fill:#dae8fc,stroke:#6c8ebf
+    style OPENAI fill:#f5a623,stroke:#333
+    style ANTHROPIC fill:#f5a623,stroke:#333
+    style WATSONX fill:#f5a623,stroke:#333
+    style HF fill:#f5a623,stroke:#333
+    style AWS fill:#f5a623,stroke:#333
+    style Note fill:#fff,stroke:#999,stroke-dasharray: 5 5

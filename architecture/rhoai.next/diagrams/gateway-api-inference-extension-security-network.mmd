@@ -1,81 +1,82 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Client["External Client"]
+        Client["Client Application"]
     end
 
-    subgraph Ingress["INGRESS (Gateway Layer)"]
-        Gateway["Envoy-based Gateway<br/>(Envoy GW / Istio / GKE / kgateway)<br/>443/TCP → ext-proc chain<br/>TLS termination<br/>Auth: Gateway-dependent"]
+    subgraph GatewayLayer["GATEWAY LAYER (Trust Boundary)"]
+        Gateway["Envoy-based Gateway<br/>(Envoy GW / Istio / GKE / kgateway)<br/>443/TCP → ext-proc chain<br/>TLS 1.2+ Termination"]
     end
 
-    subgraph ClusterInternal["CLUSTER INTERNAL (Trusted)"]
+    subgraph InferenceExtension["INFERENCE EXTENSION (Cluster-Internal)"]
         direction TB
 
-        subgraph NS_BBR["Namespace: bbr-namespace"]
-            BBR["Body Based Router (BBR)<br/>SA: bbr-name-release<br/>9004/TCP gRPC/h2<br/>TLS: self-signed RSA-4096<br/>No client cert verification"]
-            BBR_Health["BBR Health<br/>9005/TCP gRPC<br/>No encryption"]
-            BBR_Metrics["BBR Metrics<br/>9090/TCP HTTP<br/>Auth: Optional"]
+        subgraph BBRZone["BBR Zone (Optional)"]
+            BBR["Body Based Router<br/>SA: {release}-sa<br/>9004/TCP gRPC TLS (self-signed)<br/>9005/TCP gRPC health (plaintext)<br/>9090/TCP HTTP metrics (RBAC opt)"]
         end
 
-        subgraph NS_Pool["Namespace: pool-namespace"]
-            EPP["Endpoint Picker (EPP)<br/>SA: release<br/>9002/TCP gRPC/h2<br/>TLS: self-signed RSA-4096<br/>No client cert verification"]
-            EPP_Health["EPP Health<br/>9003/TCP gRPC<br/>No encryption"]
-            EPP_Metrics["EPP Metrics<br/>9090/TCP HTTP<br/>Auth: TokenReview + SAR (optional)"]
-            EPP_Debug["EPP Debug<br/>9090/TCP /debug/pprof/*<br/>No auth"]
+        subgraph EPPZone["EPP Zone (Core)"]
+            EPP["Endpoint Picker<br/>SA: {release}-sa<br/>9002/TCP gRPC TLS (optional)<br/>9003/TCP gRPC health (plaintext)<br/>9090/TCP HTTP metrics (RBAC opt)"]
+        end
 
-            subgraph LatencySidecar["Latency Prediction Sidecar (Optional)"]
-                TrainingSrv["Training Server<br/>8000/TCP HTTP<br/>No encryption, No auth"]
-                PredictionSrv["Prediction Server<br/>8001/TCP HTTP<br/>No encryption, No auth"]
-                SharedPVC["Shared PVC<br/>Model files"]
-            end
+        subgraph SidecarZone["Latency Predictor Sidecars (Pod-Internal)"]
+            TrainServer["Training Server<br/>8000/TCP HTTP plaintext<br/>localhost only"]
+            PredServer["Prediction Server<br/>8001/TCP HTTP plaintext<br/>localhost only"]
         end
     end
 
-    subgraph ExternalServices["EXTERNAL SERVICES"]
-        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>Auth: ServiceAccount token"]
-        ModelServers["Model Server Pods<br/>(vLLM / sglang / triton)<br/>HTTP/HTTPS Configurable<br/>⚠ InsecureSkipVerify=true default"]
-        OTLP["OTLP Collector<br/>4317/TCP gRPC<br/>No encryption"]
-        Prometheus["Prometheus<br/>Scrapes 9090/TCP HTTP"]
+    subgraph ModelServerZone["MODEL SERVERS (Pool Namespace)"]
+        ModelServers["vLLM / SGLang / Triton / trtllm-serve<br/>8000/TCP HTTP/HTTPS<br/>Selected by InferencePool labels<br/>Prometheus /metrics exposed"]
     end
 
-    %% External flows
-    Client -->|"HTTPS/443<br/>TLS<br/>Auth: Gateway-dependent"| Gateway
+    subgraph ClusterServices["CLUSTER SERVICES"]
+        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS TLS<br/>Auth: SA token (Bearer)"]
+        OTel["OpenTelemetry Collector<br/>4317/TCP gRPC OTLP<br/>plaintext, no auth"]
+        Prometheus["Prometheus<br/>Scrapes 9090/TCP<br/>Optional RBAC auth"]
+    end
 
-    %% Gateway to ext-proc
-    Gateway -->|"gRPC/9004<br/>TLS (self-signed)<br/>No client auth"| BBR
-    BBR -->|"Headers: model-name,<br/>base-model"| Gateway
-    Gateway -->|"gRPC/9002<br/>TLS (self-signed)<br/>No client auth"| EPP
-    EPP -->|"Endpoint selection<br/>+ routing headers"| Gateway
-    Gateway -->|"Routed request<br/>HTTP or gRPC"| ModelServers
+    %% External → Gateway
+    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Auth: varies (GW config)"| Gateway
 
-    %% EPP outbound
-    EPP -->|"HTTPS/443<br/>TLS<br/>SA token"| K8sAPI
-    EPP -->|"HTTP(S)/configurable<br/>⚠ InsecureSkipVerify"| ModelServers
-    EPP -->|"gRPC/4317<br/>No encryption"| OTLP
-    EPP -->|"HTTP/8000<br/>No encryption"| TrainingSrv
-    EPP -->|"HTTP/8001<br/>No encryption"| PredictionSrv
+    %% Gateway → ext-proc chain
+    Gateway -->|"gRPC/9004<br/>TLS (self-signed)<br/>Auth: None (network trust)"| BBR
+    BBR -->|"gRPC response<br/>X-Gateway-Model-Name header"| Gateway
+    Gateway -->|"gRPC/9002<br/>TLS (optional)<br/>Auth: None (network trust)"| EPP
+    EPP -->|"gRPC response<br/>endpoint selection"| Gateway
 
-    %% BBR outbound
-    BBR -->|"HTTPS/443<br/>TLS<br/>SA token"| K8sAPI
+    %% Gateway → Model Server
+    Gateway -->|"HTTP/8000<br/>Forwarded request<br/>Auth: None"| ModelServers
 
-    %% Latency subsystem internal
-    TrainingSrv -->|"Filesystem<br/>Model files"| SharedPVC
-    PredictionSrv -->|"Filesystem<br/>Model sync"| SharedPVC
+    %% EPP → Model Servers (metrics)
+    EPP -->|"HTTP/8000<br/>InsecureSkipVerify=true default<br/>Auth: None<br/>Prometheus /metrics scraping"| ModelServers
 
-    %% Prometheus scraping
-    Prometheus -->|"HTTP/9090<br/>Scrape"| EPP_Metrics
-    Prometheus -->|"HTTP/9090<br/>Scrape"| BBR_Metrics
+    %% EPP → K8s API
+    EPP -->|"HTTPS/443<br/>TLS<br/>SA token (Bearer)<br/>Watch: Pods, CRDs, Leases"| K8sAPI
+
+    %% BBR → K8s API
+    BBR -->|"HTTPS/443<br/>TLS<br/>SA token (Bearer)<br/>Watch: ConfigMaps (bbr-managed)"| K8sAPI
+
+    %% EPP ↔ Sidecars
+    EPP -.->|"HTTP/8000 plaintext<br/>localhost (pod-internal)<br/>Training data submission"| TrainServer
+    EPP -.->|"HTTP/8001 plaintext<br/>localhost (pod-internal)<br/>TTFT/TPOT predictions"| PredServer
+    PredServer -.->|"HTTP/8000 plaintext<br/>localhost<br/>Fetch trained models"| TrainServer
+
+    %% Observability
+    EPP -->|"gRPC/4317<br/>OTLP plaintext<br/>Auth: None"| OTel
+    BBR -->|"gRPC/4317<br/>OTLP plaintext<br/>Auth: None"| OTel
+    Prometheus -->|"HTTP/9090<br/>Scrape /metrics<br/>Optional TokenReview + SAR"| EPP
+    Prometheus -->|"HTTP/9090<br/>Scrape /metrics<br/>Optional TokenReview + SAR"| BBR
 
     %% Styling
-    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px,color:#000
-    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px,color:#000
-    classDef internal fill:#d5e8d4,stroke:#82b366,stroke-width:2px,color:#000
-    classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px,color:#000
-    classDef warning fill:#f8cecc,stroke:#b85450,stroke-width:2px,color:#000
-    classDef sidecar fill:#e1d5e7,stroke:#9673a6,stroke-width:2px,color:#000
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef gateway fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef inference fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef sidecar fill:#e1d5e7,stroke:#9673a6,stroke-width:1px,stroke-dasharray:5
+    classDef modelserver fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef clusterservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 
     class Client external
-    class Gateway ingress
-    class BBR,EPP,BBR_Health,EPP_Health,BBR_Metrics,EPP_Metrics,EPP_Debug internal
-    class K8sAPI,OTLP,Prometheus externalservice
-    class ModelServers warning
-    class TrainingSrv,PredictionSrv,SharedPVC sidecar
+    class Gateway gateway
+    class BBR,EPP inference
+    class TrainServer,PredServer sidecar
+    class ModelServers modelserver
+    class K8sAPI,OTel,Prometheus clusterservice

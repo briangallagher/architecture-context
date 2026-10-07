@@ -1,0 +1,44 @@
+graph LR
+    EvalHub["Eval-Hub<br/>Evaluation Orchestration Service"]
+
+    %% Kubernetes / Platform Dependencies
+    EvalHub -->|"HTTPS/6443<br/>Jobs, CMs, Secrets"| K8sAPI["Kubernetes API<br/>v0.36.3 client-go"]
+    EvalHub -->|"CRD CRUD<br/>hardware scheduling"| HWProfile["HardwareProfile CR<br/>infrastructure.opendatahub.io/v1"]
+
+    %% Storage Dependencies
+    EvalHub -->|"AWS SDK<br/>test data"| S3["S3-Compatible Storage<br/>aws-sdk-go-v2 v1.43.4"]
+    EvalHub -->|"pgx driver<br/>production"| PostgreSQL["PostgreSQL<br/>pgx v5.10.0"]
+    EvalHub -->|"file-based<br/>development"| SQLite["SQLite<br/>modernc.org/sqlite v1.56.0"]
+
+    %% External Service Dependencies
+    EvalHub -->|"HTTPS<br/>TLS 1.2-1.3<br/>experiment tracking"| MLflow["MLflow Tracking Server"]
+    EvalHub -->|"OTLP/gRPC<br/>traces/metrics/logs"| OTel["OpenTelemetry Collector<br/>otel v1.45.0"]
+
+    %% AI / Protocol Dependencies
+    EvalHub -->|"MCP protocol"| MCPClients["MCP Clients<br/>go-sdk v1.7.0"]
+
+    %% Observability Dependencies
+    EvalHub -->|"metrics export"| Prometheus["Prometheus<br/>client_golang v1.24.1"]
+
+    %% Build Dependencies
+    EvalHub -->|"FIPS runtime"| UBI9["UBI9 / Go Toolset<br/>Go 1.26.5"]
+
+    %% Configuration
+    EvalHub -->|"config mgmt"| Viper["Viper<br/>v1.21.0"]
+
+    %% Runtime
+    EvalHub -->|"gRPC transport"| GRPC["gRPC<br/>v1.83.0"]
+
+    style EvalHub fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style K8sAPI fill:#326ce5,stroke:#333,color:#fff
+    style HWProfile fill:#326ce5,stroke:#333,color:#fff
+    style S3 fill:#f5a623,stroke:#333
+    style PostgreSQL fill:#336791,stroke:#333,color:#fff
+    style SQLite fill:#003b57,stroke:#333,color:#fff
+    style MLflow fill:#0194e2,stroke:#333,color:#fff
+    style OTel fill:#f5a623,stroke:#333
+    style MCPClients fill:#7ed321,stroke:#333
+    style Prometheus fill:#e6522c,stroke:#333,color:#fff
+    style UBI9 fill:#cc0000,stroke:#333,color:#fff
+    style Viper fill:#999,stroke:#333
+    style GRPC fill:#999,stroke:#333

@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "component": "batch-gateway",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "batch-gateway-auth-delegation-001",
+      "claim": "batch-gateway relies entirely on platform-level authentication via Gateway API HTTPRoute; no local auth middleware exists in the middleware chain despite handling batch inference requests with potentially sensitive data.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/apiserver/server/server.go:86-101"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "charts/batch-gateway/values.yaml:171-183"
+        }
+      ],
+      "reasoning": "The API server middleware chain consists of Recovery, RequestMiddleware (request ID, tenant extraction, logging, metrics, OTel), and SecurityHeaders — no authentication layer. The HTTPRoute to llm-d-inference-gateway is optional (disabled by default), meaning a deployment without a Gateway has no auth enforcement. This is a platform integration risk when batch-gateway is deployed without an ingress gateway.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "batch-gateway-three-process-pattern-002",
+      "claim": "batch-gateway uses a three-process split architecture (API server, processor, GC) sharing state through PostgreSQL and Redis/Valkey, enabling independent scaling of the request-acceptance and inference-execution planes.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/architecture_components"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "charts/batch-gateway/values.yaml:97-100"
+        }
+      ],
+      "reasoning": "Each workload (apiserver, processor, gc) has its own Helm replicaCount, resource limits, and Konflux Dockerfile, allowing independent scaling. The processor can be scaled to increase inference throughput without affecting API server latency. This pattern is common in async job systems but creates a dependency on the shared data stores (PostgreSQL, Redis/Valkey) as single points of failure.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "batch-gateway-fips-complete-003",
+      "claim": "All three batch-gateway Konflux builds use GOEXPERIMENT=strictfipsruntime with dynamic linking, and the TLS library restricts cipher suites to Go's non-insecure set, providing complete FIPS compliance coverage at both build and application layers.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "docker/Dockerfile.apiserver.konflux:4,25"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/tls/tls.go:53"
+        }
+      ],
+      "reasoning": "The consistent use of strictfipsruntime across all three Dockerfiles, combined with the TLS configuration library that only permits tls.CipherSuites() (which excludes insecure cipher suites), means the component has no known FIPS compliance gaps. The UBI 9 base images ship OpenSSL, satisfying the check-payload requirement.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

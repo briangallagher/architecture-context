@@ -1,0 +1,87 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client<br/>Data Scientist"]
+    end
+
+    subgraph AppTier["APPLICATION TIER (Feature Serving)"]
+        direction TB
+
+        subgraph PythonServer["Python Feature Server"]
+            PyHTTP["FastAPI/Starlette<br/>:6566/TCP HTTP/HTTPS<br/>90+ REST endpoints<br/>gRPC: RegistryServer, FeatureServer, TransformationService"]
+            SecMgr["SecurityManager<br/>OIDC: PyJWT validation<br/>K8s: TokenReview/SAR<br/>NoAuth: AllowAll"]
+        end
+
+        subgraph GoServer["Go Feature Server"]
+            GoHTTP["HTTP Handler<br/>/get-online-features<br/>/health, /metrics<br/>Auth: NONE"]
+            GoGRPC["gRPC ServingService + Health<br/>Auth: NONE<br/>(no interceptors)"]
+        end
+    end
+
+    subgraph DataTier["DATA TIER (Online Stores)"]
+        PostgreSQL["PostgreSQL<br/>pgx (Go) / psycopg (Python)<br/>TCP, Configured encryption"]
+        Redis["Redis / Valkey<br/>go-redis / redis-py<br/>TCP, Configured encryption"]
+    end
+
+    subgraph OperatorTier["OPERATOR TIER (Cluster Management)"]
+        Operator["Feast Operator<br/>SA: feast-operator-controller-manager<br/>FIPS: strictfipsruntime"]
+        Probes["Health/Readiness Probes<br/>:8081/healthz, :8081/readyz<br/>Auth: NONE (by design)"]
+        Metrics["Metrics Endpoint<br/>:8443/TCP HTTPS<br/>Self-signed TLS<br/>Auth: TokenReview + SAR"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        S3["S3-compatible Storage<br/>:443/TCP HTTPS<br/>TLS, AWS IAM"]
+        GCS["Google Cloud Storage<br/>:443/TCP HTTPS<br/>TLS, GCP IAM"]
+        OIDC["OIDC Provider<br/>HTTPS, TLS<br/>Token validation"]
+        OL["OpenLineage<br/>API Key auth"]
+        Ray["Ray Cluster<br/>Ray auth token"]
+    end
+
+    subgraph K8sControl["KUBERNETES CONTROL PLANE"]
+        K8sAPI["Kubernetes API Server<br/>:6443/TCP HTTPS<br/>TLS 1.2+<br/>RBAC enforcement"]
+    end
+
+    %% External to Application flows
+    Client -->|"HTTP/HTTPS :6566<br/>Configurable TLS<br/>Auth: OIDC/K8s RBAC/None"| PyHTTP
+    Client -->|"HTTP, Configurable TLS<br/>Auth: NONE"| GoHTTP
+    Client -->|"gRPC HTTP/2<br/>Auth: NONE"| GoGRPC
+
+    %% Python auth flows
+    PyHTTP --> SecMgr
+    SecMgr -->|"HTTPS<br/>TLS<br/>JWT validation"| OIDC
+    SecMgr -->|"HTTPS :6443<br/>TLS 1.2+<br/>SAR"| K8sAPI
+
+    %% App to Data flows
+    GoHTTP -->|"TCP<br/>Configured"| PostgreSQL
+    GoHTTP -->|"TCP<br/>Configured"| Redis
+    GoGRPC -->|"TCP<br/>Configured"| PostgreSQL
+    GoGRPC -->|"TCP<br/>Configured"| Redis
+    PyHTTP -->|"TCP<br/>Configured"| PostgreSQL
+    PyHTTP -->|"TCP<br/>Configured"| Redis
+
+    %% App to External Services
+    GoHTTP -->|"HTTPS :443<br/>TLS<br/>Cloud IAM"| S3
+    GoHTTP -->|"HTTPS :443<br/>TLS<br/>GCP IAM"| GCS
+    PyHTTP -->|"HTTPS :443<br/>TLS<br/>Cloud IAM"| S3
+    PyHTTP -->|"HTTPS :443<br/>TLS<br/>GCP IAM"| GCS
+    PyHTTP -->|"API Key"| OL
+    PyHTTP -->|"Ray auth token"| Ray
+
+    %% Operator flows
+    Operator -->|"HTTPS :6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef appTier fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef dataTier fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef operatorTier fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef extService fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef k8s fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef noAuth fill:#ffcccc,stroke:#cc0000,stroke-width:2px
+
+    class Client external
+    class PyHTTP,SecMgr appTier
+    class GoHTTP,GoGRPC noAuth
+    class PostgreSQL,Redis dataTier
+    class Operator,Probes,Metrics operatorTier
+    class S3,GCS,OIDC,OL,Ray extService
+    class K8sAPI k8s

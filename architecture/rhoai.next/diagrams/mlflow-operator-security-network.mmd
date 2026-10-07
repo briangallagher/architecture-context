@@ -4,72 +4,85 @@ graph TB
     end
 
     subgraph Ingress["INGRESS (Gateway API)"]
-        Gateway["data-science-gateway<br/>(Envoy)<br/>443/TCP → 8443/TCP<br/>TLS 1.2+<br/>Path rewrite: /mlflow/api → /api"]
+        Gateway["data-science-gateway (Envoy)<br/>443/TCP → 8443/TCP<br/>TLS 1.2+ (SIMPLE)<br/>Platform auth (kube-rbac-proxy)"]
     end
 
-    subgraph ClusterServices["CLUSTER SERVICES (NetworkPolicy-controlled)"]
+    subgraph OperatorNS["OPERATOR NAMESPACE (redhat-ods-applications)"]
         direction TB
 
-        subgraph NS_MLflow["Namespace: redhat-ods-applications"]
-            MLflowService["MLflow Service<br/>ClusterIP 8443/TCP<br/>TLS (service-ca)<br/>K8s RBAC (SelfSubjectAccessReview)"]
+        Operator["mlflow-operator Pod<br/>SA: mlflow-operator-controller-manager<br/>FIPS: strictfipsruntime"]
 
-            subgraph MLflowPod["MLflow Pod (SA: mlflow-sa)"]
-                InitCA["Init: combine-ca-bundles<br/>system + platform + custom CAs"]
-                MLflow["MLflow Server<br/>8443/TCP HTTPS<br/>UVICORN_SSL_CIPHERS=PROFILE=SYSTEM<br/>kubernetes-auth middleware"]
-                CAWatcher["Sidecar: ca-bundle-watcher<br/>30s polling"]
-            end
-        end
+        HealthProbes["Health Probes<br/>8081/TCP HTTP<br/>No auth"]
 
-        subgraph NS_Operator["Operator Namespace"]
-            Operator["mlflow-operator<br/>SA: mlflow-operator-controller-manager<br/>Metrics: 8443/TCP HTTPS<br/>Health: 8081/TCP HTTP<br/>FIPS: strictfipsruntime"]
-        end
+        Metrics["Metrics Endpoint<br/>8443/TCP HTTPS<br/>authn/authz filter"]
+    end
+
+    subgraph TargetNS["TARGET NAMESPACE (configurable)"]
+        direction TB
+
+        MLflowServer["MLflow Server Pod<br/>SA: mlflow-sa<br/>8443/TCP HTTPS<br/>TLS: service-ca cert<br/>Auth: SelfSubjectAccessReview"]
+
+        TLSSecret["mlflow-tls Secret<br/>kubernetes.io/tls<br/>service-ca provisioned"]
+
+        ArtifactSecret["mlflow-artifact-connection<br/>Opaque<br/>Per-namespace S3/GCS creds"]
+    end
+
+    subgraph K8sControl["KUBERNETES CONTROL PLANE"]
+        K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+"]
     end
 
     subgraph ExternalServices["EXTERNAL SERVICES"]
-        S3["S3-compatible Storage<br/>AWS S3: 443/TCP<br/>MinIO: 9000/TCP<br/>SeaweedFS: 8333-8334/TCP<br/>TLS 1.2+ | S3 credentials"]
-        PostgreSQL["PostgreSQL<br/>5432/TCP<br/>TLS verify-full<br/>Connection string credentials"]
-        MySQL["MySQL<br/>3306/TCP<br/>TLS (configurable)<br/>Connection string credentials"]
+        PostgreSQL["PostgreSQL<br/>5432/TCP<br/>TLS (PGSSLMODE)<br/>Connection string auth"]
+
+        S3["S3-Compatible Storage<br/>443/9000/8333/8334 TCP<br/>TLS 1.2+<br/>AWS IAM / credentials"]
+
+        DNS["CoreDNS<br/>53/UDP,TCP<br/>No encryption"]
     end
 
     subgraph PlatformServices["PLATFORM SERVICES"]
-        K8sAPI["Kubernetes API<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>SA Token"]
-        DNS["CoreDNS<br/>53/UDP, 53/TCP<br/>5353/UDP, 5353/TCP"]
-        ServiceCA["OpenShift service-ca<br/>TLS cert provisioning"]
-        CABundle["odh-trusted-ca-bundle<br/>ConfigMap"]
-        Prometheus["Prometheus<br/>ServiceMonitor discovery"]
+        PlatformOp["opendatahub-operator /<br/>rhods-operator"]
+        Prometheus["Prometheus<br/>(via ServiceMonitor)"]
+        Console["OpenShift Console<br/>(via ConsoleLink)"]
     end
 
-    %% External flows
-    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token (K8s)"| Gateway
-    Gateway -->|"HTTPS/8443<br/>TLS (service-ca)<br/>Token passthrough"| MLflowService
-    MLflowService --> MLflow
+    %% External → Ingress
+    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Platform auth"| Gateway
 
-    %% MLflow egress
-    MLflow -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token<br/>SelfSubjectAccessReview"| K8sAPI
-    MLflow -->|"HTTPS/443, HTTP/9000<br/>TLS 1.2+<br/>S3 credentials"| S3
-    MLflow -->|"PostgreSQL/5432<br/>TLS verify-full<br/>Conn string creds"| PostgreSQL
-    MLflow -->|"MySQL/3306<br/>TLS configurable<br/>Conn string creds"| MySQL
-    MLflow -->|"DNS/53,5353<br/>No encryption"| DNS
+    %% Ingress → MLflow
+    Gateway -->|"HTTPS/8443<br/>TLS (service-ca)<br/>K8s auth token"| MLflowServer
 
-    %% Operator flows
-    Operator -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token<br/>Watch CRs, SSA"| K8sAPI
+    %% Operator → K8s API
+    Operator -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
 
-    %% Platform integrations
-    ServiceCA -.->|"auto-provisions<br/>mlflow-tls secret"| MLflowService
-    CABundle -.->|"mounted into pod"| MLflow
-    Prometheus -->|"HTTPS/8443<br/>TLS (service-ca)<br/>Bearer Token"| MLflow
+    %% MLflow → External Services
+    MLflowServer -->|"PostgreSQL/5432<br/>TLS (PGSSLMODE)<br/>Connection string"| PostgreSQL
+    MLflowServer -->|"HTTPS/443,9000<br/>TLS 1.2+<br/>AWS IAM / creds"| S3
+    MLflowServer -->|"DNS/53<br/>No encryption"| DNS
+    Operator -->|"DNS/53<br/>No encryption"| DNS
+
+    %% Platform interactions
+    PlatformOp -.->|"Creates MLflowOperator CR"| Operator
+    Prometheus -.->|"Scrapes /metrics<br/>HTTPS/8443"| Metrics
+
+    %% Secret references
+    TLSSecret -.->|"mounted"| MLflowServer
+    ArtifactSecret -.->|"read by"| MLflowServer
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
     classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
-    classDef cluster fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef platform fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef operator fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef operator fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef target fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef k8s fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef extsvc fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef platform fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef secret fill:#f5f5f5,stroke:#666,stroke-dasharray:5
 
     class Client external
     class Gateway ingress
-    class MLflowService,MLflow,InitCA,CAWatcher cluster
-    class Operator operator
-    class S3,PostgreSQL,MySQL externalservice
-    class K8sAPI,DNS,ServiceCA,CABundle,Prometheus platform
+    class Operator,HealthProbes,Metrics operator
+    class MLflowServer target
+    class K8sAPI k8s
+    class PostgreSQL,S3,DNS extsvc
+    class PlatformOp,Prometheus,Console platform
+    class TLSSecret,ArtifactSecret secret

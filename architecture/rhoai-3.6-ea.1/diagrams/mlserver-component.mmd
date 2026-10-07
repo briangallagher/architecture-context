@@ -1,0 +1,89 @@
+graph TB
+    subgraph "MLServer Service"
+        direction TB
+        subgraph "Protocol Layer"
+            REST["REST Server<br/>(FastAPI/Uvicorn)<br/>Port 8080"]
+            GRPC["gRPC Server<br/>(AsyncIO)<br/>Port 8081"]
+            Metrics["Metrics Server<br/>(starlette-exporter)<br/>Port 8082"]
+        end
+
+        subgraph "Core Layer"
+            DataPlane["DataPlane Handler"]
+            ModelRepo["Model Repository<br/>(/mnt/models)"]
+            TrustedRuntimes["Trusted Runtimes<br/>Allowlist<br/>(/etc/mlserver/trusted-runtimes.json)"]
+        end
+
+        subgraph "Pluggable ML Runtimes"
+            SKLearn["mlserver-sklearn<br/>(Scikit-Learn)"]
+            XGBoost["mlserver-xgboost<br/>(XGBoost)"]
+            LightGBM["mlserver-lightgbm<br/>(LightGBM)"]
+            ONNX["mlserver-onnx<br/>(ONNX Runtime)"]
+            MLflow["mlserver-mlflow<br/>(MLflow)"]
+            HuggingFace["mlserver-huggingface<br/>(HuggingFace)"]
+            CatBoost["mlserver-catboost<br/>(CatBoost)"]
+            AlibiDetect["mlserver-alibi-detect<br/>(Alibi Detect)"]
+            AlibiExplain["mlserver-alibi-explain<br/>(Alibi Explain)"]
+            MLlib["mlserver-mllib<br/>(Spark MLlib)"]
+        end
+
+        subgraph "Observability"
+            OTel["OpenTelemetry<br/>Instrumentation"]
+            PromMetrics["Prometheus<br/>Metrics"]
+        end
+    end
+
+    subgraph "Platform (RHOAI / KServe)"
+        KServe["KServe<br/>InferenceService Pod"]
+        KubeRBACProxy["kube-rbac-proxy<br/>Sidecar"]
+        Ingress["KServe Ingress<br/>Chain"]
+    end
+
+    Client["External Client"]
+    OTelCollector["OpenTelemetry<br/>Collector"]
+
+    Client -->|"Inference Request"| Ingress
+    Ingress -->|"Auth Validated"| KubeRBACProxy
+    KubeRBACProxy -->|"HTTP/8080"| REST
+    KubeRBACProxy -->|"gRPC/8081"| GRPC
+    REST -->|"V2 Protocol"| DataPlane
+    GRPC -->|"V2 Protocol"| DataPlane
+    DataPlane -->|"routes to"| TrustedRuntimes
+    TrustedRuntimes -->|"validates"| SKLearn
+    TrustedRuntimes -->|"validates"| XGBoost
+    TrustedRuntimes -->|"validates"| LightGBM
+    TrustedRuntimes -->|"validates"| ONNX
+    TrustedRuntimes -->|"validates"| MLflow
+    TrustedRuntimes -->|"validates"| HuggingFace
+    TrustedRuntimes -->|"validates"| CatBoost
+    TrustedRuntimes -->|"validates"| AlibiDetect
+    TrustedRuntimes -->|"validates"| AlibiExplain
+    TrustedRuntimes -->|"validates"| MLlib
+    DataPlane -->|"load/unload"| ModelRepo
+    REST -->|"instruments"| OTel
+    GRPC -->|"instruments"| OTel
+    OTel -->|"export traces"| OTelCollector
+    REST -->|"exposes"| PromMetrics
+    GRPC -->|"exposes"| PromMetrics
+    PromMetrics --> Metrics
+
+    style REST fill:#4a90e2,stroke:#333,color:#fff
+    style GRPC fill:#4a90e2,stroke:#333,color:#fff
+    style Metrics fill:#4a90e2,stroke:#333,color:#fff
+    style DataPlane fill:#5b6abf,stroke:#333,color:#fff
+    style ModelRepo fill:#5b6abf,stroke:#333,color:#fff
+    style TrustedRuntimes fill:#d9534f,stroke:#333,color:#fff
+    style SKLearn fill:#7ed321,stroke:#333
+    style XGBoost fill:#7ed321,stroke:#333
+    style LightGBM fill:#7ed321,stroke:#333
+    style ONNX fill:#7ed321,stroke:#333
+    style MLflow fill:#7ed321,stroke:#333
+    style HuggingFace fill:#7ed321,stroke:#333
+    style CatBoost fill:#7ed321,stroke:#333
+    style AlibiDetect fill:#7ed321,stroke:#333
+    style AlibiExplain fill:#7ed321,stroke:#333
+    style MLlib fill:#7ed321,stroke:#333
+    style KubeRBACProxy fill:#f5a623,stroke:#333
+    style Ingress fill:#f5a623,stroke:#333
+    style KServe fill:#f5a623,stroke:#333
+    style Client fill:#e8e8e8,stroke:#333
+    style OTelCollector fill:#e8e8e8,stroke:#333

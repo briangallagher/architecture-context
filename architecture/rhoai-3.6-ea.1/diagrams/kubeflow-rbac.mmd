@@ -1,0 +1,124 @@
+graph TD
+    subgraph "Service Accounts"
+        SA_NC["notebook-controller-<br/>service-account"]
+        SA_Manager["manager"]
+        SA_CtrlMgr["controller-manager"]
+        SA_SvcAcct["service-account"]
+    end
+
+    subgraph "ClusterRole Bindings"
+        CRB_NC["notebook-controller-<br/>role-binding<br/>(Cluster-scoped)"]
+        CRB_Manager["manager-rolebinding<br/>(Namespace: system)"]
+        CRB_Proxy["proxy-rolebinding<br/>(Cluster-scoped)"]
+        CRB_Role["role-binding<br/>(Cluster-scoped)"]
+    end
+
+    subgraph "Role Bindings"
+        RB_Leader["leader-election-<br/>rolebinding<br/>(Namespace: system)"]
+    end
+
+    subgraph "ClusterRoles"
+        CR_NC["notebook-controller-role"]
+        CR_Manager["manager-role"]
+        CR_Proxy["proxy-role"]
+        CR_Role["role"]
+        CR_Edit["notebooks-edit"]
+        CR_View["notebooks-view"]
+        CR_KF_Edit["notebook-controller-<br/>kubeflow-notebooks-edit"]
+        CR_KF_View["notebook-controller-<br/>kubeflow-notebooks-view"]
+    end
+
+    subgraph "Roles"
+        R_Leader["leader-election-role"]
+    end
+
+    subgraph "notebook-controller-role Resources"
+        NC_Notebooks["kubeflow.org<br/>notebooks, finalizers, status<br/>[*]"]
+        NC_StatefulSets["apps<br/>statefulsets<br/>[*]"]
+        NC_Services["core<br/>services<br/>[*]"]
+        NC_VirtualSvc["networking.istio.io<br/>virtualservices<br/>[*]"]
+        NC_Events["core<br/>events<br/>[create,get,list,patch,watch]"]
+        NC_Pods["core<br/>pods<br/>[delete,get,list,watch]"]
+    end
+
+    subgraph "manager-role Resources"
+        MR_Notebooks["kubeflow.org<br/>notebooks<br/>[get,list,patch,update,watch]"]
+        MR_Gateway["gateway.networking.k8s.io<br/>httproutes, referencegrants<br/>[create,delete,get,list,<br/>patch,update,watch]"]
+        MR_NetPol["networking.k8s.io<br/>networkpolicies<br/>[create,get,list,patch,<br/>update,watch]"]
+        MR_RBAC["rbac.authorization.k8s.io<br/>clusterrolebindings, rolebindings<br/>[create,delete,get,list,<br/>patch,update,watch]"]
+        MR_DSPA["datasciencepipelinesapplications<br/>.opendatahub.io<br/>[get,list,watch]"]
+        MR_OpenShift["config.openshift.io<br/>apiservers, proxies<br/>[get,list,watch]"]
+        MR_Core["core<br/>configmaps, secrets,<br/>serviceaccounts, services<br/>[create,get,list,patch,<br/>update,watch]"]
+        MR_TokenReview["authentication.k8s.io<br/>tokenreviews<br/>[create]"]
+        MR_SAR["authorization.k8s.io<br/>subjectaccessreviews<br/>[create]"]
+    end
+
+    subgraph "proxy-role Resources"
+        PR_Token["authentication.k8s.io<br/>tokenreviews<br/>[create]"]
+        PR_SAR["authorization.k8s.io<br/>subjectaccessreviews<br/>[create]"]
+    end
+
+    %% Bindings
+    SA_NC -->|bound via| CRB_NC
+    SA_Manager -->|bound via| CRB_Manager
+    SA_SvcAcct -->|bound via| CRB_Proxy
+    SA_SvcAcct -->|bound via| CRB_Role
+    SA_CtrlMgr -->|bound via| RB_Leader
+
+    CRB_NC -->|grants| CR_NC
+    CRB_Manager -->|grants| CR_Manager
+    CRB_Proxy -->|grants| CR_Proxy
+    CRB_Role -->|grants| CR_Role
+    RB_Leader -->|grants| R_Leader
+
+    %% Resource grants
+    CR_NC -->|access| NC_Notebooks
+    CR_NC -->|access| NC_StatefulSets
+    CR_NC -->|access| NC_Services
+    CR_NC -->|access| NC_VirtualSvc
+    CR_NC -->|access| NC_Events
+    CR_NC -->|access| NC_Pods
+
+    CR_Manager -->|access| MR_Notebooks
+    CR_Manager -->|access| MR_Gateway
+    CR_Manager -->|access| MR_NetPol
+    CR_Manager -->|access| MR_RBAC
+    CR_Manager -->|access| MR_DSPA
+    CR_Manager -->|access| MR_OpenShift
+    CR_Manager -->|access| MR_Core
+    CR_Manager -->|access| MR_TokenReview
+    CR_Manager -->|access| MR_SAR
+
+    CR_Proxy -->|access| PR_Token
+    CR_Proxy -->|access| PR_SAR
+
+    style SA_NC fill:#4a90e2,color:#fff
+    style SA_Manager fill:#4a90e2,color:#fff
+    style SA_CtrlMgr fill:#4a90e2,color:#fff
+    style SA_SvcAcct fill:#4a90e2,color:#fff
+    style CR_NC fill:#f5a623,color:#fff
+    style CR_Manager fill:#f5a623,color:#fff
+    style CR_Proxy fill:#f5a623,color:#fff
+    style CR_Role fill:#f5a623,color:#fff
+    style CR_Edit fill:#f5a623,color:#fff
+    style CR_View fill:#f5a623,color:#fff
+    style CR_KF_Edit fill:#f5a623,color:#fff
+    style CR_KF_View fill:#f5a623,color:#fff
+    style R_Leader fill:#e8a623,color:#fff
+    style NC_Notebooks fill:#7ed321
+    style NC_StatefulSets fill:#7ed321
+    style NC_Services fill:#7ed321
+    style NC_VirtualSvc fill:#7ed321
+    style NC_Events fill:#7ed321
+    style NC_Pods fill:#7ed321
+    style MR_Notebooks fill:#7ed321
+    style MR_Gateway fill:#7ed321
+    style MR_NetPol fill:#7ed321
+    style MR_RBAC fill:#7ed321
+    style MR_DSPA fill:#7ed321
+    style MR_OpenShift fill:#7ed321
+    style MR_Core fill:#7ed321
+    style MR_TokenReview fill:#7ed321
+    style MR_SAR fill:#7ed321
+    style PR_Token fill:#7ed321
+    style PR_SAR fill:#7ed321

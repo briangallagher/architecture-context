@@ -1,54 +1,59 @@
 graph TB
-    subgraph Controller["ModelMesh Serving Controller"]
-        direction TB
-        MC[modelmesh-controller<br/>Go Operator<br/>controller-runtime]
-        Webhook[Webhook Server<br/>9443/TCP HTTPS]
-        MC -->|validates via| Webhook
+    subgraph ModelMeshServing["ModelMesh Serving Controller"]
+        Controller["modelmesh-serving-controller<br/>(Go Operator / controller-runtime)<br/>Ports: 8080 metrics, 8081 health"]
+        Webhook["ServingRuntime Webhook<br/>(Validating Admission Webhook)<br/>Port: 9443/TCP HTTPS"]
+        ConfigWatch["model-serving-config<br/>ConfigMap Watcher"]
+        Controller -->|validates via| Webhook
+        Controller -->|reads config| ConfigWatch
     end
 
     subgraph RuntimePod["Runtime Pod (per ServingRuntime)"]
-        direction TB
-        MM[ModelMesh Container<br/>gRPC 8033/TCP]
-        RESTProxy[REST Proxy<br/>HTTP 8008/TCP]
-        OAuthProxy[oauth-proxy<br/>HTTPS 8443/TCP]
-        Puller[Storage Puller<br/>gRPC 8086/TCP]
-        RuntimeContainer[Model Runtime<br/>Triton/MLServer/OVMS/TorchServe]
+        ModelMesh["ModelMesh Sidecar<br/>Port: 8033/TCP gRPC<br/>Ports: 8089 ready, 8090 prestop"]
+        ModelServer["Model Runtime Container<br/>(Triton/MLServer/OVMS/TorchServe)"]
+        Puller["modelmesh-runtime-adapter<br/>(Puller Sidecar)<br/>Port: 8086/TCP gRPC"]
+        RESTProxy["REST Proxy<br/>Port: 8008/TCP HTTP"]
+        OAuthProxy["oauth-proxy Sidecar<br/>Port: 8443/TCP HTTPS"]
 
         OAuthProxy -->|proxies to| RESTProxy
-        RESTProxy -->|translates REST to gRPC| MM
-        MM -->|inference via UDS/TCP| RuntimeContainer
-        Puller -->|downloads models to| RuntimeContainer
+        RESTProxy -->|translates REST→gRPC| ModelMesh
+        ModelMesh -->|inference| ModelServer
+        ModelMesh -->|model download| Puller
     end
 
-    User[Data Scientist / Client] -->|creates| PredictorCR[Predictor CR]
-    User -->|creates| ServingRuntimeCR[ServingRuntime CR]
-    User -->|creates| InferenceServiceCR[InferenceService CR<br/>optional]
+    %% CRDs
+    User[Data Scientist / Client] -->|creates| PredictorCR["Predictor CR<br/>(serving.kserve.io/v1alpha1)"]
+    User -->|creates| InferenceServiceCR["InferenceService CR<br/>(serving.kserve.io/v1beta1)"]
+    Admin[Platform Admin] -->|creates| ServingRuntimeCR["ServingRuntime CR<br/>(serving.kserve.io/v1alpha1)"]
+    Admin -->|creates| ClusterServingRuntimeCR["ClusterServingRuntime CR<br/>(serving.kserve.io/v1alpha1)"]
 
-    PredictorCR -->|watched by| MC
-    ServingRuntimeCR -->|watched by| MC
-    InferenceServiceCR -->|converted to Predictor by| MC
+    %% Controller watches CRDs
+    PredictorCR -->|watched by| Controller
+    InferenceServiceCR -->|watched by| Controller
+    ServingRuntimeCR -->|watched by| Controller
+    ClusterServingRuntimeCR -->|watched by| Controller
 
-    MC -->|creates/manages| RuntimePod
-    MC -->|registers models via gRPC| MM
-    MC -->|creates| HPAs[HorizontalPodAutoscaler]
-    MC -->|creates| Services[modelmesh-serving Service<br/>headless ClusterIP]
+    %% Controller creates runtime resources
+    Controller -->|creates/manages| RuntimePod
+    Controller -->|gRPC: SetVModel,<br/>DeleteVModel| ModelMesh
 
-    MM -->|state sync| etcd[etcd Cluster<br/>2379/TCP]
-    MC -->|watches events| etcd
+    %% External dependencies
+    Controller -->|watches namespaces<br/>modelmesh-enabled=true| K8sAPI["Kubernetes API Server"]
+    ModelMesh -->|coordination &<br/>model placement| etcd["etcd<br/>Port: 2379/TCP"]
+    Puller -->|downloads models| Storage["Object Storage<br/>(S3/GCS/PVC)"]
 
-    Puller -->|downloads from| ObjectStorage[Object Storage<br/>S3 / GCS / Azure / PVC]
-
-    style MC fill:#4a90e2,color:#fff
-    style Webhook fill:#4a90e2,color:#fff
-    style MM fill:#50c878,color:#fff
-    style RESTProxy fill:#50c878,color:#fff
-    style OAuthProxy fill:#50c878,color:#fff
-    style Puller fill:#50c878,color:#fff
-    style RuntimeContainer fill:#50c878,color:#fff
-    style PredictorCR fill:#f5a623,color:#fff
-    style ServingRuntimeCR fill:#f5a623,color:#fff
-    style InferenceServiceCR fill:#f5a623,color:#fff
-    style etcd fill:#e8e8e8,color:#333
-    style ObjectStorage fill:#e8e8e8,color:#333
-    style HPAs fill:#ddd,color:#333
-    style Services fill:#ddd,color:#333
+    %% Styling
+    style Controller fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    style Webhook fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    style ConfigWatch fill:#4a90e2,stroke:#333,stroke-width:1px,color:#fff
+    style ModelMesh fill:#50c878,stroke:#333,stroke-width:2px,color:#fff
+    style ModelServer fill:#50c878,stroke:#333,stroke-width:1px,color:#fff
+    style Puller fill:#50c878,stroke:#333,stroke-width:1px,color:#fff
+    style RESTProxy fill:#50c878,stroke:#333,stroke-width:1px,color:#fff
+    style OAuthProxy fill:#e8833a,stroke:#333,stroke-width:1px,color:#fff
+    style PredictorCR fill:#f5a623,stroke:#333,stroke-width:1px
+    style InferenceServiceCR fill:#f5a623,stroke:#333,stroke-width:1px
+    style ServingRuntimeCR fill:#f5a623,stroke:#333,stroke-width:1px
+    style ClusterServingRuntimeCR fill:#f5a623,stroke:#333,stroke-width:1px
+    style etcd fill:#999,stroke:#333,stroke-width:1px,color:#fff
+    style Storage fill:#999,stroke:#333,stroke-width:1px,color:#fff
+    style K8sAPI fill:#999,stroke:#333,stroke-width:1px,color:#fff

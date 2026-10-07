@@ -1,53 +1,73 @@
 graph TD
-    subgraph "Container Security Context"
-        Container["caikit-tgis-serving container<br/>UID: 1001 (caikit)<br/>Non-root user"]
+    subgraph Note["RBAC Model"]
+        direction TB
+        Info["This component does NOT define its own RBAC resources.<br/>RBAC is managed by KServe and the platform operator.<br/>Service accounts are configured per-InferenceService deployment."]
     end
 
-    subgraph "RBAC Note"
-        Note["No RBAC resources defined<br/>in this repository.<br/>RBAC managed by KServe<br/>and platform operator."]
-    end
-
-    subgraph "Network-Level Access Control"
+    subgraph KServeManagedRBAC["KServe-Managed RBAC (per InferenceService)"]
         direction TB
 
-        subgraph PeerAuth["PeerAuthentication"]
-            StrictMTLS["Default: STRICT mTLS<br/>(all ports)"]
-            PermissiveMetrics["Port Override: 8086/TCP<br/>→ PERMISSIVE<br/>(allows plaintext Prometheus)"]
+        subgraph ServiceAccounts["Service Accounts"]
+            ISvcSA["per-InferenceService SA<br/>(auto-created by KServe)"]
         end
 
-        subgraph NetPol["NetworkPolicy"]
-            MetricsIngress["Ingress Rule:<br/>Allow from namespace<br/>openshift-user-workload-monitoring<br/>→ All ports"]
+        subgraph PlatformSAs["Platform Service Accounts"]
+            KServeSA["KServe Controller<br/>kserve-controller-manager"]
+            IstioSA["Istio Sidecar<br/>istio-proxy"]
         end
     end
 
-    subgraph "Secrets Access"
-        WildcardCerts["wildcard-certs<br/>(kubernetes.io/tls)<br/>Knative ingress TLS cert<br/>Manual rotation"]
-        StorageCreds["Storage credentials<br/>(Opaque, per-model SA)<br/>S3/MinIO access keys<br/>Manual rotation"]
-    end
-
-    subgraph "Authentication Enforcement Points"
+    subgraph AuthMechanisms["Authentication & Authorization"]
         direction TB
-        InferHTTP["Inference HTTP :8080<br/>→ mTLS STRICT via Istio"]
-        InferGRPC["Inference gRPC :8085<br/>→ mTLS STRICT via Istio"]
-        Metrics["Metrics :8086<br/>→ PERMISSIVE mTLS<br/>(plaintext allowed)"]
-        TGISLocal["TGIS :8033<br/>→ None (localhost)"]
+
+        subgraph IstioAuth["Istio Service Mesh Auth"]
+            PeerAuth["PeerAuthentication<br/>Mode: STRICT<br/>(namespace-scoped)"]
+            PeerAuthMetrics["PeerAuthentication<br/>Mode: PERMISSIVE<br/>(port 8086 only)"]
+        end
+
+        subgraph NetworkPolicies["Network Policies"]
+            NP_UWM["NetworkPolicy<br/>Allow ingress from<br/>openshift-user-workload-monitoring<br/>on port 8086/TCP"]
+        end
     end
 
-    Container -->|"runs as"| Note
-    PeerAuth -->|"enforces"| InferHTTP
-    PeerAuth -->|"enforces"| InferGRPC
-    PermissiveMetrics -->|"allows"| Metrics
-    NetPol -->|"constrains source"| Metrics
-    TGISLocal -->|"no auth needed"| Container
+    subgraph Secrets["Secrets"]
+        direction TB
+        MinioSecret["minio-secret<br/>Type: Opaque<br/>Purpose: S3 access credentials<br/>Provisioned: Manual / Platform Operator<br/>Auto-Rotate: No"]
+        GitAuth["git-auth<br/>Type: Opaque<br/>Purpose: Git credentials (Konflux)<br/>Provisioned: Pipelines-as-Code<br/>Auto-Rotate: No"]
+    end
 
-    style Container fill:#4a90e2,stroke:#333,color:#fff
-    style Note fill:#f0f0f0,stroke:#999
-    style StrictMTLS fill:#27ae60,stroke:#333,color:#fff
-    style PermissiveMetrics fill:#f39c12,stroke:#333,color:#fff
-    style MetricsIngress fill:#e74c3c,stroke:#333,color:#fff
-    style WildcardCerts fill:#9b59b6,stroke:#333,color:#fff
-    style StorageCreds fill:#9b59b6,stroke:#333,color:#fff
-    style InferHTTP fill:#27ae60,stroke:#333,color:#fff
-    style InferGRPC fill:#27ae60,stroke:#333,color:#fff
-    style Metrics fill:#f39c12,stroke:#333,color:#fff
-    style TGISLocal fill:#bdc3c7,stroke:#333
+    subgraph Endpoints["Protected Endpoints"]
+        direction TB
+        HTTPEndpoint["/api/v1/task/*<br/>HTTP/8080<br/>Auth: Istio mTLS + PeerAuth"]
+        GRPCEndpoint["gRPC Services<br/>gRPC/8085<br/>Auth: Istio mTLS + PeerAuth"]
+        MetricsEndpoint["Metrics<br/>HTTP/8086<br/>Auth: None (PERMISSIVE mTLS)"]
+        ExternalEndpoint["Knative External<br/>HTTPS/443<br/>Auth: TLS passthrough"]
+    end
+
+    %% Relationships
+    ISvcSA -->|"runs"| HTTPEndpoint
+    ISvcSA -->|"runs"| GRPCEndpoint
+    ISvcSA -->|"runs"| MetricsEndpoint
+    KServeSA -->|"manages lifecycle"| ISvcSA
+    IstioSA -->|"enforces"| PeerAuth
+    IstioSA -->|"enforces"| PeerAuthMetrics
+    PeerAuth -->|"protects"| HTTPEndpoint
+    PeerAuth -->|"protects"| GRPCEndpoint
+    PeerAuthMetrics -->|"allows scraping"| MetricsEndpoint
+    NP_UWM -->|"allows ingress"| MetricsEndpoint
+    MinioSecret -->|"provides credentials"| ISvcSA
+
+    %% Styling
+    style Info fill:#fff3cd,stroke:#856404,color:#856404
+    style ISvcSA fill:#4a90e2,stroke:#333,color:#fff
+    style KServeSA fill:#7ed321,stroke:#333,color:#fff
+    style IstioSA fill:#7ed321,stroke:#333,color:#fff
+    style PeerAuth fill:#d5e8d4,stroke:#82b366
+    style PeerAuthMetrics fill:#ffe6cc,stroke:#d79b00
+    style NP_UWM fill:#d5e8d4,stroke:#82b366
+    style MinioSecret fill:#f8cecc,stroke:#b85450
+    style GitAuth fill:#f8cecc,stroke:#b85450
+    style HTTPEndpoint fill:#dae8fc,stroke:#6c8ebf
+    style GRPCEndpoint fill:#dae8fc,stroke:#6c8ebf
+    style MetricsEndpoint fill:#dae8fc,stroke:#6c8ebf
+    style ExternalEndpoint fill:#dae8fc,stroke:#6c8ebf

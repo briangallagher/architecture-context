@@ -1,0 +1,53 @@
+sequenceDiagram
+    participant Client as External Client
+    participant Ingress as Platform Ingress<br/>OpenShift Route /<br/>Gateway API HTTPRoute
+    participant Router as Inference Router<br/>(InferenceGraph only)
+    participant K8sAuth as Kubernetes API<br/>TokenReview + SAR
+    participant ModelServer as Model Server Pod<br/>FastAPI/uvicorn + gRPC<br/>V2 Inference Protocol
+    participant Storage as Object Storage<br/>(S3 / GCS / Azure Blob)<br/>HTTPS
+
+    Note over Client,Storage: Inference Request Flow (Single Model)
+    Client->>Ingress: POST /v1/models/{model}:predict<br/>HTTPS/443, TLS 1.2+
+    Ingress->>ModelServer: Forward request<br/>HTTP/8080
+    ModelServer-->>Ingress: Prediction result (JSON)
+    Ingress-->>Client: Response (HTTPS)
+
+    Note over Client,Storage: Inference Request Flow (InferenceGraph DAG)
+    Client->>Ingress: POST /v1/models/{graph}:predict<br/>HTTPS/443, TLS 1.2+
+    Ingress->>Router: Forward to router
+    Router->>K8sAuth: TokenReview (validate Bearer token)
+    K8sAuth-->>Router: Token identity
+    Router->>K8sAuth: SubjectAccessReview<br/>(get on InferenceGraph)
+    K8sAuth-->>Router: Authorized
+    Router->>ModelServer: Fan-out to graph nodes<br/>per DAG topology
+    ModelServer-->>Router: Node result
+    Router-->>Ingress: Aggregated response
+    Ingress-->>Client: Response (HTTPS)
+
+    Note over Client,Storage: Model Loading Flow
+    participant Controller as KServe Controller<br/>InferenceService Reconciler
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+
+    Controller->>K8sAPI: Watch InferenceService CRs<br/>ServiceAccount token, TLS 1.2+
+    K8sAPI-->>Controller: InferenceService event
+    Controller->>K8sAPI: Create Deployment + Service<br/>+ HTTPRoute/Route
+    K8sAPI-->>Controller: Resources created
+    ModelServer->>Storage: Download model artifacts<br/>HTTPS/443, IAM/credentials
+
+    Note over Client,Storage: Admission Webhook Flow
+    participant APIServer as kube-apiserver
+    participant Webhook as Webhook Server<br/>443/TCP TLS
+
+    APIServer->>Webhook: POST /mutate-serving-kserve-io-v1beta1-inferenceservice<br/>HTTPS, cert-manager TLS
+    Webhook-->>APIServer: Mutated resource (defaults applied)
+    APIServer->>Webhook: POST /validate-serving-kserve-io-v1beta1-inferenceservice<br/>HTTPS, cert-manager TLS
+    Webhook-->>APIServer: Validation result (allow/deny)
+
+    Note over Client,Storage: Metrics & Observability
+    participant Prometheus as Prometheus
+    participant AuthProxy as odh-kube-auth-proxy<br/>8443/TCP TLS
+
+    Prometheus->>AuthProxy: GET /metrics<br/>HTTPS/8443
+    AuthProxy->>Controller: Proxy to localhost:8080<br/>HTTP (loopback)
+    Controller-->>AuthProxy: Metrics response
+    AuthProxy-->>Prometheus: Metrics (TLS)

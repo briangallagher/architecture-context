@@ -1,0 +1,133 @@
+{
+  "component": "ai-gateway-payload-processing",
+  "reads": [
+    {
+      "expected_signal": "Auth enum values, secret reference pattern, enforcement semantics",
+      "gap_category": [
+        "authentication"
+      ],
+      "line_range": "1-43",
+      "outcome": "resolved",
+      "path": "api/inference/v1alpha1/common_types.go",
+      "question": "What authentication types are supported and how is the auth configuration structured?",
+      "sections": [
+        "Authentication & Authorization",
+        "Purpose",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "CGO_ENABLED, GOEXPERIMENT, linking mode, base image OpenSSL presence",
+      "gap_category": [
+        "fips_compliance"
+      ],
+      "line_range": "1-50",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux",
+      "question": "What FIPS build flags and crypto configuration are used in the Konflux build?",
+      "sections": [
+        "FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "HTTP server setup, health/metrics configuration, service registration",
+      "gap_category": [
+        "http_endpoints",
+        "services",
+        "integration_points"
+      ],
+      "line_range": "1-57",
+      "outcome": "resolved",
+      "path": "cmd/main.go",
+      "question": "Does the main entrypoint expose HTTP endpoints or register additional services beyond the runner framework?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis",
+        "HTTP Endpoints"
+      ]
+    },
+    {
+      "expected_signal": "Service creation, ServiceEntry/DestinationRule management, RBAC markers, secret validation",
+      "gap_category": [
+        "integration_points",
+        "services",
+        "authentication"
+      ],
+      "line_range": "1-136",
+      "outcome": "resolved",
+      "path": "pkg/controller/externalprovider/reconciler.go",
+      "question": "What resources does the ExternalProvider controller create and what Istio networking integration exists?",
+      "sections": [
+        "Integration Points",
+        "Data Flows",
+        "Architectural Analysis",
+        "Authentication & Authorization"
+      ]
+    },
+    {
+      "expected_signal": "Service type, port configuration, Istio resource spec details, TLS mode",
+      "gap_category": [
+        "integration_points",
+        "services"
+      ],
+      "line_range": "183-318",
+      "outcome": "resolved",
+      "path": "pkg/controller/externalprovider/reconciler.go",
+      "question": "How are Services, ServiceEntries, and DestinationRules constructed and what ports/protocols are used?",
+      "sections": [
+        "Integration Points",
+        "Data Flows",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "HTTPRoute construction, gateway reference, timeout configuration, provider resolution",
+      "gap_category": [
+        "integration_points",
+        "http_endpoints"
+      ],
+      "line_range": "80-274",
+      "outcome": "resolved",
+      "path": "pkg/controller/externalmodel/reconciler.go",
+      "question": "How does the ExternalModel controller build HTTPRoutes and what gateway configuration is used?",
+      "sections": [
+        "Integration Points",
+        "Data Flows",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "DefaultTLSPort, DefaultGatewayName, DefaultGatewayNamespace values",
+      "gap_category": [
+        "integration_points",
+        "services"
+      ],
+      "line_range": "1-28",
+      "outcome": "resolved",
+      "path": "pkg/controller/common/constants.go",
+      "question": "What default port, gateway name, and gateway namespace are configured?",
+      "sections": [
+        "Architectural Analysis",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "fips_compliance",
+        "http_endpoints",
+        "services"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "pkg/metrics/README.md",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    }
+  ],
+  "schema_version": 1
+}

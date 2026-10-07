@@ -1,54 +1,58 @@
 workspace {
     model {
-        datascientist = person "Data Scientist" "Creates and runs LLM evaluations via Dashboard or CLI"
-        aiagent = person "AI Agent" "Programmatically submits evaluations and queries results via MCP"
+        user = person "Data Scientist" "Creates and monitors LLM evaluation jobs"
+        agent = person "AI Agent" "Interacts with EvalHub via MCP protocol"
 
-        evalhub = softwareSystem "Eval Hub" "Centralized evaluation orchestration service for running LLM benchmarks as Kubernetes Jobs" {
-            apiserver = container "eval-hub API" "REST API for evaluation job management, provider/collection CRUD, auth middleware" "Go Service, 8080/TCP"
-            sidecar = container "eval-runtime-sidecar" "Reverse proxy sidecar in evaluation job pods; injects auth for eval-hub, MLflow, OCI" "Go HTTP Proxy, KEP-753 native sidecar"
-            initcontainer = container "eval-runtime-init" "Init container that downloads test data from S3 before evaluation" "Go CLI"
-            mcpserver = container "evalhub-mcp" "MCP server exposing eval-hub capabilities as AI-consumable tools and resources" "Go MCP Server, 3001/TCP"
-            configloader = container "Config Loader" "Hot-reloads provider/collection YAML from ConfigMaps via fsnotify" "Go (embedded in API)"
+        evalhub = softwareSystem "EvalHub" "Lightweight REST API service for orchestrating LLM evaluations across multiple backends" {
+            apiServer = container "EvalHub API" "Primary evaluation orchestration service; manages jobs, providers, collections via HTTP API" "Go REST Service" "8080/TCP"
+            metricsServer = container "Metrics Server" "Exposes Prometheus metrics on separate port" "Go HTTP Server" "8081/TCP"
+            mcpServer = container "evalhub-mcp" "MCP server exposing evaluation capabilities to AI agents via stdio, HTTP, or SSE" "Go MCP Server" "3001/TCP"
+            sidecar = container "eval-runtime-sidecar" "Reverse proxy in evaluation job pods; credential injection, token caching, routing" "Go Sidecar Proxy" "8080/TCP (pod-local)"
+            initContainer = container "eval-runtime-init" "Downloads test datasets from S3 before evaluation starts" "Go Init Container"
         }
 
-        k8s = softwareSystem "Kubernetes API Server" "Manages Jobs, ConfigMaps, TokenReview, SubjectAccessReview" "External"
-        postgresql = softwareSystem "PostgreSQL" "Persistent storage for evaluations, providers, collections" "External"
-        mlflow = softwareSystem "MLflow Tracking Server" "Experiment creation and evaluation result tracking" "Internal RHOAI"
-        s3 = softwareSystem "S3-compatible Storage" "Test data download for evaluation benchmarks" "External"
-        ociregistry = softwareSystem "OCI Registry (Quay)" "Evaluation artifact export" "External"
-        otel = softwareSystem "OTEL Collector" "Distributed tracing and metrics export" "External"
-        prometheus = softwareSystem "Prometheus" "Metrics scraping" "External"
-        kueue = softwareSystem "Kueue" "Optional job queue management" "Internal RHOAI"
-        rhoaioperator = softwareSystem "RHOAI Operator" "Deploys and manages eval-hub lifecycle" "Internal RHOAI"
-        serviceca = softwareSystem "OpenShift Service CA" "Internal TLS certificate authority" "External"
+        trustyaiOperator = softwareSystem "TrustyAI Service Operator" "Manages EvalHub deployment lifecycle via EvalHub CRD" "Internal RHOAI"
+        kubeRbacProxy = softwareSystem "kube-rbac-proxy" "Authentication proxy; validates OAuth tokens, injects X-Tenant/X-User headers" "Internal RHOAI"
+        evalAdapters = softwareSystem "Evaluation Adapters" "Framework-specific containers: lm-eval-harness, Garak, RAGAS, GuideLLM, LightEval, MTEB" "Internal RHOAI"
 
-        lmeval = softwareSystem "LM Evaluation Harness" "Evaluation runtime adapter for language model benchmarks" "Eval Runtime"
-        lighteval = softwareSystem "Lighteval" "Lightweight evaluation runtime adapter" "Eval Runtime"
-        garak = softwareSystem "Garak" "Security evaluation runtime adapter" "Eval Runtime"
-        guidellm = softwareSystem "GuideLLM" "Performance evaluation runtime adapter" "Eval Runtime"
+        k8sAPI = softwareSystem "Kubernetes API" "Cluster control plane for Job, ConfigMap, Secret management" "Infrastructure"
+        postgresql = softwareSystem "PostgreSQL" "Production database for evaluation jobs, providers, collections" "External"
+        mlflow = softwareSystem "MLflow Tracking Server" "Experiment tracking and run management" "External"
+        s3Storage = softwareSystem "S3-compatible Storage" "Test dataset storage for evaluation jobs" "External"
+        ociRegistry = softwareSystem "OCI Registry" "Evaluation card publishing" "External"
+        modelEndpoint = softwareSystem "Model Endpoint" "LLM inference endpoints (vLLM, TGI, etc.)" "External"
+        otelCollector = softwareSystem "OpenTelemetry Collector" "Distributed tracing, metrics, and log collection" "External"
+        prometheus = softwareSystem "Prometheus" "Metrics scraping and alerting" "External"
 
-        datascientist -> evalhub "Submits evaluations, manages providers/collections" "HTTPS/8080, Bearer Token"
-        aiagent -> mcpserver "Submits evaluations, queries status via MCP" "HTTP/3001 or stdio"
+        # User interactions
+        user -> kubeRbacProxy "Creates evaluation jobs via kubectl/UI" "HTTPS/443"
+        agent -> mcpServer "Submits evaluations, monitors jobs" "MCP over HTTP/3001 or stdio"
 
-        mcpserver -> apiserver "Forwards MCP tool calls to REST API" "HTTPS/8080"
-        apiserver -> k8s "Creates/deletes Jobs and ConfigMaps; TokenReview; SAR" "HTTPS/443, SA token"
-        apiserver -> postgresql "Stores evaluation records, providers, collections" "SQL/5432, Password"
-        apiserver -> mlflow "Creates experiments for evaluation tracking" "HTTPS, Bearer token"
-        apiserver -> otel "Exports traces and metrics" "OTLP/4317-4318"
+        # Auth proxy to API
+        kubeRbacProxy -> apiServer "Forwards with X-Tenant, X-User headers" "HTTP(S)/8080"
 
-        initcontainer -> s3 "Downloads test data files" "HTTPS/443, AWS credentials"
+        # MCP to API
+        mcpServer -> apiServer "REST API calls" "HTTP(S)/8080, Bearer Token"
 
-        sidecar -> apiserver "Forwards status updates from eval adapter" "HTTPS/8080, SA token"
-        sidecar -> mlflow "Forwards experiment tracking calls" "HTTPS, Projected SA token (1h)"
-        sidecar -> ociregistry "Forwards artifact push requests" "HTTPS/443, Docker config"
+        # API to infrastructure
+        apiServer -> k8sAPI "Creates/manages Jobs, ConfigMaps, Secrets" "HTTPS/443, SA Token"
+        apiServer -> postgresql "Persistent storage" "TCP/5432"
+        apiServer -> mlflow "Experiment tracking" "HTTP(S), Bearer Token"
+        apiServer -> otelCollector "Trace/metric/log export" "OTLP gRPC/4317"
 
-        rhoaioperator -> evalhub "Deploys, configures, manages lifecycle"
-        prometheus -> apiserver "Scrapes /metrics endpoint" "HTTP(S)/8080"
+        # Operator management
+        trustyaiOperator -> evalhub "Deploys and manages via EvalHub CRD" "trustyai.opendatahub.io/v1alpha1"
 
-        apiserver -> lmeval "Creates K8s Job with adapter container"
-        apiserver -> lighteval "Creates K8s Job with adapter container"
-        apiserver -> garak "Creates K8s Job with adapter container"
-        apiserver -> guidellm "Creates K8s Job with adapter container"
+        # Evaluation job flows
+        evalAdapters -> sidecar "All upstream traffic routed through sidecar" "HTTP/8080 (pod-local)"
+        initContainer -> s3Storage "Downloads test datasets" "HTTPS/443, AWS credentials"
+        sidecar -> apiServer "Job status callbacks" "HTTP(S)/8080, SA Token"
+        sidecar -> mlflow "Experiment logging" "HTTP(S), Bearer Token"
+        sidecar -> ociRegistry "Eval card publishing" "HTTPS/443, Docker auth"
+        sidecar -> modelEndpoint "Model inference" "HTTP(S), Ref Token/SA Token"
+
+        # Metrics
+        prometheus -> metricsServer "Scrapes /metrics" "HTTP/8081"
     }
 
     views {
@@ -71,13 +75,22 @@ workspace {
                 background #7ed321
                 color #ffffff
             }
-            element "Eval Runtime" {
-                background #e8e8e8
-                color #333333
+            element "Infrastructure" {
+                background #f5a623
+                color #ffffff
             }
             element "Person" {
-                background #f5a623
                 shape Person
+                background #4a90e2
+                color #ffffff
+            }
+            element "Software System" {
+                background #4a90e2
+                color #ffffff
+            }
+            element "Container" {
+                background #438dd5
+                color #ffffff
             }
         }
     }

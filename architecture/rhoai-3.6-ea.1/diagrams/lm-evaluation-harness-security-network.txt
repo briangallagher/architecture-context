@@ -1,0 +1,105 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  ORCHESTRATION (Cluster Internal)                                       │
+│                                                                          │
+│  [TrustyAI Service Operator]                                             │
+│  - Purpose: Creates and manages evaluation Kubernetes Jobs               │
+│  - Auth: Kubernetes RBAC                                                 │
+│         │                                                                │
+│         │ Mechanism: Kubernetes API (Job creation)                        │
+│         │ Auth: RBAC (ServiceAccount)                                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES JOB POD (Batch Workload)                                    │
+│                                                                          │
+│  [lm-eval Container]                                                     │
+│  - Image: odh-ta-lmes-job-rhel9                                          │
+│  - Runtime: Python 3.11 on UBI9 / AIPCC base                            │
+│  - User: 65532 (non-root)                                                │
+│  - Entrypoint: /opt/app-root/bin/python                                  │
+│  - CLI: lm_eval.__main__:cli_evaluate                                    │
+│  - Output: /opt/app-root/src/output (local filesystem)                   │
+│  - Lifecycle: One-shot batch job (no long-running process)               │
+│                                                                          │
+│  Model backends (plugin-based):                                          │
+│  - openai (OpenAI Completions API)                                       │
+│  - anthropic-chat-completions (Anthropic LLMs)                           │
+│  - watsonx_llm (IBM watsonx AI)                                          │
+│  - local-chat-completions (OpenAI-compatible, in-cluster)                │
+│         │                                                                │
+│         │ EGRESS CONNECTIONS (all outbound, no inbound listeners)         │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES (LLM Providers)                                      │
+│                                                                          │
+│  [OpenAI API - api.openai.com]                                           │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: OPENAI_API_KEY (environment variable, Bearer token)             │
+│  - Purpose: LLM inference requests for evaluation                        │
+│                                                                          │
+│  [Anthropic API - api.anthropic.com]                                     │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: ANTHROPIC_API_KEY (environment variable, x-api-key header)      │
+│  - Purpose: LLM inference requests for evaluation                        │
+│                                                                          │
+│  [IBM watsonx API]                                                       │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: WATSONX_API_KEY (environment variable)                          │
+│  - Purpose: LLM inference requests for evaluation                        │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL (Model Serving)                                       │
+│                                                                          │
+│  [Model Serving Runtime (vLLM / Caikit)]                                 │
+│  - Port: Configured at runtime                                          │
+│  - Protocol: HTTP or HTTPS (OpenAI-compatible API)                       │
+│  - Encryption: TLS optional (depends on service mesh config)             │
+│  - Auth: API key (environment variable)                                  │
+│  - Purpose: In-cluster LLM inference via local-chat-completions backend  │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES (Data Sources)                                       │
+│                                                                          │
+│  [Hugging Face Hub - datasets-server.huggingface.co]                     │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: HF_TOKEN (environment variable, Bearer token)                   │
+│  - Purpose: Download evaluation datasets, models, tokenizers             │
+│                                                                          │
+│  [S3-Compatible Storage]                                                 │
+│  - Port: 443/TCP                                                         │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (environment vars)    │
+│  - Purpose: Download model artifacts and datasets (optional)             │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Network Topology Summary:
+- NO inbound listeners (no Services, no Ingress, no HTTP/gRPC endpoints)
+- ALL connections are outbound (egress only)
+- Component runs as a one-shot Kubernetes Job, not a long-running service
+- No service mesh sidecar requirements (batch job lifecycle)
+
+RBAC Summary:
+- No ClusterRoles or RoleBindings defined in this repository
+- Job creation and lifecycle managed by TrustyAI Service Operator's RBAC
+- Pod runs as non-root user 65532
+
+Secrets (Environment Variables):
+- OPENAI_API_KEY (Opaque) - OpenAI API authentication, runtime-provisioned
+- ANTHROPIC_API_KEY (Opaque) - Anthropic API authentication, runtime-provisioned
+- WATSONX_API_KEY (Opaque) - IBM watsonx API authentication, runtime-provisioned
+- HF_TOKEN (Opaque) - Hugging Face Hub authentication, runtime-provisioned
+- AWS_SECRET_ACCESS_KEY (Opaque) - S3 storage authentication, runtime-provisioned
+
+FIPS Compliance:
+- Python application, no Go binaries
+- TLS via Python stdlib ssl module backed by system OpenSSL (UBI/AIPCC base image)
+- No non-FIPS cryptographic libraries detected
+- FIPS mode inherited from host system when enabled on base image

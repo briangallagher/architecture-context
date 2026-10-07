@@ -1,0 +1,109 @@
+[
+  {
+    "id": "aipcc-ecosystems-use",
+    "status": "documented",
+    "blocks": [
+      {"type": "paragraph", "text": "The fixture records a **source-backed** accelerator variant."},
+      {
+        "type": "table",
+        "table_id": "aipcc.accelerator-build-variants",
+        "rows": [{
+          "cells": ["cpu", "Dockerfile.konflux", "ubi9", "CPU", "9", "amd64", "Active"],
+          "evidence": [{"path": "Dockerfile.konflux", "revision": "0123456789abcdef"}]
+        }]
+      }
+    ],
+    "evidence": [{"path": "Dockerfile.konflux", "revision": "0123456789abcdef"}]
+  },
+  {
+    "id": "sub-component-details",
+    "status": "documented",
+    "blocks": [
+      {"type": "list", "items": ["policy-api is the extracted runtime component."]},
+      {
+        "type": "table",
+        "table_id": "subcomponent.summary",
+        "rows": [{
+          "cells": ["policy-api", "Dockerfile.konflux", "Evaluates policy", "policy-api", "Go", "8080/TCP"],
+          "evidence": [{"path": "cmd/server.go", "start_line": 1, "end_line": 40, "revision": "0123456789abcdef"}]
+        }]
+      }
+    ],
+    "evidence": [{"path": "cmd/server.go", "start_line": 1, "end_line": 40, "revision": "0123456789abcdef"}]
+  },
+  {
+    "id": "deployment-manifests",
+    "status": "documented",
+    "blocks": [{
+      "type": "table",
+      "table_id": "deployment.kustomize-structure",
+      "rows": [{
+        "cells": ["base", "config/default", "Policy service deployment"],
+        "evidence": [{"path": "config/default/kustomization.yaml", "revision": "0123456789abcdef"}]
+      }]
+    }],
+    "evidence": [{"path": "config/default/kustomization.yaml", "revision": "0123456789abcdef"}]
+  },
+  {
+    "id": "security.fips-compliance",
+    "status": "unresolved",
+    "blocks": [
+      {"type": "paragraph", "text": "FIPS support remains **unresolved** from available analyzer evidence."},
+      {
+        "type": "table",
+        "table_id": "security.fips-build-time",
+        "rows": [{
+          "cells": ["Build flags", "Unknown", "Dockerfile.konflux"],
+          "evidence": [{"path": "Dockerfile.konflux", "revision": "0123456789abcdef"}]
+        }]
+      },
+      {
+        "type": "table",
+        "table_id": "security.fips-application-crypto",
+        "rows": [{
+          "cells": ["TLS configuration", "Not extracted", "cmd/server.go:20-24"],
+          "evidence": [{"path": "cmd/server.go", "start_line": 20, "end_line": 24, "revision": "0123456789abcdef"}]
+        }]
+      }
+    ],
+    "evidence": [{"path": "cmd/server.go", "start_line": 20, "end_line": 24, "revision": "0123456789abcdef"}],
+    "uncertainty": "Runtime FIPS mode was not extracted."
+  },
+  {
+    "id": "security.build-hermeticity",
+    "status": "documented",
+    "blocks": [{
+      "type": "table",
+      "table_id": "security.build-hermeticity",
+      "rows": [{
+        "cells": ["Language deps", "go.sum", "Yes", "go mod", "go.sum"],
+        "evidence": [{"path": "go.sum", "revision": "0123456789abcdef"}]
+      }]
+    }],
+    "evidence": [{"path": "go.sum", "revision": "0123456789abcdef"}]
+  },
+  {
+    "id": "multi-tenancy",
+    "status": "unresolved",
+    "blocks": [
+      {
+        "type": "table",
+        "table_id": "multi-tenancy.tenant-model",
+        "rows": [{
+          "cells": ["Tenant boundary", "Not extracted", "cmd/server.go:20-24"],
+          "evidence": [{"path": "cmd/server.go", "start_line": 20, "end_line": 24, "revision": "0123456789abcdef"}]
+        }]
+      },
+      {
+        "type": "table",
+        "table_id": "multi-tenancy.isolation-mechanisms",
+        "rows": [{
+          "cells": ["Auth & AuthZ", "RBAC", "Kubernetes", "Tenant scope unresolved"],
+          "evidence": [{"path": "config/rbac.yaml", "start_line": 1, "end_line": 40, "revision": "0123456789abcdef"}]
+        }]
+      }
+    ],
+    "evidence": [{"path": "config/rbac.yaml", "start_line": 1, "end_line": 40, "revision": "0123456789abcdef"}],
+    "uncertainty": "Tenant isolation was not extracted."
+  }
+]

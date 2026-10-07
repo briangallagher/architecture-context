@@ -1,0 +1,123 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  OPERATOR WORKSTATION (Trusted)                                         │
+│                                                                          │
+│  [Administrator]                                                         │
+│  - Runs: rhaii-validator CLI / kubectl-rhaii_validate                    │
+│  - Auth context: kubeconfig credentials                                  │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+ (stdlib crypto/tls, FIPS via OpenSSL     │
+│         │              under GOEXPERIMENT=strictfipsruntime)             │
+│         │ Auth: kubeconfig credential chain                              │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES CONTROL PLANE                                                │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 6443/TCP                                                        │
+│  - Protocol: HTTPS / WebSocket (WSS)                                     │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: kubeconfig-based (controller), ServiceAccount token (pods)     │
+│                                                                          │
+│  Resources created by controller (via admin kubeconfig):                 │
+│  ┌─────────────────────────────────────────────────────────────────┐     │
+│  │  Namespace: rhaii-validation                                     │     │
+│  │  ├── ServiceAccount: rhaii-validator                              │     │
+│  │  ├── ConfigMap: validation results                                │     │
+│  │  └── Jobs: per-node agent pods                                    │     │
+│  │                                                                   │     │
+│  │  ClusterRole: rhaii-validator (empty - no API permissions)        │     │
+│  │  ClusterRoleBinding: rhaii-validator → SA rhaii-validator         │     │
+│  │  SCC Binding: privileged SCC → SA rhaii-validator                 │     │
+│  └─────────────────────────────────────────────────────────────────┘     │
+│                                                                          │
+│  CRD/Operator presence queries (read-only):                              │
+│  - Gateway API: Gateways, HTTPRoutes                                     │
+│  - InferencePool CRD                                                     │
+│  - LeaderWorkerSet CRD                                                   │
+│  - cert-manager CRD                                                      │
+│  - Operator namespaces: cert-manager, Istio, LWS                        │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  WORKER NODES (Hardware Access Zone)                                     │
+│                                                                          │
+│  [Agent Job Pods]                                                        │
+│  - Namespace: rhaii-validation                                           │
+│  - ServiceAccount: rhaii-validator                                       │
+│  - SCC: privileged (for host hardware access)                            │
+│  - Image: rhaii-validator (same binary, internal sub-commands)           │
+│  - NOTE: Pods do NOT call Kubernetes API — SA used only for SCC          │
+│                                                                          │
+│  GPU Inspection:                                                         │
+│  ┌──────────────────────────────────────────────────────────┐            │
+│  │  Access: /sys/class (PCI topology, sysfs)                 │            │
+│  │  Checks: driver version, ECC status, GPU memory            │            │
+│  │  Protocol: Local filesystem (no network)                    │            │
+│  └──────────────────────────────────────────────────────────┘            │
+│                                                                          │
+│  RDMA Inspection:                                                        │
+│  ┌──────────────────────────────────────────────────────────┐            │
+│  │  Access: /sys/class/infiniband (sysfs)                     │            │
+│  │  Tests: ibv_rc_pingpong (connectivity)                      │            │
+│  │         ib_write_bw (bandwidth)                              │            │
+│  │  Protocol: InfiniBand verbs (kernel bypass)                  │            │
+│  └──────────────────────────────────────────────────────────┘            │
+│                                                                          │
+│  Network Validation:                                                     │
+│  ┌──────────────────────────────────────────────────────────┐            │
+│  │  TCP Latency:                                              │            │
+│  │    Port: 12865/TCP                                          │            │
+│  │    Protocol: Custom TCP echo (plaintext)                     │            │
+│  │    Flow: tcp-lat-server ←→ tcp-lat-client (pod-to-pod)       │            │
+│  │                                                              │            │
+│  │  Bandwidth:                                                  │            │
+│  │    Tool: iperf3 (pod-to-pod)                                 │            │
+│  │    Protocol: TCP (plaintext)                                  │            │
+│  │    Note: Intra-cluster testing, not external traffic          │            │
+│  └──────────────────────────────────────────────────────────┘            │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+AUTHENTICATION CONTEXTS:
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Controller Process:                                                      │
+│  - Auth: Administrator's kubeconfig credentials                           │
+│  - Scope: Full RBAC of invoking user (creates NS, SA, RBAC, Jobs, CM)    │
+│  - TLS: stdlib crypto/tls with FIPS via strictfipsruntime + OpenSSL       │
+│                                                                            │
+│  Agent Job Pods:                                                           │
+│  - Auth: ServiceAccount rhaii-validator (mounted token)                    │
+│  - Scope: NO Kubernetes API calls (SA used only for SCC privilege)        │
+│  - SCC: system:openshift:scc:privileged (host hardware access)            │
+│  - Blast Radius: Limited to hardware inspection within Job lifetime       │
+└──────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+  ClusterRole: rhaii-validator
+  - API Groups: (empty — no API permissions granted)
+  - Purpose: Anchor for ClusterRoleBinding; SCC binding is separate
+
+  ClusterRoleBinding: rhaii-validator
+  - Role: rhaii-validator (ClusterRole)
+  - Subject: SA rhaii-validator in rhaii-validation namespace
+
+  SCC Binding: rhaii-validator-scc-{namespace}
+  - Role: system:openshift:scc:privileged (ClusterRole)
+  - Subject: SA rhaii-validator
+  - Purpose: Host-level sysfs access for GPU/RDMA/NIC inspection
+
+FIPS Compliance:
+  Build flags: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
+  Linking: Dynamic (CGO) — uses OpenSSL via UBI9 base image
+  TLS: Delegated to client-go; stdlib crypto/tls with FIPS via OpenSSL
+  Crypto: stdlib crypto/sha256 (FIPS via OpenSSL under strictfipsruntime)
+  Non-FIPS risks: None detected
+
+Secrets:
+  (None — tool uses kubeconfig credentials from administrator's environment)
+
+Network Exposure:
+  Ingress: None (CLI tool, no listening services)
+  Egress: Kubernetes API (6443/TCP HTTPS only)
+  Internal: TCP 12865 (latency echo), iperf3 (bandwidth) — pod-to-pod only

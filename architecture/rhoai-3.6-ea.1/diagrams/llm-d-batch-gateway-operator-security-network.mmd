@@ -1,0 +1,83 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Admin["Platform Admin<br/>kubectl"]
+    end
+
+    subgraph ControlPlane["KUBERNETES CONTROL PLANE"]
+        K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>ServiceAccount / Client Certs"]
+    end
+
+    subgraph OperatorNS["OPERATOR NAMESPACE<br/>(llm-d-batch-gateway-operator-system)"]
+        direction TB
+
+        subgraph OperatorPod["Operator Pod (non-root, ro-rootfs, no caps)"]
+            Manager["manager<br/>SA: llm-d-batch-gateway-operator<br/>FIPS: strictfipsruntime"]
+        end
+
+        HealthProbe["Health/Readiness<br/>:8081/TCP HTTP<br/>No Auth<br/>Plaintext"]
+        MetricsEP["Metrics Endpoint<br/>:8443/TCP HTTPS<br/>OpenShift serving cert<br/>TokenReview + SAR"]
+        MetricsSvc["Service: operator-metrics<br/>ClusterIP :8443"]
+    end
+
+    subgraph TargetNS["TARGET NAMESPACE(S)"]
+        direction TB
+
+        subgraph BatchGW["batch-gateway workloads"]
+            APIServer["API Server<br/>Deployment"]
+            GarbageCol["Garbage Collector<br/>Deployment"]
+        end
+
+        subgraph AsyncProc["async-processor workloads"]
+            Processor["Async Processor<br/>Deployment"]
+        end
+
+        HTTPRoute["HTTPRoute<br/>(conditional)"]
+        Certificate["Certificate CR<br/>(conditional)"]
+        SvcMonitor["ServiceMonitor<br/>(conditional)"]
+        SyncedSecret["Synced Secrets<br/>(ReferenceGrant-gated)"]
+    end
+
+    subgraph PlatformSvc["PLATFORM SERVICES"]
+        Prometheus["Prometheus<br/>Bearer token + TLS"]
+        CertManager["cert-manager<br/>TLS provisioning"]
+        APIServerCR["OpenShift APIServer<br/>TLS profile source"]
+        ServingCert["service-serving-cert<br/>signer"]
+        GatewayCtrl["Gateway API<br/>controller"]
+    end
+
+    %% Flows
+    Admin -->|"HTTPS/6443<br/>TLS 1.2+<br/>kubeconfig"| K8sAPI
+    K8sAPI -->|"Watch events<br/>HTTPS/WSS<br/>TLS 1.2+<br/>SA token"| Manager
+    Manager -->|"CRUD resources<br/>HTTPS/6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
+
+    Manager --- HealthProbe
+    Manager --- MetricsEP
+    MetricsSvc --- MetricsEP
+
+    Manager -->|"Creates/Owns<br/>via K8s API"| APIServer
+    Manager -->|"Creates/Owns<br/>via K8s API"| GarbageCol
+    Manager -->|"Creates/Owns<br/>via K8s API"| Processor
+    Manager -.->|"Conditional"| HTTPRoute
+    Manager -.->|"Conditional"| Certificate
+    Manager -.->|"Conditional"| SvcMonitor
+    Manager -->|"ReferenceGrant-gated"| SyncedSecret
+
+    Prometheus -->|"GET :8443/metrics<br/>HTTPS<br/>Bearer token"| MetricsSvc
+    CertManager -.->|"Provisions certs"| Certificate
+    APIServerCR -->|"TLS profile<br/>watch"| Manager
+    ServingCert -->|"Auto-provisions<br/>metrics TLS cert"| MetricsEP
+    GatewayCtrl -.->|"Processes"| HTTPRoute
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef controlplane fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef operator fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef target fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef platform fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef secure fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    class Admin external
+    class K8sAPI controlplane
+    class Manager,HealthProbe,MetricsEP,MetricsSvc operator
+    class APIServer,GarbageCol,Processor,HTTPRoute,Certificate,SvcMonitor,SyncedSecret target
+    class Prometheus,CertManager,APIServerCR,ServingCert,GatewayCtrl platform

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "component": "trainer-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "trainer-operator-cache-hardening-001",
+      "claim": "The operator implements informer cache hardening with label selectors and namespace scoping to prevent OOMKill from unrelated cluster objects, following the ODH platform operator anti-pattern mitigation guidance.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:98-131"
+        }
+      ],
+      "reasoning": "The manager configuration uses label selectors (platform.opendatahub.io/part-of: trainer) for Deployments, Services, ConfigMaps, and ValidatingWebhookConfigurations, and disables cache for Namespace objects to avoid a cluster-wide informer. The code comment references the anti-pattern documentation. This is a security-relevant design pattern that reduces the operator's attack surface for resource exhaustion.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "trainer-operator-jobset-dependency-002",
+      "claim": "The operator enforces a hard runtime dependency on the JobSet Operator on OpenShift clusters, halting reconciliation with a Degraded condition if the operator is not installed, missing its CR, or unhealthy.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/trainer_controller.go:231-269"
+        }
+      ],
+      "reasoning": "The checkDependencies action differentiates between OpenShift (four checks: CRD, CR existence, health, JobSet availability) and vanilla Kubernetes (one check: JobSet CRD). This asymmetric dependency model means the Trainer component has a stricter installation prerequisite on OpenShift, which affects platform deployment ordering and upgrade sequencing.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "trainer-operator-plaintext-metrics-003",
+      "claim": "The metrics endpoint explicitly disables TLS (SecureServing: false), serving plaintext HTTP on port 8080 without authentication, relying on network-level controls for transport security.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/main.go:93-95"
+        }
+      ],
+      "reasoning": "Unlike some RHOAI operators that use kube-rbac-proxy or SecureServing for metrics, this operator explicitly opts out. The trade-off is reduced operational complexity at the cost of requiring network policies or service mesh to protect metrics from unauthorized access. This is an intentional design decision visible in the controller-runtime manager options.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

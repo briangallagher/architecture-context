@@ -1,54 +1,56 @@
 graph TB
-    subgraph External["EXTERNAL (Untrusted)"]
+    subgraph IngressZone["INGRESS (Metrics Consumers)"]
         direction TB
-        Note1["No external ingress<br/>WVA is internal-only"]
+        HPA["HPA / KEDA<br/>reads wva_desired_replicas"]
+        PromScraper["Prometheus<br/>(ServiceMonitor)"]
     end
 
-    subgraph ClusterInternal["CLUSTER INTERNAL (Kubernetes Network)"]
+    subgraph ControllerZone["WVA CONTROLLER (wva-system namespace)"]
         direction TB
 
-        subgraph NS_WVA["Namespace: workload-variant-autoscaler-system"]
-            CM["controller-manager<br/>SA: controller-manager<br/>Ports: 8443/TCP (metrics), 8081/TCP (probes)"]
-            MetricsSvc["controller-manager-metrics-service<br/>ClusterIP 8443/TCP<br/>HTTPS / TLS<br/>NetworkPolicy: restricted"]
-            CM --- MetricsSvc
+        subgraph MetricsSvc["controller-manager-metrics-service (ClusterIP)"]
+            MetricsEP["/metrics<br/>8443/TCP HTTPS<br/>TLS (self-signed / Service CA)<br/>Bearer Token + authn/authz"]
         end
 
-        subgraph NS_Monitoring["Namespace: openshift-monitoring"]
-            Prom["Prometheus (Thanos Querier)<br/>9091/TCP HTTPS<br/>TLS 1.2+"]
+        subgraph HealthSvc["controller-manager-health-service (ClusterIP)"]
+            HealthEP["/healthz /readyz<br/>8081/TCP HTTP<br/>No encryption<br/>No auth"]
         end
 
-        subgraph NS_Model["Namespace: {model-namespace}"]
-            EPP["EPP Pods<br/>configurable/TCP HTTP<br/>Plaintext"]
-            Deploy["Deployment / LWS<br/>(Scale Target)"]
-        end
-
-        K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS<br/>TLS 1.2+"]
-        HPA["HPA / KEDA<br/>(External Autoscaler)"]
+        Controller["WVA Controller Manager<br/>SA: controller-manager<br/>FIPS: strictfipsruntime + CGO"]
     end
 
-    %% Egress from WVA
-    CM -->|"HTTPS/9091<br/>TLS 1.2+<br/>Bearer Token (SA token)<br/>PromQL queries"| Prom
-    CM -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token<br/>Watch/CRUD CRs"| K8sAPI
-    CM -->|"HTTP/configurable<br/>Plaintext ⚠️<br/>Bearer Token (EPP token)<br/>Flow control queue size"| EPP
+    subgraph EgressZone["EGRESS DESTINATIONS"]
+        direction TB
 
-    %% Ingress to WVA
-    Prom -->|"HTTPS/8443<br/>TLS<br/>Bearer Token (prometheus SA)<br/>Scrape WVA metrics"| MetricsSvc
-    HPA -->|"HTTPS/8443<br/>TLS<br/>Bearer Token (metrics-reader)<br/>Custom scaling metrics"| MetricsSvc
+        Prometheus["Prometheus / Thanos Querier<br/>443/TCP or 9090/TCP<br/>HTTPS (TLS 1.2+)<br/>Bearer Token (SA token)"]
 
-    %% HPA/KEDA to targets
-    HPA -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token<br/>Scale Deployment"| K8sAPI
-    K8sAPI -.->|"update replicas"| Deploy
+        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token (SA token)"]
+
+        EPP["Gateway API EPP<br/>Pod port HTTP/HTTPS<br/>Configurable encryption<br/>Bearer Token (optional)"]
+    end
+
+    %% Ingress flows
+    HPA -->|"HTTPS/8443<br/>TLS<br/>Bearer Token"| MetricsEP
+    PromScraper -->|"HTTPS/8443<br/>TLS<br/>Bearer Token (SA)"| MetricsEP
+
+    %% Internal
+    Controller --- MetricsEP
+    Controller --- HealthEP
+
+    %% Egress flows
+    Controller -->|"HTTPS/443 or 9090<br/>TLS 1.2+<br/>Bearer Token (SA)"| Prometheus
+    Controller -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token (SA)"| K8sAPI
+    Controller -->|"HTTP(S)/Pod port<br/>Configurable<br/>Bearer Token (opt)"| EPP
 
     %% Styling
-    classDef wva fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
-    classDef monitoring fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
-    classDef internal fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef k8s fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef warning fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef controller fill:#4a90e2,stroke:#333,color:#fff,stroke-width:2px
+    classDef service fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef egress fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef health fill:#f8cecc,stroke:#b85450,stroke-width:1px
 
-    class CM,MetricsSvc wva
-    class Prom monitoring
-    class EPP,Deploy internal
-    class K8sAPI,HPA k8s
-    class Note1 external
+    class Controller controller
+    class MetricsEP service
+    class HealthEP health
+    class HPA,PromScraper ingress
+    class Prometheus,K8sAPI,EPP egress

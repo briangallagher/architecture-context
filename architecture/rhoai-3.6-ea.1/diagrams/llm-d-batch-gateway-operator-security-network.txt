@@ -1,0 +1,147 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [Platform Admin]                                                        │
+│         │                                                                │
+│         │ kubectl apply LLMBatchGateway CR                               │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: kubeconfig credentials                                   │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES CONTROL PLANE                                               │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 6443/TCP                                                        │
+│  - Protocol: HTTPS + WebSocket                                           │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: ServiceAccount tokens, client certificates                      │
+│         │                                                                │
+│         │ Watch events (LLMBatchGateway, Secrets,                        │
+│         │   Deployments, Services, ConfigMaps, etc.)                     │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS/WSS                                            │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token                                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  OPERATOR NAMESPACE (llm-d-batch-gateway-operator-system)               │
+│                                                                          │
+│  [llm-d-batch-gateway-operator]                                          │
+│  - Deployment: manager                                                   │
+│  - Image: controller:latest                                              │
+│  - ServiceAccount: llm-d-batch-gateway-operator                          │
+│  - Security: non-root, read-only rootfs, all caps dropped               │
+│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                  │
+│                                                                          │
+│  Ports:                                                                  │
+│  ┌──────────────────────────────────────────────────────────────┐        │
+│  │ :8081/TCP  Health & Readiness Probes                         │        │
+│  │  Protocol: HTTP                                               │        │
+│  │  Encryption: None (plaintext)                                 │        │
+│  │  Auth: None (unauthenticated by design)                       │        │
+│  │  Endpoints: /healthz (liveness), /readyz (readiness)          │        │
+│  └──────────────────────────────────────────────────────────────┘        │
+│  ┌──────────────────────────────────────────────────────────────┐        │
+│  │ :8443/TCP  Metrics Endpoint                                   │        │
+│  │  Service: llm-d-batch-gateway-operator-metrics (ClusterIP)    │        │
+│  │  Protocol: HTTPS                                              │        │
+│  │  Encryption: TLS (OpenShift service-serving-cert signer)      │        │
+│  │  TLS Profile: Cluster APIServer profile (default: Intermediate│)       │
+│  │  Auth: TokenReview + SubjectAccessReview                      │        │
+│  │  Consumers: Prometheus (via ServiceMonitor + bearer token)    │        │
+│  └──────────────────────────────────────────────────────────────┘        │
+│         │                                                                │
+│         │ Creates/manages resources in target namespaces                 │
+│         │ Port: 6443/TCP (via K8s API)                                   │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token                                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  TARGET NAMESPACE(S) (where LLMBatchGateway CRs are created)           │
+│                                                                          │
+│  [Managed Workloads - batch-gateway]                                     │
+│  - API Server Deployment                                                 │
+│  - Garbage Collector Deployment                                          │
+│  - Service, ConfigMap, ServiceAccount                                    │
+│                                                                          │
+│  [Managed Workloads - async-processor]                                   │
+│  - Async Processor Deployment                                            │
+│  - ConfigMap, ServiceAccount                                             │
+│                                                                          │
+│  [Conditional Resources]                                                 │
+│  - HTTPRoute (if Gateway API CRDs present)                               │
+│  - Certificate (if cert-manager CRDs present)                            │
+│  - ServiceMonitor, PodMonitor (if prometheus-operator CRDs present)      │
+│                                                                          │
+│  [Cross-Namespace Secrets]                                               │
+│  - Synced via ReferenceGrant-gated copies                                │
+│  - Source: operator namespace or other authorized namespaces             │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  PLATFORM SERVICES                                                       │
+│                                                                          │
+│  [Prometheus]                                                            │
+│  - Scrapes :8443/metrics via ServiceMonitor                              │
+│  - Auth: Bearer token with TLS                                           │
+│  - Alerts: high reconcile error rate, leader election loss               │
+│                                                                          │
+│  [cert-manager]                                                          │
+│  - Provisions TLS certificates for managed workloads                     │
+│  - Operator creates Certificate CRs                                      │
+│                                                                          │
+│  [OpenShift APIServer]                                                   │
+│  - Provides TLS profile configuration                                    │
+│  - Operator watches for profile changes                                  │
+│  - Triggers graceful restart on change                                   │
+│                                                                          │
+│  [OpenShift service-serving-cert signer]                                 │
+│  - Provisions TLS certificate for operator metrics endpoint              │
+│                                                                          │
+│  [Gateway API controller]                                                │
+│  - Processes HTTPRoute resources created by operator                     │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- ClusterRole: llm-d-batch-gateway-operator
+  - API Groups: core, apps, batch.llm-d.ai, cert-manager.io,
+                gateway.networking.k8s.io, monitoring.coreos.com,
+                authentication.k8s.io, authorization.k8s.io
+  - Key Resources: llmbatchgateways, deployments, services, configmaps,
+                   secrets, serviceaccounts, certificates, httproutes,
+                   referencegrants, servicemonitors, podmonitors,
+                   prometheusrules, tokenreviews, subjectaccessreviews
+  - Verbs: get, list, watch, create, update, patch, delete
+
+- ClusterRole: llm-d-batch-gateway-admin (aggregate)
+  - Resources: llmbatchgateways (full CRUD)
+  - Purpose: Admin access to LLMBatchGateway resources
+
+- ClusterRole: llm-d-batch-gateway-view (aggregate)
+  - Resources: llmbatchgateways (read-only)
+  - Purpose: View access to LLMBatchGateway resources
+
+- Role: llm-d-batch-gateway-leader-election-role (namespaced)
+  - Resources: leases, events
+  - Purpose: Leader election coordination
+
+Service Mesh / Network Configuration:
+- No Istio/ServiceMesh sidecar injection detected
+- Network security relies on Kubernetes NetworkPolicy (if configured externally)
+- All operator-to-API communication over TLS 1.2+
+- Metrics endpoint: TLS with OpenShift serving cert + authn/authz
+
+Secrets:
+- No operator-owned secrets defined in manifests
+- Cross-namespace secret synchronization gated by ReferenceGrant
+- Metrics TLS cert provisioned by OpenShift service-serving-cert signer (auto-rotate)
+- Managed workload TLS certs provisioned by cert-manager (if available)
+
+FIPS Compliance:
+- Build: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
+- Crypto: stdlib crypto/tls routed through OpenSSL via FIPS-capable Go runtime
+- TLS: Platform-delegated via OpenShift APIServer TLS profile (Intermediate default)
+- No non-FIPS crypto risks detected

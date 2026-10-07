@@ -1,49 +1,54 @@
 graph LR
-    MMServing[ModelMesh Serving<br/>Controller]
+    MMServing["ModelMesh Serving<br/>Controller"]
 
     %% External Dependencies (Required)
-    MMServing -->|"coordination backend<br/>gRPC/2379 TLS"| etcd[etcd v3.5.x<br/>Required]
-    MMServing -->|"operator framework"| ControllerRuntime[controller-runtime<br/>v0.16.3<br/>Required]
-    MMServing -->|"CRD types"| KServe[KServe v0.12.0<br/>Required]
+    MMServing -->|"coordination<br/>gRPC/2379 TLS"| etcd["etcd v3.5.x<br/>(Required)"]
+    MMServing -->|"controller framework"| ControllerRuntime["controller-runtime<br/>v0.16.3<br/>(Required)"]
+    MMServing -->|"CRD type definitions"| KServeAPI["kserve/kserve API<br/>v0.12.0<br/>(Required)"]
+    MMServing -->|"model orchestration<br/>sidecar"| ModelMesh["kserve/modelmesh<br/>(Required)"]
+    MMServing -->|"storage puller<br/>sidecar"| RuntimeAdapter["kserve/modelmesh-<br/>runtime-adapter<br/>(Required)"]
 
     %% External Dependencies (Optional)
-    MMServing -.->|"webhook TLS certs"| CertManager[cert-manager v1<br/>Optional]
-    MMServing -.->|"ServiceMonitor CRD"| PrometheusOp[prometheus-operator<br/>v0.55.0<br/>Optional]
+    MMServing -.->|"REST→gRPC proxy<br/>sidecar"| RESTProxy["kserve/rest-proxy<br/>(Optional)"]
+    MMServing -.->|"ServiceMonitor CRD"| PrometheusOp["prometheus-operator<br/>v0.55.0<br/>(Optional)"]
 
     %% Internal Platform Dependencies
-    RhodsOp[rhods-operator] -->|"deploys via kustomize"| MMServing
-    MMServing -->|"sidecar in runtime pods"| ModelMeshRT[ModelMesh Runtime<br/>kserve/modelmesh]
-    MMServing -->|"sidecar: REST→gRPC"| RESTProxy[REST Proxy<br/>kserve/rest-proxy]
-    MMServing -->|"sidecar: model download"| RuntimeAdapter[Runtime Adapter<br/>kserve/modelmesh-runtime-adapter]
-    MMServing -->|"sidecar: auth proxy"| OAuthProxy[oauth-proxy<br/>ose-oauth-proxy]
-
-    %% Integration Points (inbound)
-    ODHDashboard[ODH Dashboard] -.->|"UI management"| MMServing
-    ODHModelCtrl[odh-model-controller] -.->|"webhook interception"| MMServing
+    MMServing -->|"SAR auth sidecar<br/>HTTPS/8443"| OAuthProxy["OpenShift<br/>OAuth Proxy"]
+    MMServing -->|"TLS cert provisioning<br/>annotation-triggered"| ServiceCA["OpenShift<br/>service-ca"]
 
     %% External Services
-    MMServing -->|"model artifacts<br/>HTTPS/443"| S3[S3 Storage]
-    MMServing -->|"model artifacts<br/>HTTPS/443"| GCS[GCS]
-    MMServing -->|"model artifacts<br/>HTTPS/443"| Azure[Azure Blob]
-    MMServing -->|"CRD watches<br/>HTTPS/443"| K8sAPI[Kubernetes API]
-    MMServing -->|"metrics scraping<br/>HTTPS/2112"| Prometheus[Prometheus]
+    MMServing -->|"model storage<br/>HTTPS/443"| ObjectStorage["Object Storage<br/>(S3/GCS/PVC)"]
+    MMServing -->|"cluster API<br/>HTTPS/443"| K8sAPI["Kubernetes<br/>API Server"]
+
+    %% Integration Points (things that use ModelMesh Serving)
+    K8sHPA["Kubernetes HPA"] -.->|"autoscaling<br/>HPA CRD"| MMServing
+    K8sNamespaces["Kubernetes<br/>Namespaces"] -.->|"modelmesh-enabled<br/>label watch"| MMServing
+    ConfigMap["model-serving-config<br/>ConfigMap"] -.->|"runtime configuration<br/>watch"| MMServing
+
+    %% External Webhooks (peer components)
+    KServeController["KServe Controller"] -.->|"validates shared CRDs<br/>(InferenceService,<br/>ServingRuntime)"| MMServing
+    ODHModelController["odh-model-controller"] -.->|"mutates/validates<br/>InferenceService"| MMServing
 
     %% Styling
     style MMServing fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+
     style etcd fill:#999,stroke:#333,color:#fff
     style ControllerRuntime fill:#999,stroke:#333,color:#fff
-    style KServe fill:#7ed321,stroke:#333,color:#fff
-    style CertManager fill:#999,stroke:#333,color:#fff
-    style PrometheusOp fill:#999,stroke:#333,color:#fff
-    style RhodsOp fill:#7ed321,stroke:#333,color:#fff
-    style ModelMeshRT fill:#7ed321,stroke:#333,color:#fff
-    style RESTProxy fill:#7ed321,stroke:#333,color:#fff
-    style RuntimeAdapter fill:#7ed321,stroke:#333,color:#fff
+    style KServeAPI fill:#999,stroke:#333,color:#fff
+    style ModelMesh fill:#999,stroke:#333,color:#fff
+    style RuntimeAdapter fill:#999,stroke:#333,color:#fff
+
+    style RESTProxy fill:#bbb,stroke:#333,color:#fff
+    style PrometheusOp fill:#bbb,stroke:#333,color:#fff
+
     style OAuthProxy fill:#7ed321,stroke:#333,color:#fff
-    style ODHDashboard fill:#7ed321,stroke:#333,color:#fff
-    style ODHModelCtrl fill:#7ed321,stroke:#333,color:#fff
-    style S3 fill:#f5a623,stroke:#333,color:#fff
-    style GCS fill:#f5a623,stroke:#333,color:#fff
-    style Azure fill:#f5a623,stroke:#333,color:#fff
-    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
-    style Prometheus fill:#f5a623,stroke:#333,color:#fff
+    style ServiceCA fill:#7ed321,stroke:#333,color:#fff
+
+    style ObjectStorage fill:#f5a623,stroke:#333
+    style K8sAPI fill:#f5a623,stroke:#333
+
+    style K8sHPA fill:#ddd,stroke:#999
+    style K8sNamespaces fill:#ddd,stroke:#999
+    style ConfigMap fill:#ddd,stroke:#999
+    style KServeController fill:#e8d5f5,stroke:#9b59b6
+    style ODHModelController fill:#e8d5f5,stroke:#9b59b6

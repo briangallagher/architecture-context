@@ -1,0 +1,121 @@
+graph TB
+    subgraph KServeModule["KServe Module Operator"]
+        direction TB
+        ModuleController["kserve-module-controller<br/>Reconciles Kserve CR<br/>(components.platform.opendatahub.io)"]
+    end
+
+    subgraph CoreControllers["KServe Core Controllers (manager binary)"]
+        direction TB
+        ISController["InferenceService Controller<br/>Reconciles InferenceService"]
+        IGController["InferenceGraph Controller<br/>Reconciles InferenceGraph"]
+        TMController["TrainedModel Controller<br/>Reconciles TrainedModel"]
+        ISController -->|creates| Deployments[Deployments]
+        ISController -->|creates| Services[Services]
+        ISController -->|creates| IngressRes["HTTPRoutes / Routes<br/>/ VirtualServices"]
+        IGController -->|creates| IGDeployment[Graph Deployments]
+    end
+
+    subgraph LLMControllers["LLMISVC Controller (llmisvc binary)"]
+        direction TB
+        LLMController["LLMInferenceService Controller<br/>Reconciles LLMInferenceService"]
+        LLMConfigCtrl["LLMISVCConfig Controller"]
+        LLMController -->|creates| HPA[HorizontalPodAutoscaler]
+        LLMController -->|creates| LWS[LeaderWorkerSet]
+        LLMController -->|creates| ScaledObj[KEDA ScaledObject]
+        LLMController -->|creates| InfPool[InferencePool]
+        LLMController -->|creates| GWResources["Gateway / HTTPRoute"]
+    end
+
+    subgraph LocalModelControllers["Local Model Controllers"]
+        direction TB
+        LMCacheCtrl["LocalModelCache Controller<br/>(localmodel binary)"]
+        LMNodeCtrl["LocalModelNode Controller<br/>(localmodelnode binary)"]
+        LMCacheCtrl -->|creates| PV[PersistentVolumes]
+        LMCacheCtrl -->|creates| PVC[PersistentVolumeClaims]
+        LMNodeCtrl -->|creates| Jobs["Batch Jobs<br/>(model downloads)"]
+    end
+
+    subgraph WebhookServer["Webhook Server"]
+        direction TB
+        Mutating["Mutating Webhooks<br/>InferenceService defaults<br/>LLMInferenceService defaults<br/>Pod mutation"]
+        Validating["Validating Webhooks<br/>All CRD validation"]
+        Conversion["Conversion Webhook<br/>v1alpha1 ↔ v1alpha2"]
+    end
+
+    subgraph Router["Inference Router"]
+        direction TB
+        RouterBin["Router Binary<br/>InferenceGraph DAG routing"]
+        AuthChain["Auth: TokenReview +<br/>SubjectAccessReview"]
+        RouterBin --> AuthChain
+    end
+
+    subgraph PythonSDK["Python Model Servers (SDK)"]
+        direction TB
+        V2Protocol["V2 Inference Protocol"]
+        HTTPServer["HTTP: FastAPI/uvicorn"]
+        GRPCServer["gRPC: GRPCInferenceService"]
+        V2Protocol --> HTTPServer
+        V2Protocol --> GRPCServer
+        Frameworks["HuggingFace | sklearn | XGBoost<br/>LightGBM | vLLM | Paddle | PMML"]
+    end
+
+    subgraph AuthProxy["Metrics Auth"]
+        KubeAuth["odh-kube-auth-proxy<br/>TLS termination on 8443<br/>→ localhost:8080"]
+    end
+
+    %% CRDs
+    InferenceServiceCR[/"InferenceService CR"/]
+    InferenceGraphCR[/"InferenceGraph CR"/]
+    TrainedModelCR[/"TrainedModel CR"/]
+    LLMInferenceServiceCR[/"LLMInferenceService CR"/]
+    LocalModelCacheCR[/"LocalModelCache CR"/]
+    KserveCR[/"Kserve CR<br/>(platform component)"/]
+
+    %% CRD → Controller relationships
+    KserveCR -->|watched by| ModuleController
+    InferenceServiceCR -->|watched by| ISController
+    InferenceGraphCR -->|watched by| IGController
+    TrainedModelCR -->|watched by| TMController
+    LLMInferenceServiceCR -->|watched by| LLMController
+    LocalModelCacheCR -->|watched by| LMCacheCtrl
+
+    %% External dependencies
+    K8sAPI["Kubernetes API<br/>6443/TCP HTTPS"]
+    CertManager["cert-manager<br/>Certificate CRs"]
+    GatewayAPI["Gateway API<br/>HTTPRoute / Gateway"]
+    Prometheus["Prometheus<br/>Metrics scraping"]
+
+    CoreControllers -->|RBAC via SA token| K8sAPI
+    LLMControllers -->|RBAC via SA token| K8sAPI
+    LocalModelControllers -->|RBAC via SA token| K8sAPI
+    WebhookServer -->|TLS certs| CertManager
+    LLMControllers -->|conditional watch| GatewayAPI
+    KubeAuth -->|scraped by| Prometheus
+
+    %% User interaction
+    User["Data Scientist / User"]
+    User -->|creates| InferenceServiceCR
+    User -->|creates| LLMInferenceServiceCR
+    User -->|inference requests| Router
+
+    %% Styling
+    style ISController fill:#4a90e2,color:#fff
+    style IGController fill:#4a90e2,color:#fff
+    style TMController fill:#4a90e2,color:#fff
+    style LLMController fill:#4a90e2,color:#fff
+    style LMCacheCtrl fill:#4a90e2,color:#fff
+    style LMNodeCtrl fill:#4a90e2,color:#fff
+    style ModuleController fill:#4a90e2,color:#fff
+    style RouterBin fill:#e8744f,color:#fff
+    style HTTPServer fill:#7ed321,color:#fff
+    style GRPCServer fill:#7ed321,color:#fff
+    style InferenceServiceCR fill:#f5a623
+    style InferenceGraphCR fill:#f5a623
+    style TrainedModelCR fill:#f5a623
+    style LLMInferenceServiceCR fill:#f5a623
+    style LocalModelCacheCR fill:#f5a623
+    style KserveCR fill:#f5a623
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style CertManager fill:#e8e8e8,stroke:#333
+    style GatewayAPI fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333

@@ -1,68 +1,58 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Client["External Client"]
+        Client["External Client / AI Application"]
     end
 
-    subgraph OrchestratorZone["ORCHESTRATOR SERVICE (Dual-Server)"]
+    subgraph OrchestratorZone["ORCHESTRATOR SERVICE"]
         direction TB
-        subgraph MainAPI["Guardrails API Server"]
-            API["Port: 8033/TCP<br/>HTTP/HTTPS<br/>TLS 1.2+ (optional, rustls+ring)<br/>mTLS (optional, WebPkiClientVerifier)<br/>Auth: Header passthrough"]
+
+        subgraph MainService["fms-guardrails-orchestr8 (Rust)"]
+            GS["Guardrails Server<br/>8033/TCP HTTP/HTTPS<br/>rustls TLS 1.2+ (ring backend)<br/>mTLS supported<br/>⚠ ring NOT FIPS validated"]
+            HS["Health Server<br/>8034/TCP HTTP<br/>No TLS, No Auth"]
         end
-        subgraph HealthAPI["Health Server"]
-            Health["Port: 8034/TCP<br/>HTTP (plaintext)<br/>No auth"]
+    end
+
+    subgraph BackendServices["BACKEND SERVICES (Internal)"]
+        direction TB
+
+        subgraph DetectorZone["Detector Services"]
+            Detectors["Detectors (HAP, Toxicity, PII)<br/>8080/TCP HTTP/HTTPS<br/>TLS configurable per-detector<br/>Bearer token + header passthrough"]
         end
-    end
 
-    subgraph gRPCBackends["BACKEND SERVICES - gRPC"]
-        direction TB
-        TGIS["TGIS Generation Server<br/>8033/TCP gRPC/HTTP2<br/>TLS (optional)<br/>No auth<br/>Retry: exp backoff 502/503/504"]
-        CaikitNLP["Caikit NLP Service<br/>8085/TCP gRPC/HTTP2<br/>TLS (optional)<br/>No auth"]
-        CaikitChunker["Caikit Chunkers Service<br/>8085/TCP gRPC/HTTP2<br/>TLS (optional)<br/>No auth"]
-    end
+        subgraph ChunkerZone["Chunker Services"]
+            Chunker["Caikit Chunker Runtime<br/>8085/TCP gRPC<br/>TLS/mTLS configurable<br/>mm-model-id header"]
+        end
 
-    subgraph HTTPBackends["BACKEND SERVICES - HTTP"]
-        direction TB
-        Detectors["Detector Services<br/>8080/TCP (API) + 8081/TCP (health)<br/>HTTP/HTTPS<br/>TLS (optional)<br/>Bearer token (optional, env var)"]
-        OpenAISvr["OpenAI-compatible Server<br/>(e.g., vLLM)<br/>8080/TCP HTTP/HTTPS<br/>TLS (optional)<br/>Bearer token (optional, env var)"]
+        subgraph GenerationZone["Generation Services"]
+            TGIS["TGIS<br/>8033/TCP gRPC<br/>TLS/mTLS configurable<br/>Header passthrough"]
+            CaikitNLP["Caikit NLP<br/>8085/TCP gRPC<br/>TLS/mTLS configurable<br/>mm-model-id header"]
+            OpenAILLM["OpenAI-compatible LLM (vLLM)<br/>8080/TCP HTTP/HTTPS + SSE<br/>TLS configurable<br/>Bearer token (api_token)"]
+        end
     end
 
     subgraph Observability["OBSERVABILITY"]
-        OTLP["OTLP Collector<br/>4317/TCP (gRPC) or 4318/TCP (HTTP)<br/>No encryption<br/>No auth"]
+        OTLP["OTLP Collector<br/>4317/TCP gRPC or 4318/TCP HTTP<br/>Encryption configurable<br/>W3C traceparent propagation"]
     end
 
-    %% Inbound flows
-    Client -->|"HTTP/HTTPS 8033/TCP<br/>TLS 1.2+ (optional)<br/>Header passthrough<br/>(X-Forwarded-Access-Token)"| API
-    Client -->|"HTTP 8034/TCP<br/>Plaintext<br/>No auth"| Health
+    %% Flows
+    Client -->|"HTTP/HTTPS 8033/TCP<br/>TLS optional (rustls/ring)<br/>Header passthrough<br/>X-Forwarded-Access-Token rewrite"| GS
 
-    %% Outbound gRPC flows
-    API -->|"gRPC/HTTP2 8033/TCP<br/>TLS (optional)<br/>No auth"| TGIS
-    API -->|"gRPC/HTTP2 8085/TCP<br/>TLS (optional)<br/>No auth"| CaikitNLP
-    API -->|"gRPC/HTTP2 8085/TCP<br/>TLS (optional)<br/>No auth"| CaikitChunker
-
-    %% Outbound HTTP flows
-    API -->|"HTTP/HTTPS 8080/TCP<br/>TLS (optional)<br/>Bearer (optional)"| Detectors
-    API -->|"HTTP/HTTPS 8080/TCP<br/>TLS (optional)<br/>Bearer (optional)"| OpenAISvr
-
-    %% Health check flows
-    Health -.->|"gRPC health check"| TGIS
-    Health -.->|"gRPC health check"| CaikitNLP
-    Health -.->|"gRPC health check"| CaikitChunker
-    Health -.->|"HTTP /health 8081/TCP"| Detectors
-
-    %% Telemetry flows
-    API -.->|"OTLP 4317 or 4318/TCP<br/>Traces + Metrics"| OTLP
+    GS -->|"HTTP/HTTPS 8080/TCP<br/>TLS per-detector<br/>Bearer token + detector-id<br/>x-model-name header"| Detectors
+    GS -->|"gRPC 8085/TCP<br/>TLS/mTLS configurable<br/>mm-model-id header"| Chunker
+    GS -->|"gRPC 8033/TCP<br/>TLS/mTLS configurable<br/>Header passthrough"| TGIS
+    GS -->|"gRPC 8085/TCP<br/>TLS/mTLS configurable<br/>mm-model-id header"| CaikitNLP
+    GS -->|"HTTP/HTTPS 8080/TCP<br/>TLS configurable<br/>Bearer token (api_token)"| OpenAILLM
+    GS -.->|"OTLP 4317/TCP gRPC<br/>or 4318/TCP HTTP<br/>Traces + Metrics"| OTLP
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
-    classDef orchestrator fill:#4a90e2,stroke:#2c5aa0,stroke-width:2px,color:#fff
-    classDef healthzone fill:#7ed321,stroke:#5a9e18,stroke-width:2px,color:#fff
-    classDef grpcbackend fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef httpbackend fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef observability fill:#e8e8e8,stroke:#999,stroke-width:1px
+    classDef orchestrator fill:#4a90e2,stroke:#2c5282,stroke-width:2px,color:#fff
+    classDef backend fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef generation fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef observability fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 
     class Client external
-    class API orchestrator
-    class Health healthzone
-    class TGIS,CaikitNLP,CaikitChunker grpcbackend
-    class Detectors,OpenAISvr httpbackend
+    class GS,HS orchestrator
+    class Detectors,Chunker backend
+    class TGIS,CaikitNLP,OpenAILLM generation
     class OTLP observability

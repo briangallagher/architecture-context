@@ -1,0 +1,149 @@
+graph TD
+    subgraph "Service Accounts"
+        SA_Controller["odh-model-controller<br/>(operator Deployment)"]
+        SA_API["model-serving-api<br/>(API server Deployment)"]
+        SA_CM["controller-manager"]
+    end
+
+    subgraph "ClusterRole Bindings"
+        CRB_Main["odh-model-controller-<br/>rolebinding-opendatahub"]
+        CRB_Proxy["proxy-rolebinding"]
+        CRB_API["model-serving-api<br/>binding"]
+        CRB_Metrics["metrics-auth-<br/>rolebinding"]
+    end
+
+    subgraph "Role Bindings (Namespaced)"
+        RB_Leader1["leader-election-rolebinding<br/>(ns: odh-model-controller-system)"]
+        RB_Leader2["leader-election-rolebinding<br/>(ns: system)"]
+    end
+
+    subgraph "ClusterRoles"
+        CR_Main["odh-model-controller-role"]
+        CR_Proxy["proxy-role"]
+        CR_API["model-serving-api"]
+        CR_Metrics["metrics-auth-role"]
+        CR_AcctEdit["account-editor-role"]
+        CR_AcctView["account-viewer-role"]
+        CR_Prom["kserve-prometheus-k8s"]
+    end
+
+    subgraph "Roles (Namespaced)"
+        R_Leader["leader-election-role"]
+    end
+
+    %% SA to Binding connections
+    SA_Controller -->|bound via| CRB_Main
+    SA_Controller -->|bound via| CRB_Proxy
+    SA_Controller -->|bound via| RB_Leader1
+    SA_Controller -->|bound via| RB_Leader2
+    SA_API -->|bound via| CRB_API
+    SA_CM -->|bound via| CRB_Metrics
+
+    %% Binding to Role connections
+    CRB_Main -->|grants| CR_Main
+    CRB_Proxy -->|grants| CR_Proxy
+    CRB_API -->|grants| CR_API
+    CRB_Metrics -->|grants| CR_Metrics
+    RB_Leader1 -->|grants| R_Leader
+    RB_Leader2 -->|grants| R_Leader
+
+    subgraph "odh-model-controller-role Resources"
+        direction LR
+
+        subgraph "Core API"
+            CoreCRUD["configmaps, secrets,<br/>serviceaccounts, services<br/>create,delete,get,list,<br/>patch,update,watch"]
+            CoreRead["endpoints, namespaces, pods<br/>create,get,list,patch,<br/>update,watch"]
+            CoreEvents["events<br/>create, patch"]
+        end
+
+        subgraph "Serving (KServe)"
+            ServingFull["inferenceservices<br/>get,list,patch,update,watch"]
+            ServingLLM["llminferenceservices<br/>get,list,patch,post,<br/>update,watch"]
+            ServingIG["inferencegraphs,<br/>llminferenceserviceconfigs<br/>get,list,watch"]
+            ServingSR["servingruntimes<br/>create,get,list,<br/>update,watch"]
+            ServingFinalizers["inferenceservices/finalizers,<br/>inferencegraphs/finalizers,<br/>servingruntimes/finalizers,<br/>llminferenceservices/finalizers<br/>update"]
+        end
+
+        subgraph "NIM"
+            NIMAccounts["accounts<br/>get,list,patch,<br/>update,watch"]
+            NIMFinalizers["accounts/finalizers<br/>update"]
+            NIMStatus["accounts/status<br/>get,list,update,watch"]
+        end
+
+        subgraph "Networking"
+            NetRoutes["routes, routes/custom-host<br/>create,delete,get,list,<br/>patch,update,watch"]
+            NetPolicies["networkpolicies<br/>create,delete,get,list,<br/>patch,update,watch"]
+            NetGW["gateways<br/>get,list,patch,<br/>update,watch"]
+            NetHTTP["httproutes<br/>get,list,watch"]
+            NetEnvoy["envoyfilters<br/>create,delete,get,list,<br/>patch,update,watch"]
+        end
+
+        subgraph "Auth & Scaling"
+            AuthPolicies["authpolicies<br/>create,delete,get,list,<br/>patch,update,watch"]
+            AuthKuadrant["kuadrants, authorinos<br/>get,list,watch"]
+            KEDATrigger["triggerauthentications<br/>create,delete,get,list,<br/>patch,update,watch"]
+        end
+
+        subgraph "Monitoring"
+            MonPodSvc["podmonitors,<br/>servicemonitors<br/>create,delete,get,list,<br/>patch,update,watch"]
+        end
+
+        subgraph "RBAC"
+            RBACFull["clusterrolebindings,<br/>rolebindings, roles<br/>create,delete,get,list,<br/>patch,update,watch"]
+        end
+
+        subgraph "OpenShift"
+            OCPRead["apiservers,<br/>authentications<br/>get,list,watch"]
+            OCPTemplates["templates<br/>create,delete,get,list,<br/>patch,update,watch"]
+        end
+
+        subgraph "Platform"
+            PlatformRead["datascienceclusters,<br/>dscinitializations,<br/>hardwareprofiles<br/>get,list,watch"]
+        end
+    end
+
+    CR_Main -->|"30+ resource<br/>combinations"| CoreCRUD
+    CR_Main --> ServingFull
+    CR_Main --> NIMAccounts
+    CR_Main --> NetRoutes
+    CR_Main --> AuthPolicies
+    CR_Main --> MonPodSvc
+    CR_Main --> RBACFull
+
+    subgraph "proxy-role Resources"
+        ProxyRes["tokenreviews,<br/>subjectaccessreviews<br/>create"]
+    end
+    CR_Proxy --> ProxyRes
+
+    subgraph "model-serving-api Resources"
+        APIRes["gateways: list<br/>namespaces: get"]
+    end
+    CR_API --> APIRes
+
+    subgraph "leader-election-role Resources"
+        LeaderRes["configmaps, leases: full CRUD<br/>events: create, patch"]
+    end
+    R_Leader --> LeaderRes
+
+    %% Styling
+    style SA_Controller fill:#4a90e2,color:#fff
+    style SA_API fill:#4a90e2,color:#fff
+    style SA_CM fill:#4a90e2,color:#fff
+    style CR_Main fill:#f5a623,color:#fff
+    style CR_Proxy fill:#f5a623,color:#fff
+    style CR_API fill:#f5a623,color:#fff
+    style CR_Metrics fill:#f5a623,color:#fff
+    style CR_AcctEdit fill:#f5a623,color:#fff
+    style CR_AcctView fill:#f5a623,color:#fff
+    style CR_Prom fill:#f5a623,color:#fff
+    style R_Leader fill:#f5a623,color:#fff
+    style CoreCRUD fill:#7ed321,color:#fff
+    style ServingFull fill:#7ed321,color:#fff
+    style NIMAccounts fill:#7ed321,color:#fff
+    style NetRoutes fill:#7ed321,color:#fff
+    style AuthPolicies fill:#7ed321,color:#fff
+    style MonPodSvc fill:#7ed321,color:#fff
+    style RBACFull fill:#7ed321,color:#fff
+    style ProxyRes fill:#7ed321,color:#fff
+    style APIRes fill:#7ed321,color:#fff
+    style LeaderRes fill:#7ed321,color:#fff

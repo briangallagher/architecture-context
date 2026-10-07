@@ -1,0 +1,63 @@
+graph TB
+    subgraph "TrustyAI Explainability Service"
+        direction TB
+        subgraph "Init Container"
+            InitContainer["oauth-proxy-init<br/>(creates model-serving-config ConfigMap)"]
+        end
+
+        subgraph "Quarkus Application (port 8080)"
+            ConsumerEndpoint["ConsumerEndpoint<br/>/consumer/kserve/v2<br/>(POST)"]
+            FairnessEndpoints["Fairness Endpoints<br/>/metrics/group/fairness/spd<br/>/metrics/group/fairness/dir"]
+            DriftEndpoints["Drift Detection<br/>(Meanshift, KS Test,<br/>Fourier MMD, Approx KS)"]
+            MetadataEndpoint["ServiceMetadataEndpoint<br/>/info"]
+            MetricsEndpoint["Prometheus Metrics<br/>/q/metrics"]
+            HealthEndpoints["Health Probes<br/>/q/health/live<br/>/q/health/ready"]
+            PrometheusScheduler["PrometheusScheduler<br/>(scheduled metric export)"]
+            PayloadReconciler["ModelMeshInference<br/>PayloadReconciler"]
+        end
+
+        subgraph "Storage Layer"
+            PVCStorage["PVC Storage<br/>trustyai-service-pvc<br/>/inputs"]
+            HibernateORM["Hibernate ORM<br/>(optional, disabled by default)"]
+        end
+
+        ConsumerEndpoint -->|reconciles| PayloadReconciler
+        PayloadReconciler -->|stores| PVCStorage
+        FairnessEndpoints -->|reads| PVCStorage
+        DriftEndpoints -->|reads| PVCStorage
+        PrometheusScheduler -->|exports| MetricsEndpoint
+    end
+
+    %% External Interactions
+    ModelMesh["KServe/ModelMesh<br/>(same namespace)"] -->|POST inference payloads| ConsumerEndpoint
+    InitContainer -->|creates ConfigMap| ModelServingConfig["model-serving-config<br/>ConfigMap"]
+    ModelServingConfig -.->|configures payload forwarding| ModelMesh
+
+    Client["External Client"] -->|HTTP via Route| FairnessEndpoints
+    Client -->|HTTP via Route| DriftEndpoints
+    Client -->|HTTP via Route| MetadataEndpoint
+
+    Prometheus["Prometheus"] -->|scrapes /q/metrics| MetricsEndpoint
+
+    HibernateORM -.->|JDBC (optional)| MariaDB["MariaDB/MySQL<br/>(optional)"]
+
+    Route["OpenShift Route<br/>(trustyai)<br/>HTTP, no TLS"] -->|port 80 → 8080| ConsumerEndpoint
+
+    %% Styling
+    style ConsumerEndpoint fill:#4a90e2,color:#fff
+    style FairnessEndpoints fill:#4a90e2,color:#fff
+    style DriftEndpoints fill:#4a90e2,color:#fff
+    style MetadataEndpoint fill:#4a90e2,color:#fff
+    style MetricsEndpoint fill:#4a90e2,color:#fff
+    style PrometheusScheduler fill:#4a90e2,color:#fff
+    style PayloadReconciler fill:#4a90e2,color:#fff
+    style HealthEndpoints fill:#4a90e2,color:#fff
+    style InitContainer fill:#6c757d,color:#fff
+    style PVCStorage fill:#f5a623,color:#fff
+    style HibernateORM fill:#f5a623,color:#fff
+    style ModelMesh fill:#7ed321,color:#fff
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style MariaDB fill:#e8e8e8,stroke:#333
+    style Route fill:#ffe6cc,stroke:#d79b00
+    style ModelServingConfig fill:#f5a623,color:#fff
+    style Client fill:#f9f9f9,stroke:#999

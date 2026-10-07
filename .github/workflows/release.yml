@@ -44,20 +44,10 @@ jobs:
         run: |
           rm -rf _embedded/architecture
           mkdir -p _embedded/architecture
-          for d in ../../architecture/*/; do
-            name=$(basename "$d")
-            if [ ! -L "../../architecture/$name" ]; then
-              mkdir -p "_embedded/architecture/$name"
-              find "$d" -maxdepth 1 -name '*.md' -exec cp {} "_embedded/architecture/$name/" \;
-            fi
-          done
-          python3 -c "import os,json; d='../../architecture'; \
-            print(json.dumps({e:os.readlink(os.path.join(d,e)) \
-            for e in sorted(os.listdir(d)) if os.path.islink(os.path.join(d,e))}))" \
-            > _embedded/architecture/symlinks.json
-          if [ -d "../../overlays" ]; then
-            cp -r "../../overlays" _embedded/architecture/overlays
-          fi
+          go run ./internal/embeddeddata/cmd \
+            -source ../../architecture \
+            -destination _embedded/architecture \
+            -overlays ../../overlays
 
       - name: Build
         working-directory: src/arch-query

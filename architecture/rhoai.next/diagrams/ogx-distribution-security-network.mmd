@@ -1,0 +1,97 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client"]
+    end
+
+    subgraph PlatformIngress["INGRESS (Platform-Managed TLS Termination)"]
+        Gateway["Platform Ingress<br/>Gateway API / Route<br/>443/TCP → 8321/TCP<br/>TLS 1.2+ termination"]
+    end
+
+    subgraph Application["APPLICATION (OGX Server)"]
+        direction TB
+        OGX["OGX Server<br/>8321/TCP HTTP (plaintext, --insecure)<br/>OAuth2 JWT (conditional)<br/>Image: quay.io/opendatahub/odh-ogx-core"]
+    end
+
+    subgraph InferenceZone["INFERENCE PROVIDERS (External, TLS 1.2+)"]
+        direction TB
+        vLLM["vLLM Inference<br/>HTTP/HTTPS configurable<br/>Bearer Token<br/>TLS verify: VLLM_TLS_VERIFY"]
+        vLLMEmb["vLLM Embedding<br/>HTTP/HTTPS configurable<br/>Bearer Token"]
+        Bedrock["AWS Bedrock<br/>443/TCP HTTPS<br/>IAM STS Web Identity"]
+        AzureOAI["Azure OpenAI<br/>443/TCP HTTPS<br/>API Key"]
+        VertexAI["Google Vertex AI<br/>443/TCP HTTPS<br/>GCP Credentials"]
+        WatsonX["IBM WatsonX<br/>443/TCP HTTPS<br/>API Key"]
+        OpenAI["OpenAI<br/>443/TCP HTTPS<br/>API Key"]
+        GeminiSvc["Google Gemini<br/>443/TCP HTTPS<br/>API Key / Token"]
+        AnthropicSvc["Anthropic<br/>443/TCP HTTPS<br/>API Key"]
+    end
+
+    subgraph StorageZone["STORAGE SERVICES"]
+        direction TB
+        PostgreSQL["PostgreSQL<br/>5432/TCP<br/>No encryption (cluster-internal)<br/>Password Auth"]
+        Milvus["Milvus<br/>TCP configurable<br/>TLS configurable<br/>Token Auth"]
+        pgvector["pgvector<br/>5432/TCP<br/>No encryption (cluster-internal)<br/>Password Auth"]
+        Qdrant["Qdrant<br/>6333/TCP HTTP, 6334/TCP gRPC<br/>TLS configurable<br/>API Key Auth"]
+        S3["S3 Storage<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>AWS IAM"]
+    end
+
+    subgraph ToolZone["TOOL SERVICES (External, TLS 1.2+)"]
+        direction TB
+        Brave["Brave Search<br/>443/TCP HTTPS<br/>API Key"]
+        Tavily["Tavily Search<br/>443/TCP HTTPS<br/>API Key"]
+        Docling["Docling Serve<br/>HTTP/HTTPS configurable<br/>API Key"]
+        MCPSrv["MCP Servers<br/>varies<br/>No Auth"]
+    end
+
+    subgraph AuthZone["AUTH SERVICES"]
+        OIDC["OAuth2/OIDC Issuer<br/>443/TCP HTTPS<br/>TLS verify: AUTH_VERIFY_TLS<br/>JWKS endpoint"]
+    end
+
+    %% External → Ingress
+    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token (conditional)"| Gateway
+
+    %% Ingress → Application
+    Gateway -->|"HTTP/8321<br/>plaintext<br/>TLS terminated"| OGX
+
+    %% Application → Inference
+    OGX -->|"HTTP(S) configurable<br/>Bearer Token"| vLLM
+    OGX -->|"HTTP(S) configurable<br/>Bearer Token"| vLLMEmb
+    OGX -->|"HTTPS/443<br/>TLS 1.2+<br/>IAM STS"| Bedrock
+    OGX -->|"HTTPS/443<br/>API Key"| AzureOAI
+    OGX -->|"HTTPS/443<br/>GCP Creds"| VertexAI
+    OGX -->|"HTTPS/443<br/>API Key"| WatsonX
+    OGX -->|"HTTPS/443<br/>API Key"| OpenAI
+    OGX -->|"HTTPS/443<br/>API Key"| GeminiSvc
+    OGX -->|"HTTPS/443<br/>API Key"| AnthropicSvc
+
+    %% Application → Storage
+    OGX -->|"TCP/5432<br/>No encryption<br/>Password"| PostgreSQL
+    OGX -->|"TCP configurable<br/>TLS configurable<br/>Token"| Milvus
+    OGX -->|"TCP/5432<br/>No encryption<br/>Password"| pgvector
+    OGX -->|"HTTP/6333, gRPC/6334<br/>TLS configurable<br/>API Key"| Qdrant
+    OGX -->|"HTTPS/443<br/>TLS 1.2+<br/>AWS IAM"| S3
+
+    %% Application → Tools
+    OGX -->|"HTTPS/443<br/>API Key"| Brave
+    OGX -->|"HTTPS/443<br/>API Key"| Tavily
+    OGX -->|"HTTP(S) configurable<br/>API Key"| Docling
+    OGX -->|"varies<br/>No Auth"| MCPSrv
+
+    %% Application → Auth
+    OGX -->|"HTTPS/443<br/>TLS configurable<br/>JWKS fetch"| OIDC
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef application fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef inference fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef storage fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef tools fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    classDef auth fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    class Client external
+    class Gateway ingress
+    class OGX application
+    class vLLM,vLLMEmb,Bedrock,AzureOAI,VertexAI,WatsonX,OpenAI,GeminiSvc,AnthropicSvc inference
+    class PostgreSQL,Milvus,pgvector,Qdrant,S3 storage
+    class Brave,Tavily,Docling,MCPSrv tools
+    class OIDC auth

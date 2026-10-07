@@ -1,161 +1,161 @@
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│  EXTERNAL (Untrusted)                                                            │
-│                                                                                  │
-│  [User / Browser]                                                                │
-│         │                                                                        │
-│         │ Port: 443/TCP                                                          │
-│         │ Protocol: HTTPS                                                        │
-│         │ Encryption: TLS (edge termination)                                     │
-│         │ Auth: None                                                             │
-│         ▼                                                                        │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│  INGRESS (OpenShift Router - TLS Edge Termination)                               │
-│                                                                                  │
-│  [Route: planner]                                                                │
-│  - Port: 443/TCP (external) → 8501/TCP (internal)                               │
-│  - TLS Termination: Edge (SIMPLE)                                                │
-│  - Auth: None                                                                    │
-│                                                                                  │
-│  [Route: planner-backend]                                                        │
-│  - Port: 443/TCP (external) → 8000/TCP (internal)                               │
-│  - TLS Termination: Edge (SIMPLE)                                                │
-│  - Auth: None                                                                    │
-│         │                                                                        │
-│         │ Port: 8501/TCP (UI) / 8000/TCP (Backend)                               │
-│         │ Protocol: HTTP                                                         │
-│         │ Encryption: None (post TLS termination)                                │
-│         │ Auth: None                                                             │
-│         ▼                                                                        │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│  NAMESPACE: planner (No Service Mesh - Plaintext Internal)                       │
-│                                                                                  │
-│  [Streamlit UI]                                                                  │
-│  - Service: ui (ClusterIP)                                                       │
-│  - Port: 8501/TCP                                                                │
-│  - Protocol: HTTP                                                                │
-│  - ServiceAccount: default                                                       │
-│  - Image: quay.io/llm-d-planner/llm-d-planner-ui:latest                        │
-│         │                                                                        │
-│         │ Port: 8000/TCP                                                         │
-│         │ Protocol: HTTP                                                         │
-│         │ Encryption: None                                                       │
-│         │ Auth: None                                                             │
-│         ▼                                                                        │
-│  [Backend API (FastAPI)]                                                         │
-│  - Service: backend (ClusterIP)                                                  │
-│  - Port: 8000/TCP                                                                │
-│  - Protocol: HTTP                                                                │
-│  - ServiceAccount: planner-backend                                               │
-│  - Image: quay.io/llm-d-planner/llm-d-planner-backend:latest                   │
-│  - CORS: allow_origins=["*"] (ALL ORIGINS)                                       │
-│  - Endpoints: 27 REST endpoints, ALL UNAUTHENTICATED                             │
-│  - WARNING: Destructive endpoints (db/reset, deploy-to-cluster, delete)          │
-│    are accessible without any authentication                                     │
-│         │                                                                        │
-│         ├──────────────────────────────────────┐                                 │
-│         │                                      │                                 │
-│         │ Port: 11434/TCP                      │ Port: 5432/TCP                  │
-│         │ Protocol: HTTP                       │ Protocol: PostgreSQL             │
-│         │ Encryption: None                     │ Encryption: None                 │
-│         │ Auth: None                           │ Auth: Password                   │
-│         ▼                                      ▼                                 │
-│  [Ollama LLM]                          [PostgreSQL]                              │
-│  - Service: ollama (ClusterIP)         - Service: postgres (ClusterIP)           │
-│  - Port: 11434/TCP                     - Port: 5432/TCP                          │
-│  - Model: granite3.3:2b (cluster)      - PVC: postgres-data (10Gi)              │
-│         or qwen2.5:7b (local)          - Auth: POSTGRES_PASSWORD                 │
-│  - PVC: ollama-data (50Gi)             - Data: exported_summaries table          │
-│                                                                                  │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│  CROSS-NAMESPACE (NetworkPolicy Controlled)                                      │
-│                                                                                  │
-│  Backend API ──────────────────────────────────────────────────────────────>      │
-│         │                                                                        │
-│         │ Port: 8443/TCP                                                         │
-│         │ Protocol: HTTPS                                                        │
-│         │ Encryption: TLS (service-serving CA)                                   │
-│         │ Auth: Bearer Token / ServiceAccount Token                              │
-│         │ CA: /etc/pki/service-ca/service-ca.crt (OpenShift injected)            │
-│         │ NetworkPolicy: networkpolicy-model-catalog                             │
-│         ▼                                                                        │
-│  [RHOAI Model Catalog]                                                           │
-│  - Namespace: rhoai-model-registries                                             │
-│  - Port: 8443/TCP                                                                │
-│  - Purpose: Model listing, artifact retrieval, benchmark sync                    │
-│  - Access: Read-only (GET)                                                       │
-│                                                                                  │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│  EXTERNAL SERVICES (Egress)                                                      │
-│                                                                                  │
-│  Backend API ──────────────────────────────────────────────────────────────>      │
-│         │                                                                        │
-│         ├─── [HuggingFace Hub API - huggingface.co]                              │
-│         │    - Port: 443/TCP                                                     │
-│         │    - Protocol: HTTPS                                                   │
-│         │    - Encryption: TLS 1.2+                                              │
-│         │    - Auth: Bearer Token (HF_TOKEN, optional for public models)         │
-│         │    - Purpose: Model metadata, architecture configs, safetensor index   │
-│         │                                                                        │
-│         └─── [Kubernetes API Server]                                             │
-│              - Port: 6443/TCP                                                    │
-│              - Protocol: HTTPS                                                   │
-│              - Encryption: TLS 1.2+                                              │
-│              - Auth: ServiceAccount Token (planner-backend SA)                   │
-│              - Purpose: Node GPU detection (list nodes), InferenceService CRUD   │
-│              - Access: kubectl subprocess + kubernetes Python client              │
-│                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                       │
+│                                                                             │
+│  [User / Browser]                                                           │
+│         │                                                                   │
+│         │ Port: 443/TCP                                                     │
+│         │ Protocol: HTTPS                                                   │
+│         │ Encryption: TLS (edge termination at Route)                       │
+│         │ Auth: None (no user authentication)                               │
+│         ▼                                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (OpenShift Routes — TLS Edge Termination)                          │
+│                                                                             │
+│  [Route: planner]                                                           │
+│  - Port: 443/TCP (external) → 8501/TCP (internal)                          │
+│  - TLS Termination: Edge                                                    │
+│  - Backend: ui service                                                      │
+│                                                                             │
+│  [Route: planner-backend]                                                   │
+│  - Port: 443/TCP (external) → 8000/TCP (internal)                          │
+│  - TLS Termination: Edge                                                    │
+│  - Backend: backend service                                                 │
+│         │                                                                   │
+│         │ Port: 8501/TCP, 8000/TCP                                          │
+│         │ Protocol: HTTP                                                    │
+│         │ Encryption: None (post-TLS termination, internal)                 │
+│         │ Auth: None                                                        │
+│         ▼                                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  APPLICATION TIER (Namespace: planner)                                      │
+│                                                                             │
+│  [Streamlit UI]                                                             │
+│  - Service: ui (ClusterIP)                                                  │
+│  - Port: 8501/TCP                                                           │
+│  - Protocol: HTTP                                                           │
+│  - Image: quay.io/llm-d-planner/llm-d-planner-ui:latest                   │
+│         │                                                                   │
+│         │ Port: 8000/TCP                                                    │
+│         │ Protocol: HTTP                                                    │
+│         │ Encryption: None (in-namespace)                                   │
+│         │ Auth: None                                                        │
+│         ▼                                                                   │
+│  [Backend API (FastAPI)]                                                    │
+│  - Service: backend (ClusterIP)                                             │
+│  - Port: 8000/TCP                                                           │
+│  - Protocol: HTTP                                                           │
+│  - Image: quay.io/llm-d-planner/llm-d-planner-backend:latest              │
+│  - ServiceAccount: planner-backend                                          │
+│  - CORS: allow_origins=["*"] ⚠️  (should be restricted in production)      │
+│  - Auth: HMAC password on /db/* admin endpoints only                        │
+│         │                    │                    │                          │
+│    ┌────┘                    │                    └────┐                     │
+│    │                         │                         │                     │
+│    │ Port: 5432/TCP          │ Port: 11434/TCP         │ Port: 6443/TCP     │
+│    │ Protocol: PostgreSQL    │ Protocol: HTTP           │ Protocol: HTTPS   │
+│    │ Encryption: None        │ Encryption: None         │ Encryption: TLS   │
+│    │ Auth: Password          │ Auth: None               │ Auth: kubeconfig  │
+│    │ (DATABASE_URL)          │                          │ / SA token        │
+│    ▼                         ▼                          ▼                    │
+│                                                                             │
+│  [PostgreSQL 16]          [Ollama]                                           │
+│  - Service: postgres      - Service: ollama                                 │
+│    (ClusterIP)              (ClusterIP)                                      │
+│  - Port: 5432/TCP         - Port: 11434/TCP                                 │
+│  - Auth: Password         - Auth: None                                      │
+│  - Data: Benchmarks,      - Purpose: LLM inference                          │
+│    model configs            for intent extraction                            │
+│                                                                             │
+│  [vLLM Simulator] (dev/test only)                                           │
+│  - Port: 8080/TCP                                                           │
+│  - Protocol: HTTP                                                           │
+│  - Auth: None                                                               │
+│  - Purpose: GPU-free mock vLLM                                              │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES (Egress)                                                 │
+│                                                                             │
+│  [HuggingFace Hub — huggingface.co]                                         │
+│  - Port: 443/TCP                                                            │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+                                                     │
+│  - Auth: Bearer Token (HF_TOKEN, optional — for gated models)              │
+│  - Purpose: Model config, safetensors metadata, parameter counts            │
+│                                                                             │
+│  [RHOAI Model Catalog — model-catalog.rhoai-model-registries.svc]          │
+│  - Port: 8443/TCP                                                           │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+ (custom CA: /etc/pki/service-ca/service-ca.crt)   │
+│  - Auth: Bearer Token / ServiceAccount Token (auto-read from               │
+│           /var/run/secrets/kubernetes.io/serviceaccount/token)               │
+│  - Purpose: Benchmark data sourcing (optional, model_catalog mode)          │
+│                                                                             │
+│  [Kubernetes API Server]                                                    │
+│  - Port: 6443/TCP                                                           │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+                                                     │
+│  - Auth: kubeconfig or in-cluster ServiceAccount token                      │
+│  - Purpose: InferenceService lifecycle, GPU node label detection            │
+│                                                                             │
+│  [Vertex AI — googleapis.com] (optional LLM provider)                       │
+│  - Port: 443/TCP                                                            │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+                                                     │
+│  - Auth: GCP OAuth2 credentials (JSON)                                      │
+│  - Purpose: LLM inference for intent extraction                             │
+│                                                                             │
+│  [OpenAI-compatible API] (optional LLM provider)                            │
+│  - Port: 443/TCP                                                            │
+│  - Protocol: HTTPS                                                          │
+│  - Encryption: TLS 1.2+                                                     │
+│  - Auth: API key (Bearer)                                                   │
+│  - Purpose: LLM inference for intent extraction                             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 
 RBAC Summary:
-  ClusterRole: planner-gpu-reader
-    - API Groups: "" (core)
-    - Resources: nodes
-    - Verbs: list
-  ClusterRoleBinding: planner-gpu-reader
-    - ServiceAccount: planner/planner-backend
-    - Scope: Cluster-wide
+- ClusterRole: planner-gpu-reader
+  - API Groups: "" (core)
+  - Resources: nodes
+  - Verbs: list
 
-  NOTE: Backend also performs kubectl apply/delete for InferenceService resources.
-  The RBAC for these operations is NOT explicitly defined in the repository manifests.
-  The planner-backend ServiceAccount would need additional RBAC for:
-    - serving.kserve.io: inferenceservices (create, get, list, delete)
-    - autoscaling: horizontalpodautoscalers (create, get, list, delete)
-    - monitoring.coreos.com: servicemonitors (create, get, list, delete)
+- ClusterRoleBinding: planner-gpu-reader
+  - Namespace: cluster-wide
+  - Role: planner-gpu-reader
+  - Service Account: planner-backend (planner namespace)
+
+Authentication & Authorization:
+- /api/v1/db/upload-benchmarks (POST): HMAC password via X-Admin-Password header
+  - Enforcement: Application (FastAPI)
+  - Policy: Optional — only when DB_ADMIN_PASSWORD env is set
+- /api/v1/db/reset (POST): HMAC password via X-Admin-Password header
+  - Enforcement: Application (FastAPI)
+  - Policy: Optional — only when DB_ADMIN_PASSWORD env is set
+- /api/v1/db/verify-admin (POST): HMAC password verification
+- All other endpoints: No authentication — relies on network isolation
+- Backend → Model Catalog: Bearer Token / SA Token (auto-read)
+- Backend → HuggingFace: Bearer Token (HF_TOKEN, optional for gated models)
 
 Secrets:
-  planner-secrets (Opaque)
-    - POSTGRES_PASSWORD: PostgreSQL database password
-    - MODEL_CATALOG_TOKEN: Bearer token for RHOAI Model Catalog
-    - Provisioned By: Manual (deploy-all.sh)
-    - Auto-Rotate: No
+- planner-secrets (Opaque)
+  - DATABASE_URL: PostgreSQL connection string
+  - HF_TOKEN: HuggingFace token
+  - MODEL_CATALOG_TOKEN: Bearer token for Model Catalog
+  - Vertex AI credentials (JSON)
+  - OpenAI API key
+  - DB_ADMIN_PASSWORD: Admin password for DB management endpoints
+  - Provisioned by: Manual
+  - Auto-Rotate: No
 
-  planner-service-ca (ConfigMap, annotation-injected)
-    - service-ca.crt: OpenShift service-serving CA certificate
-    - Provisioned By: OpenShift service-ca operator
-    - Auto-Rotate: Yes (managed by OpenShift)
+- planner-service-ca (ConfigMap)
+  - Purpose: OpenShift service-serving CA bundle for Model Catalog TLS
+  - Provisioned by: OpenShift service-ca operator (optional)
+  - Auto-Rotate: Yes
 
-Authentication Summary:
-  CRITICAL: All 27 Backend API endpoints are UNAUTHENTICATED
-  - No auth mechanism on any /api/v1/* endpoint
-  - Destructive operations exposed without auth:
-    - POST /api/v1/db/reset (wipe benchmark database)
-    - POST /api/v1/deploy-to-cluster (deploy to K8s cluster)
-    - DELETE /api/v1/deployments/{id} (delete InferenceService)
-    - POST /api/v1/db/upload-benchmarks (inject benchmark data)
-  - CORS: allow_origins=["*"] (unrestricted cross-origin access)
-  - OpenShift Routes: TLS edge termination only, no auth enforcement
-  - Status: Incubation project — security hardening is documented as future work
-
-Network Policies:
-  networkpolicy-model-catalog
-    - Direction: Egress
-    - From: Namespace planner, pods with app=backend
-    - To: Namespace rhoai-model-registries
-    - Port: 8443/TCP
-    - Purpose: Allow backend to reach RHOAI Model Catalog cross-namespace
-
-FIPS Compliance:
-  - Base Image: python:3.14-slim (Debian) — NOT FIPS-enabled
-  - Crypto: Delegates to system OpenSSL via requests/urllib3
-  - Risk: FIPS compliance depends on base image OpenSSL configuration
-  - Recommendation: Switch to UBI-based image for RHOAI production deployment
+Security Gaps:
+⚠️  No authentication on most API endpoints — relies on network isolation
+⚠️  CORS allows all origins (allow_origins=["*"]) — should be restricted
+⚠️  No NetworkPolicy restricting access within the planner namespace
+⚠️  No Konflux Dockerfiles — uses python:3.14-slim, not UBI base images
+⚠️  No lock files committed (uv.lock gitignored) — build hermeticity gap
+⚠️  Secrets contain plaintext default values in manifest templates

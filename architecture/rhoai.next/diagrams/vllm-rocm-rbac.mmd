@@ -1,45 +1,41 @@
 graph TD
-    subgraph "vllm-rocm RBAC Overview"
+    subgraph Note["RBAC for vllm-rocm"]
         direction TB
-
-        Note["This component is a container image,<br/>not an operator or controller.<br/>No RBAC resources are defined<br/>in this repository."]
-
-        subgraph "RBAC Managed Externally"
-            direction TB
-
-            KServe["KServe Controller<br/>(manages pod RBAC)"]
-            SA["Pod ServiceAccount<br/>(created by KServe<br/>InferenceService)"]
-            Platform["rhods-operator<br/>(platform RBAC)"]
-        end
-
-        subgraph "Runtime Security Context"
-            direction TB
-
-            NonRoot["Non-Root User<br/>UID: 2000"]
-            BaseImage["Base Image: UBI9<br/>rhaiis/vllm-rocm-rhel9"]
-            FIPS["FIPS: Delegated to<br/>system OpenSSL (UBI9)"]
-        end
-
-        KServe -->|"creates SA for"| SA
-        Platform -->|"configures ServingRuntime<br/>with image ref"| KServe
-
-        subgraph "Auth Enforcement (External)"
-            direction TB
-
-            AuthProxy["Auth Proxy Sidecar<br/>(kube-rbac-proxy<br/>or oauth-proxy)"]
-            Gateway["KServe Gateway<br/>(TLS termination)"]
-        end
-
-        Gateway -->|"routes to"| AuthProxy
-        AuthProxy -->|"proxies to pod<br/>after auth check"| SA
+        Info["No RBAC resources defined in this repository.<br/>All RBAC is delegated to the platform."]
     end
 
-    style Note fill:#fff3cd,stroke:#856404,stroke-width:2px
-    style KServe fill:#7ed321,stroke:#333
+    subgraph PlatformRBAC["Platform-Managed RBAC (not in this repo)"]
+        direction TB
+
+        subgraph KServeManaged["Managed by KServe"]
+            SA["Service Account<br/>(per InferenceService)"]
+            KServeSA["kserve-controller-manager<br/>Service Account"]
+        end
+
+        subgraph AuthEnforcement["Auth Enforcement Layer"]
+            KubeRBACProxy["kube-rbac-proxy Sidecar<br/>(RHOAI 3.x)"]
+            SAR["SubjectAccessReview<br/>Validates Bearer Tokens"]
+        end
+
+        subgraph ProtectedEndpoints["Protected Endpoints"]
+            HTTP["HTTP API<br/>8000/TCP<br/>OpenAI-Compatible"]
+            GRPC["gRPC API<br/>8033/TCP<br/>TGIS Protocol"]
+        end
+    end
+
+    %% Flow
+    SA -->|"bound to inference pod"| HTTP
+    SA -->|"bound to inference pod"| GRPC
+    KServeSA -->|"creates/manages"| SA
+    KubeRBACProxy -->|"validates via"| SAR
+    SAR -->|"authorizes access to"| HTTP
+    SAR -->|"authorizes access to"| GRPC
+
+    %% Styling
+    style Info fill:#fff3cd,stroke:#ffc107,stroke-width:2px,color:#856404
     style SA fill:#4a90e2,stroke:#333,color:#fff
-    style Platform fill:#7ed321,stroke:#333
-    style NonRoot fill:#d5e8d4,stroke:#82b366
-    style BaseImage fill:#d5e8d4,stroke:#82b366
-    style FIPS fill:#d5e8d4,stroke:#82b366
-    style AuthProxy fill:#ffe6cc,stroke:#d79b00
-    style Gateway fill:#ffe6cc,stroke:#d79b00
+    style KServeSA fill:#4a90e2,stroke:#333,color:#fff
+    style KubeRBACProxy fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    style SAR fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    style HTTP fill:#7ed321,stroke:#333,color:#fff
+    style GRPC fill:#7ed321,stroke:#333,color:#fff

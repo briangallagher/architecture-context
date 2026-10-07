@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "model-registry-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "model-registry-operator-pattern-001",
+      "claim": "The operator uses a dual-ingress strategy with Gateway API HTTPRoutes and OpenShift Routes, maintaining both paths for backward compatibility during the platform transition to Gateway API.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/modelregistry_oauth.go:73-76"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/config/templates/gateway/gateway-httproute.yaml.tmpl:16-38"
+        }
+      ],
+      "reasoning": "The modelregistry_oauth.go code explicitly comments that Routes are 'kept alongside HTTPRoutes in gateway mode for backward compatibility'. This dual strategy means platform operators must account for both ingress paths during gateway migration.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "model-registry-operator-pattern-002",
+      "claim": "The operator implements BYOIDC-aware cluster detection, gracefully degrading when user.openshift.io API is absent while maintaining route-based ingress.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/util.go:30-50"
+        }
+      ],
+      "reasoning": "The ClusterCapabilities struct separates IsOpenShift (route API) from HasUserAPI (user API), with an explicit IsBYOIDC() method. This pattern enables the operator to skip user/group resource creation in BYOIDC environments where identity management is external, relevant to RHOAI clusters using external identity providers.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "model-registry-operator-risk-001",
+      "claim": "The kube-rbac-proxy authorization policy uses resource-level access checks (get services) rather than endpoint-specific authorization, meaning any principal with get access to the Service resource in the namespace can access the model-registry API.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "internal/controller/config/templates/kube-rbac-proxy/kube-rbac-proxy-config.yaml.tmpl:17-23"
+        }
+      ],
+      "reasoning": "The SubjectAccessReview checks verb=get on resource=services in the target namespace. This is a coarse-grained authorization model — any user or service account with RBAC access to read Services in the namespace can access the model-registry API. This is intentional for simplicity but means endpoint-level access control is not available at the proxy layer.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

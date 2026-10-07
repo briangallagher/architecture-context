@@ -1,0 +1,32 @@
+graph TD
+    subgraph "odh-gitops RBAC"
+        Note["No RBAC resources (ClusterRoles, RoleBindings, ServiceAccounts)<br/>are defined directly in odh-gitops.<br/><br/>This is a pure configuration repository that produces<br/>Kubernetes manifests (Helm charts and Kustomize overlays).<br/><br/>RBAC is delegated to the individual operators<br/>deployed via OLM Subscriptions or Helm sub-charts."]
+    end
+
+    subgraph "Authentication & Authorization (Configured)"
+        direction TB
+        KServeGW["KServe Inference Gateway<br/>Auth: Authorino TLS Bootstrap<br/>Enforcement: OpenShift Gateway API"]
+        MaaSGW["MaaS Gateway<br/>Auth: Authorino TLS Bootstrap<br/>Enforcement: OpenShift Gateway API"]
+        KuadrantPolicy["Kuadrant CR<br/>Namespace: kuadrant-system<br/>API Policy Management<br/>Rate Limiting"]
+    end
+
+    subgraph "Delegated RBAC (Managed by Deployed Operators)"
+        direction TB
+        ODHOp["opendatahub-operator<br/>Manages DSC/DSCI RBAC"]
+        CertMgrOp["cert-manager-operator<br/>Certificate RBAC"]
+        KueueOp["kueue-operator<br/>Queue RBAC"]
+        RHCLOp["rhcl-operator<br/>Kuadrant RBAC"]
+    end
+
+    KServeGW -.->|"annotation triggers<br/>TLS bootstrap"| Authorino["Authorino<br/>Auth Provider"]
+    MaaSGW -.->|"annotation triggers<br/>TLS bootstrap"| Authorino
+
+    style Note fill:#fff3cd,stroke:#856404,color:#856404
+    style KServeGW fill:#ffe6cc,stroke:#d79b00
+    style MaaSGW fill:#ffe6cc,stroke:#d79b00
+    style KuadrantPolicy fill:#fff2cc,stroke:#d6b656
+    style Authorino fill:#f8cecc,stroke:#b85450
+    style ODHOp fill:#d5e8d4,stroke:#82b366
+    style CertMgrOp fill:#d5e8d4,stroke:#82b366
+    style KueueOp fill:#d5e8d4,stroke:#82b366
+    style RHCLOp fill:#d5e8d4,stroke:#82b366

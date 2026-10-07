@@ -1,70 +1,50 @@
 graph LR
-    MLflow["MLflow Server<br/>(FastAPI + Flask)"]
+    MLflow["MLflow<br/>Tracking Server"]
+
+    %% External Dependencies (Required)
+    MLflow -->|"metadata store<br/>:5432 PostgreSQL"| PostgreSQL["PostgreSQL 13+"]
+    MLflow -->|"runtime"| Python312["Python 3.12"]
+
+    %% External Dependencies (Optional)
+    MLflow -.->|"artifact storage<br/>:443/:9000 HTTPS/HTTP"| S3["S3-Compatible Storage<br/>(MinIO / AWS S3 / Ceph)"]
+    MLflow -.->|"trace export<br/>OTLP HTTP"| OTELCollector["OpenTelemetry<br/>Collector"]
+    MLflow -.->|"model downloads<br/>:443 HTTPS"| HuggingFace["HuggingFace Hub"]
+
+    %% Build-only Dependencies
+    MLflow -.->|"UI build<br/>(build-only)"| NodeJS["Node.js 24"]
+    MLflow -.->|"dev/test<br/>(development only)"| SQLite["SQLite 3.34+"]
 
     %% Internal RHOAI Dependencies
-    MLflow -->|"deploys via Helm chart"| MLflowOperator["MLflow Operator"]
-    MLflow -->|"HTTPRoute /mlflow ingress"| ODHGateway["ODH Data Science<br/>Gateway"]
-    ODHDashboard["ODH Dashboard"] -->|"Module Federation<br/>embeds UI"| MLflow
+    MLflow -->|"workspace provider<br/>auth (TokenReview)<br/>:6443 HTTPS"| K8sAPI["Kubernetes<br/>API Server"]
+    MLflow -->|"UI embedding<br/>Module Federation"| RHOAIDashboard["RHOAI Dashboard"]
 
-    %% Platform Dependencies
-    MLflow -->|"SelfSubjectAccessReview<br/>Namespace list/watch<br/>MLflowConfig get"| K8sAPI["Kubernetes<br/>API Server"]
-    MLflow -->|"metadata storage<br/>SQL/5432"| PostgreSQL["PostgreSQL"]
+    %% AI Gateway Egress
+    MLflow -.->|"LLM proxy<br/>:443 HTTPS"| LLMProviders["External LLM Providers<br/>(OpenAI, Anthropic, etc.)"]
 
-    %% External Dependencies
-    MLflow -->|"artifact storage<br/>HTTPS/443"| S3["S3-compatible<br/>Storage"]
+    %% Integration Points (other components → MLflow)
+    RHOAIDashboard -->|"embeds UI modules<br/>Module Federation"| MLflow
+    Operator["rhods-operator"] -->|"manages deployment<br/>K8s resources"| MLflow
+    Prometheus["Prometheus"] -->|"scrapes metrics<br/>:5000 HTTP"| MLflow
+    WebhookRx["Webhook Receivers"] <-.->|"event webhooks<br/>HTTPS"| MLflow
 
-    %% AI Gateway Dependencies (disabled by default)
-    MLflow -.->|"LLM routing<br/>HTTPS/443"| OpenAI["OpenAI API"]
-    MLflow -.->|"LLM routing<br/>HTTPS/443"| Anthropic["Anthropic API"]
-    MLflow -.->|"LLM routing<br/>HTTPS/443"| Gemini["Google Gemini API"]
-
-    %% Monitoring
-    Prometheus["Prometheus"] -.->|"scrapes /metrics<br/>HTTP/5000"| MLflow
-
-    %% Runtime Dependencies (Libraries)
-    subgraph RuntimeDeps["Key Runtime Dependencies"]
-        Python312["Python 3.12"]
-        FastAPI_Lib["FastAPI <1"]
-        Flask_Lib["Flask <4"]
-        SQLAlchemy_Lib["SQLAlchemy <3"]
-        Alembic_Lib["Alembic <2"]
-        Crypto_Lib["cryptography >=43"]
-        K8sPlugins["mlflow-kubernetes-<br/>plugins 1.1.1"]
-        OTelSDK["OpenTelemetry<br/>SDK <3"]
-    end
-
-    MLflow -->|"runtime"| Python312
-    MLflow -->|"ASGI framework"| FastAPI_Lib
-    MLflow -->|"WSGI framework"| Flask_Lib
-    MLflow -->|"ORM"| SQLAlchemy_Lib
-    MLflow -->|"migrations"| Alembic_Lib
-    MLflow -->|"AES-256-GCM"| Crypto_Lib
-    MLflow -->|"auth + workspace"| K8sPlugins
-    MLflow -->|"tracing"| OTelSDK
-
-    %% Styling
+    %% Styles
     style MLflow fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
 
-    style MLflowOperator fill:#7ed321,stroke:#333,color:#fff
-    style ODHGateway fill:#7ed321,stroke:#333,color:#fff
-    style ODHDashboard fill:#7ed321,stroke:#333,color:#fff
+    %% Required external
+    style PostgreSQL fill:#336791,stroke:#333,color:#fff
+    style Python312 fill:#3776ab,stroke:#333,color:#fff
 
-    style K8sAPI fill:#4a90e2,stroke:#333,color:#fff
-    style PostgreSQL fill:#4a90e2,stroke:#333,color:#fff
+    %% Optional external
+    style S3 fill:#f5a623,stroke:#333
+    style OTELCollector fill:#999,stroke:#333,color:#fff
+    style HuggingFace fill:#999,stroke:#333,color:#fff
+    style NodeJS fill:#999,stroke:#333,color:#fff
+    style SQLite fill:#999,stroke:#333,color:#fff
+    style LLMProviders fill:#999,stroke:#333,color:#fff
 
-    style S3 fill:#f5a623,stroke:#333,color:#fff
-    style OpenAI fill:#f5a623,stroke:#333,color:#fff
-    style Anthropic fill:#f5a623,stroke:#333,color:#fff
-    style Gemini fill:#f5a623,stroke:#333,color:#fff
-
-    style Prometheus fill:#9673a6,stroke:#333,color:#fff
-
-    style RuntimeDeps fill:#f0f0f0,stroke:#ccc
-    style Python312 fill:#fff,stroke:#666
-    style FastAPI_Lib fill:#fff,stroke:#666
-    style Flask_Lib fill:#fff,stroke:#666
-    style SQLAlchemy_Lib fill:#fff,stroke:#666
-    style Alembic_Lib fill:#fff,stroke:#666
-    style Crypto_Lib fill:#fff,stroke:#666
-    style K8sPlugins fill:#fff,stroke:#666
-    style OTelSDK fill:#fff,stroke:#666
+    %% Internal RHOAI
+    style K8sAPI fill:#326ce5,stroke:#333,color:#fff
+    style RHOAIDashboard fill:#7ed321,stroke:#333
+    style Operator fill:#7ed321,stroke:#333
+    style Prometheus fill:#e6522c,stroke:#333,color:#fff
+    style WebhookRx fill:#f5a623,stroke:#333

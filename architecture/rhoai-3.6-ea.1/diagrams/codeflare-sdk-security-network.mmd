@@ -1,0 +1,46 @@
+graph TB
+    subgraph Client["CLIENT ENVIRONMENT (User Workstation / Notebook)"]
+        SDK["codeflare-sdk v0.38.2<br/>Python ^3.11<br/>Auth: kube-authkit<br/>Crypto: cryptography (RSA-3072)"]
+    end
+
+    subgraph Cluster["KUBERNETES CLUSTER (Trusted)"]
+        direction TB
+
+        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>Auth: RBAC"]
+
+        subgraph CRDs["Custom Resources"]
+            RayCluster["RayCluster CR<br/>ray.io/v1"]
+            RayJob["RayJob CR<br/>ray.io/v1"]
+            LocalQueue["LocalQueue CR<br/>kueue.x-k8s.io"]
+            ClusterQueue["ClusterQueue CR<br/>kueue.x-k8s.io"]
+        end
+
+        RayDash["Ray Dashboard<br/>HTTP/HTTPS<br/>TLS configurable<br/>Auth: Headers + Cookies"]
+
+        Secrets["Kubernetes Secrets<br/>SDK-generated TLS certs<br/>RSA-3072 / SHA-256"]
+    end
+
+    subgraph TestOnly["TEST INFRASTRUCTURE (not shipped)"]
+        Minio["minio Deployment<br/>quay.io/minio/minio<br/>9000/TCP S3 API<br/>9090/TCP Console"]
+    end
+
+    %% Flows
+    SDK -->|"HTTPS/443<br/>TLS (CA: CF_SDK_CA_CERT_PATH)<br/>Auth: kubeconfig / SA token / Bearer"| K8sAPI
+    SDK -->|"HTTP or HTTPS<br/>TLS configurable (verify param)<br/>Auth: Headers + Cookies"| RayDash
+
+    K8sAPI -->|"CustomObjects API"| RayCluster
+    K8sAPI -->|"CustomObjects API"| RayJob
+    K8sAPI -->|"CustomObjects API"| LocalQueue
+    K8sAPI -->|"CustomObjects API"| ClusterQueue
+    SDK -->|"Create Secret<br/>TLS certs for Ray cluster"| Secrets
+
+    %% Styling
+    classDef client fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef cluster fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef crd fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef testonly fill:#f8cecc,stroke:#b85450,stroke-width:2px,stroke-dasharray: 5 5
+
+    class SDK client
+    class K8sAPI,RayDash,Secrets cluster
+    class RayCluster,RayJob,LocalQueue,ClusterQueue crd
+    class Minio testonly

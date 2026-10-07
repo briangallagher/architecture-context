@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "component": "trainer",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "trainer-pattern-001",
+      "claim": "The trainer operator implements dual gang-scheduler support (CoScheduling and Volcano) through separate runtime plugins, enabling deployment flexibility without compile-time scheduler selection.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/runtime/framework/plugins/coscheduling/coscheduling.go:270"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/runtime/framework/plugins/volcano/volcano.go:343"
+        }
+      ],
+      "reasoning": "Both CoScheduling and Volcano plugins implement the same runtime interface and create their respective PodGroup CRDs (scheduling/v1alpha1 vs scheduling/v1beta1). Runtime configuration determines which plugin is active, allowing operators to choose based on available cluster infrastructure.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "trainer-pattern-002",
+      "claim": "RHOAI-specific extensions (progression monitoring, per-TrainJob NetworkPolicy) are isolated in pkg/rhai/ and gated by distribution-specific manifests, maintaining clean separation from upstream Kubeflow code.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/rhai/networkpolicy.go:152"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/rhai/progression/progression.go:147"
+        }
+      ],
+      "reasoning": "The pkg/rhai/ package namespace contains RHOAI-only logic including NetworkPolicy CRUD per TrainJob and Pod-based progression tracking. These features are not present in upstream Kubeflow and are enabled through RHOAI-specific kustomize overlays and feature gates.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "trainer-pattern-003",
+      "claim": "The TLS configuration dynamically adapts to the OpenShift cluster TLS security profile, providing centralized cipher suite management across webhook, metrics, and status servers.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "pkg/tls/tls.go:93-144"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/trainer-controller-manager/main.go:119-128"
+        }
+      ],
+      "reasoning": "Rather than hardcoding TLS settings, the operator reads config.openshift.io/v1/apiservers at startup and maps the cluster's TLS profile (Intermediate, Modern, Old, Custom) to Go crypto/tls configuration. This ensures the operator's TLS posture stays synchronized with cluster-wide security policy without manual per-component configuration.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    }
+  ]
+}

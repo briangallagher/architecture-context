@@ -1,0 +1,48 @@
+graph TB
+    subgraph "vllm-orchestrator-gateway"
+        direction TB
+        subgraph "HTTP Layer (axum + tokio)"
+            Router["axum Router<br/>POST /{route_name}/v1/chat/completions"]
+            StreamHandler["Streaming Handler<br/>(SSE responses)"]
+            NonStreamHandler["Non-Streaming Handler<br/>(JSON responses)"]
+        end
+
+        subgraph "Configuration"
+            ConfigLoader["Config Loader<br/>(serde_yml)"]
+            RouteConfig["Route Definitions<br/>(detectors + fallback messages)"]
+        end
+
+        subgraph "TLS / Crypto"
+            TLSClient["TLS Client<br/>(openssl + native-tls)"]
+            mTLSIdentity["mTLS Identity<br/>(PKCS#12 from /etc/tls/private/)"]
+        end
+
+        ConfigLoader -->|parses YAML| RouteConfig
+        RouteConfig -->|registers routes| Router
+        Router -->|stream=false| NonStreamHandler
+        Router -->|stream=true| StreamHandler
+        NonStreamHandler -->|uses| TLSClient
+        StreamHandler -->|uses| TLSClient
+        TLSClient -->|loads certs| mTLSIdentity
+    end
+
+    Client["API Client"] -->|POST /{route_name}/v1/chat/completions<br/>8090/TCP HTTP<br/>Authorization header| Router
+
+    NonStreamHandler -->|POST /api/v2/chat/completions-detection<br/>8032/TCP HTTP/HTTPS<br/>mTLS when certs present| Orchestrator["vllm-orchestrator"]
+    StreamHandler -->|POST /api/v2/chat/completions-detection<br/>8032/TCP HTTP/HTTPS<br/>mTLS when certs present| Orchestrator
+
+    Orchestrator -->|JSON response| NonStreamHandler
+    Orchestrator -->|Chunked HTTP response| StreamHandler
+
+    NonStreamHandler -->|JSON response<br/>(with fallback if detections)| Client
+    StreamHandler -->|SSE stream<br/>(with fallback if detections)| Client
+
+    style Router fill:#4a90e2,stroke:#333
+    style StreamHandler fill:#4a90e2,stroke:#333
+    style NonStreamHandler fill:#4a90e2,stroke:#333
+    style ConfigLoader fill:#50c878,stroke:#333
+    style RouteConfig fill:#50c878,stroke:#333
+    style TLSClient fill:#f5a623,stroke:#333
+    style mTLSIdentity fill:#f5a623,stroke:#333
+    style Client fill:#e8e8e8,stroke:#333
+    style Orchestrator fill:#7ed321,stroke:#333

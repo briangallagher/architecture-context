@@ -1,0 +1,148 @@
+{
+  "component": "vllm-gaudi",
+  "reads": [
+    {
+      "expected_signal": "FIPS build flags, OpenSSL configuration, base image, Habana runtime versions",
+      "gap_category": [
+        "fips_compliance",
+        "integration_points",
+        "internal_dependencies"
+      ],
+      "line_range": "0-50",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux.gaudi",
+      "question": "What base image, FIPS signals, and build dependencies are configured in the Konflux Dockerfile?",
+      "sections": [
+        "Security",
+        "Architectural Analysis",
+        "Integration Points"
+      ]
+    },
+    {
+      "expected_signal": "FIPS provider installation or removal, OpenSSL configuration",
+      "gap_category": [
+        "fips_compliance"
+      ],
+      "line_range": "50-100",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux.gaudi",
+      "question": "Is the OpenSSL FIPS provider present or removed in the build?",
+      "sections": [
+        "Security"
+      ]
+    },
+    {
+      "expected_signal": "RPM packages, pip installs, PyTorch module installation",
+      "gap_category": [
+        "integration_points"
+      ],
+      "line_range": "100-180",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux.gaudi",
+      "question": "What Habana packages, PyTorch modules, and build-time dependencies are installed?",
+      "sections": [
+        "Integration Points",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "ENTRYPOINT command, vLLM installation, user configuration, service exposure",
+      "gap_category": [
+        "http_endpoints",
+        "services",
+        "authentication",
+        "integration_points"
+      ],
+      "line_range": "180-254",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux.gaudi",
+      "question": "What is the container entrypoint, how is vLLM installed, and what runtime configuration is set?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis",
+        "Integration Points",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "Package name, entry points, build dependencies, plugin configuration",
+      "gap_category": [
+        "integration_points",
+        "internal_dependencies"
+      ],
+      "line_range": "1-110",
+      "outcome": "resolved",
+      "path": "pyproject.toml",
+      "question": "What is the package identity, dependencies, and plugin registration model?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "Plugin registration function, platform class path, registered operators",
+      "gap_category": [
+        "integration_points",
+        "http_endpoints"
+      ],
+      "line_range": "1-39",
+      "outcome": "resolved",
+      "path": "vllm_gaudi/__init__.py",
+      "question": "How does the vllm_gaudi plugin register with vLLM and what operations does it provide?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis",
+        "Integration Points"
+      ]
+    },
+    {
+      "expected_signal": "Platform enum, device type, supported quantization, attention backend selection",
+      "gap_category": [
+        "integration_points",
+        "http_endpoints"
+      ],
+      "line_range": "1-60",
+      "outcome": "resolved",
+      "path": "vllm_gaudi/platform.py",
+      "question": "What platform class is registered and what capabilities does it declare?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "Ray, transformers, numpy, pandas versions",
+      "gap_category": [
+        "integration_points",
+        "internal_dependencies"
+      ],
+      "line_range": "1-6",
+      "outcome": "resolved",
+      "path": "requirements.txt",
+      "question": "What runtime dependencies does the vllm_gaudi plugin require?",
+      "sections": [
+        "Integration Points",
+        "Dependencies"
+      ]
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance",
+        "http_endpoints",
+        "services"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "vllm_gaudi/plugin.py",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    }
+  ],
+  "schema_version": 1
+}

@@ -1,0 +1,73 @@
+graph TB
+    subgraph DW["Distributed Workloads"]
+        direction TB
+
+        subgraph TestFramework["Integration Test Suite (Go/Ginkgo)"]
+            TestRunner[Test Runner]
+            KFTOTests[KFTO v1 Tests<br/>PyTorchJob]
+            TrainerTests[Trainer v2 Tests<br/>TrainJob/JobSet]
+            RayTests[KubeRay Tests<br/>RayCluster/RayJob]
+            FMSTests[FMS Tests<br/>fms-hf-tuning]
+            TestRunner --> KFTOTests
+            TestRunner --> TrainerTests
+            TestRunner --> RayTests
+            TestRunner --> FMSTests
+        end
+
+        subgraph RuntimeImages["Runtime Training Images"]
+            CUDAImages["CUDA Images<br/>12.1 / 12.4 / 12.8 / 13.0"]
+            ROCmImages["ROCm Images<br/>6.2 / 6.4"]
+            OpenMPIImages["OpenMPI Images<br/>CUDA 13.0 + ROCm 6.4<br/>(AIPCC Base)"]
+        end
+
+        subgraph UniversalImages["Universal Training Images"]
+            UnivCPU["CPU Universal<br/>Jupyter + Training"]
+            UnivCUDA["CUDA 13.0 Universal<br/>Jupyter + Training"]
+            UnivROCm["ROCm 6.4 Universal<br/>Jupyter + Training"]
+        end
+
+        subgraph Support["Supporting Images"]
+            TestRunnerImg["Test Runner Image<br/>Go binary + oc CLI"]
+            BenchmarkImg["OSU Benchmark Images<br/>MPI micro-benchmarks"]
+        end
+
+        ExamplesWorkshops["Examples & Workshops<br/>Jupyter Notebooks / Manifests"]
+    end
+
+    %% Test framework interactions with platform CRDs
+    KFTOTests -->|creates| PyTorchJobCR["PyTorchJob CR"]
+    TrainerTests -->|creates| TrainJobCR["TrainJob CR"]
+    RayTests -->|creates| RayClusterCR["RayCluster CR"]
+    TestRunner -->|creates| KueueCR["Kueue CRs<br/>ResourceFlavor / ClusterQueue"]
+
+    %% Platform operators that watch CRDs
+    PyTorchJobCR -->|watched by| KFTO["Kubeflow Training<br/>Operator v1"]
+    TrainJobCR -->|watched by| TrainerV2["Kubeflow Trainer v2"]
+    RayClusterCR -->|watched by| KubeRay["KubeRay Operator"]
+    KueueCR -->|watched by| Kueue["Kueue"]
+
+    %% Runtime image usage
+    KFTO -->|runs| CUDAImages
+    KFTO -->|runs| ROCmImages
+    TrainerV2 -->|runs| OpenMPIImages
+    KubeRay -->|runs| CUDAImages
+
+    %% External dependencies
+    TestRunner -->|queries| S3["S3 Storage"]
+    TestRunner -->|queries| Prometheus["Prometheus"]
+    TestRunner -->|reads| RHOAIOP["RHOAI Operator<br/>DSC/DSCI"]
+
+    %% Styling
+    style DW fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style TestFramework fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style RuntimeImages fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style UniversalImages fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    style Support fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    style KFTO fill:#e8e8e8,stroke:#333
+    style TrainerV2 fill:#e8e8e8,stroke:#333
+    style KubeRay fill:#e8e8e8,stroke:#333
+    style Kueue fill:#e8e8e8,stroke:#333
+    style S3 fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style RHOAIOP fill:#e8e8e8,stroke:#333

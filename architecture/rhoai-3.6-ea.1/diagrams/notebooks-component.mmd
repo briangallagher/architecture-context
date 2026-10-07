@@ -1,0 +1,87 @@
+graph TB
+    subgraph "Notebooks Repository"
+        direction TB
+
+        subgraph "JupyterLab Variants"
+            StartNotebook["start-notebook.sh<br/>Entrypoint"]
+            Minimal["Minimal Notebook<br/>UBI9 Python 3.12"]
+            DataScience["DataScience Notebook<br/>scikit-learn, pandas, matplotlib"]
+            PyTorchCUDA["PyTorch Notebook<br/>CUDA accelerated"]
+            PyTorchLLM["PyTorch+LLMCompressor<br/>CUDA accelerated"]
+            TensorFlowCUDA["TensorFlow Notebook<br/>CUDA accelerated"]
+            ROCmPyTorch["ROCm PyTorch Notebook<br/>AMD ROCm accelerated"]
+            ROCmTF["ROCm TensorFlow Notebook<br/>AMD ROCm accelerated"]
+            TrustyAI["TrustyAI Notebook<br/>CPU"]
+        end
+
+        subgraph "Code-Server Variants"
+            RunCodeServer["run-code-server.sh<br/>Entrypoint"]
+            CSBaseline["code-server Baseline<br/>UBI9 Python 3.12"]
+            CSStandard["code-server Standard<br/>UBI9 Python 3.12"]
+            NginxProxy["nginx Reverse Proxy"]
+            CullingShim["/api/kernels/ CGI Shim<br/>httpd + access.cgi"]
+        end
+
+        subgraph "Build Utilities (Go)"
+            BuildInputs["buildinputs<br/>Build dependency metadata"]
+            CheckPayload["check-payload<br/>FIPS compliance validation"]
+        end
+    end
+
+    subgraph "Platform (odh-notebook-controller)"
+        Controller["odh-notebook-controller"]
+        OAuthProxy["oauth-proxy Sidecar"]
+        StatefulSet["StatefulSet<br/>Workbench Pod"]
+    end
+
+    subgraph "User Access"
+        User["Data Scientist"]
+        Route["OpenShift Route"]
+    end
+
+    %% User flow
+    User -->|"accesses workbench"| Route
+    Route -->|"forwards"| OAuthProxy
+    OAuthProxy -->|"authenticated request"| StartNotebook
+    OAuthProxy -->|"authenticated request"| RunCodeServer
+
+    %% Controller management
+    Controller -->|"creates & manages"| StatefulSet
+    Controller -->|"injects sidecar"| OAuthProxy
+    Controller -->|"injects env vars<br/>NOTEBOOK_ARGS, NB_PREFIX"| StatefulSet
+
+    %% JupyterLab hierarchy
+    StartNotebook -->|"configures & launches"| Minimal
+    Minimal -->|"extends"| DataScience
+    Minimal -->|"extends"| PyTorchCUDA
+    Minimal -->|"extends"| PyTorchLLM
+    Minimal -->|"extends"| TensorFlowCUDA
+    Minimal -->|"extends"| ROCmPyTorch
+    Minimal -->|"extends"| ROCmTF
+    Minimal -->|"extends"| TrustyAI
+
+    %% Code-server internals
+    RunCodeServer -->|"starts"| NginxProxy
+    NginxProxy -->|"proxies to"| CSBaseline
+    NginxProxy -->|"proxies to"| CSStandard
+    NginxProxy -->|"serves"| CullingShim
+
+    %% Idle culling
+    Controller -->|"polls /api/kernels/"| CullingShim
+    Controller -->|"polls /api/kernels/"| StartNotebook
+
+    %% Build pipeline
+    BuildInputs -->|"generates metadata for"| Minimal
+    CheckPayload -->|"validates FIPS"| Minimal
+
+    %% Styling
+    style StartNotebook fill:#4a90e2,color:#fff
+    style RunCodeServer fill:#4a90e2,color:#fff
+    style Controller fill:#7ed321,color:#fff
+    style OAuthProxy fill:#7ed321,color:#fff
+    style BuildInputs fill:#f5a623,color:#fff
+    style CheckPayload fill:#f5a623,color:#fff
+    style User fill:#e8e8e8,stroke:#333
+    style Route fill:#e8e8e8,stroke:#333
+    style NginxProxy fill:#4a90e2,color:#fff
+    style CullingShim fill:#4a90e2,color:#fff

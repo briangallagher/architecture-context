@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "component": "NeMo-Guardrails",
+  "reads": [
+    {
+      "path": "nemoguardrails/library/prompt_security/actions.py",
+      "line_range": "30-89",
+      "gap_category": ["authentication"],
+      "question": "Where is authentication enforced for the HTTP API surface, and is it conditional?",
+      "expected_signal": "middleware, filter, policy, or enforcement branch",
+      "outcome": "contradicted",
+      "sections": ["Authentication & Authorization", "Architectural Analysis"]
+    },
+    {
+      "path": "nemoguardrails/server/api.py",
+      "line_range": "1-150",
+      "gap_category": ["authentication", "integration_points"],
+      "question": "Does the FastAPI server have built-in authentication middleware or dependency injection for auth?",
+      "expected_signal": "Depends() auth dependency, middleware registration, or API key validation",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization", "Architectural Analysis"]
+    },
+    {
+      "path": "nemoguardrails/server/api.py",
+      "line_range": "220-280",
+      "gap_category": ["authentication"],
+      "question": "Do individual endpoint handlers enforce authentication?",
+      "expected_signal": "Auth parameter, Depends, or token validation in route handlers",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization"]
+    },
+    {
+      "path": "nemoguardrails/server/api.py",
+      "line_range": "680-730",
+      "gap_category": ["integration_points"],
+      "question": "How does the guardrail check endpoint interact with LLM providers?",
+      "expected_signal": "LLM client construction, config loading, or provider dispatch",
+      "outcome": "resolved",
+      "sections": ["Integration Points"]
+    },
+    {
+      "path": "nemoguardrails/header_forwarding.py",
+      "line_range": "1-126",
+      "gap_category": ["authentication", "integration_points"],
+      "question": "How is authentication forwarded between inbound requests and outbound LLM calls?",
+      "expected_signal": "Header mapping, API key forwarding, or credential delegation pattern",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization", "Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "Dockerfile.konflux",
+      "line_range": "1-80",
+      "gap_category": ["fips_compliance"],
+      "question": "What base image, build flags, and crypto configuration are used in the Konflux container build?",
+      "expected_signal": "AIPCC base image, OpenSSL, FIPS build flags, TLS cert configuration",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    },
+    {
+      "path": "requirements.txt",
+      "line_range": "105-124",
+      "gap_category": ["fips_compliance"],
+      "question": "What cryptography library version is used and from which package index?",
+      "expected_signal": "cryptography package version and source index",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    },
+    {
+      "path": "nemoguardrails/server/checks.py",
+      "line_range": "470-500",
+      "gap_category": ["authentication"],
+      "question": "Does the /v1/guardrail/checks endpoint enforce authentication?",
+      "expected_signal": "Auth dependency, token validation, or middleware",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization", "Data Flows"]
+    }
+  ]
+}

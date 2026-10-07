@@ -1,0 +1,145 @@
+graph TD
+    subgraph ServiceAccounts["Service Accounts"]
+        SA1["odh-dashboard-operator<br/>(system namespace)"]
+        SA2["dashboard-operator<br/>(system namespace)"]
+    end
+
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        CRB1["odh-dashboard-operator-rolebinding"]
+        CRB2["dashboard-operator-rolebinding"]
+    end
+
+    subgraph ClusterRoles["ClusterRoles"]
+        CR1["odh-dashboard-operator-role"]
+        CR2["dashboard-operator-role"]
+    end
+
+    subgraph CoreResources["Core API Resources"]
+        ConfigMaps["core<br/>ConfigMaps"]
+        Secrets["core<br/>Secrets"]
+        Services["core<br/>Services"]
+        PVCs["core<br/>PersistentVolumeClaims"]
+        ServiceAccounts_R["core<br/>ServiceAccounts"]
+        Namespaces["core<br/>Namespaces"]
+        Pods["core<br/>Pods"]
+        Nodes["core<br/>Nodes"]
+        Events["core<br/>Events"]
+    end
+
+    subgraph AppsResources["Apps Resources"]
+        Deployments["apps<br/>Deployments"]
+        ReplicaSets["apps<br/>ReplicaSets"]
+    end
+
+    subgraph RBACResources["RBAC Resources"]
+        ClusterRoles_R["rbac<br/>ClusterRoles"]
+        ClusterRoleBindings_R["rbac<br/>ClusterRoleBindings"]
+        Roles_R["rbac<br/>Roles"]
+        RoleBindings_R["rbac<br/>RoleBindings"]
+    end
+
+    subgraph NetworkResources["Networking Resources"]
+        NetworkPolicies["networking.k8s.io<br/>NetworkPolicies"]
+        Ingresses["networking.k8s.io<br/>Ingresses"]
+        HTTPRoutes["gateway.networking.k8s.io<br/>HTTPRoutes"]
+        Gateways["gateway.networking.k8s.io<br/>Gateways"]
+    end
+
+    subgraph ODHResources["ODH Platform Resources"]
+        Dashboards["components.platform.opendatahub.io<br/>Dashboards"]
+        AccelProfiles["dashboard.opendatahub.io<br/>AcceleratorProfiles"]
+        DashConfig["opendatahub.io<br/>OdhDashboardConfigs"]
+        HWProfiles["infrastructure.opendatahub.io<br/>HardwareProfiles"]
+        DSClusters["datasciencecluster.opendatahub.io<br/>DataScienceClusters"]
+        DSCInit["dscinitialization.opendatahub.io<br/>DSCInitializations"]
+        PlatformAuth["services.platform.opendatahub.io<br/>Auths, GatewayConfigs"]
+    end
+
+    subgraph MLResources["ML/AI Resources"]
+        Notebooks["kubeflow.org<br/>Notebooks"]
+        InferenceServices["serving.kserve.io<br/>InferenceServices"]
+        ServingRuntimes["serving.kserve.io<br/>ServingRuntimes"]
+        ModelRegistries["modelregistry.opendatahub.io<br/>ModelRegistries"]
+        EvalHubs["trustyai.opendatahub.io<br/>EvalHubs"]
+        FeatureStores["feast.dev<br/>FeatureStores"]
+        MLflows["mlflow.opendatahub.io<br/>MLflows"]
+        NIMAccounts["nim.opendatahub.io<br/>Accounts"]
+        Sandboxes["agents.x-k8s.io<br/>Sandboxes"]
+        MCPRegs["mcp.kagenti.com<br/>MCPServerRegistrations"]
+    end
+
+    subgraph AuthResources["Auth Resources"]
+        TokenReviews["authentication.k8s.io<br/>TokenReviews"]
+        SAR["authorization.k8s.io<br/>SubjectAccessReviews"]
+        Impersonation["core<br/>Users, Groups, SAs<br/>(impersonate)"]
+    end
+
+    subgraph OpenShiftResources["OpenShift Resources"]
+        Routes["route.openshift.io<br/>Routes"]
+        OAuthClients["oauth.openshift.io<br/>OAuthClients"]
+        ConsoleLinks["console.openshift.io<br/>ConsoleLinks"]
+        ImageStreams["image.openshift.io<br/>ImageStreams"]
+        OSUsers["user.openshift.io<br/>Users, Groups"]
+    end
+
+    %% Bindings
+    SA1 -->|"bound via"| CRB1
+    SA2 -->|"bound via"| CRB2
+    CRB1 -->|"grants"| CR1
+    CRB2 -->|"grants"| CR2
+
+    %% CR1 permissions (summarized - both roles are identical)
+    CR1 -->|"CRUD"| ConfigMaps
+    CR1 -->|"CRUD"| Secrets
+    CR1 -->|"CRUD"| Services
+    CR1 -->|"CRUD"| PVCs
+    CR1 -->|"get,list,patch,watch"| Namespaces
+    CR1 -->|"get,list,watch"| Pods
+    CR1 -->|"get,list"| Nodes
+    CR1 -->|"CRUD"| Deployments
+    CR1 -->|"CRUD"| ClusterRoles_R
+    CR1 -->|"CRUD"| NetworkPolicies
+    CR1 -->|"CRUD"| HTTPRoutes
+    CR1 -->|"get"| Gateways
+    CR1 -->|"CRUD"| Dashboards
+    CR1 -->|"CRUD"| DashConfig
+    CR1 -->|"get,list,watch"| DSClusters
+    CR1 -->|"get,list,watch"| DSCInit
+    CR1 -->|"CRUD"| Notebooks
+    CR1 -->|"get,list,watch"| InferenceServices
+    CR1 -->|"CRUD"| ServingRuntimes
+    CR1 -->|"CRUD"| ModelRegistries
+    CR1 -->|"get,list,watch"| EvalHubs
+    CR1 -->|"get,list,watch"| FeatureStores
+    CR1 -->|"get,list,watch"| MLflows
+    CR1 -->|"create"| TokenReviews
+    CR1 -->|"create"| SAR
+    CR1 -->|"impersonate"| Impersonation
+    CR1 -->|"CRUD"| Routes
+    CR1 -->|"CRUD"| OAuthClients
+    CR1 -->|"CRUD"| ConsoleLinks
+
+    %% Styling
+    style SA1 fill:#4a90e2,stroke:#333,color:#fff
+    style SA2 fill:#4a90e2,stroke:#333,color:#fff
+    style CRB1 fill:#9b59b6,stroke:#333,color:#fff
+    style CRB2 fill:#9b59b6,stroke:#333,color:#fff
+    style CR1 fill:#f5a623,stroke:#333
+    style CR2 fill:#f5a623,stroke:#333
+
+    style ConfigMaps fill:#7ed321,stroke:#333
+    style Secrets fill:#e74c3c,stroke:#333,color:#fff
+    style Services fill:#7ed321,stroke:#333
+    style Namespaces fill:#7ed321,stroke:#333
+    style Pods fill:#7ed321,stroke:#333
+    style Nodes fill:#7ed321,stroke:#333
+
+    style Dashboards fill:#3498db,stroke:#333,color:#fff
+    style DSClusters fill:#3498db,stroke:#333,color:#fff
+    style Notebooks fill:#3498db,stroke:#333,color:#fff
+    style InferenceServices fill:#3498db,stroke:#333,color:#fff
+    style ModelRegistries fill:#3498db,stroke:#333,color:#fff
+
+    style TokenReviews fill:#e74c3c,stroke:#333,color:#fff
+    style SAR fill:#e74c3c,stroke:#333,color:#fff
+    style Impersonation fill:#e74c3c,stroke:#333,color:#fff

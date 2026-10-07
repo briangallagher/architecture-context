@@ -1,0 +1,147 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  CLUSTER INTERNAL (Trusted - ServiceAccount Auth)                       │
+│                                                                          │
+│  [DSPAReconciler / Controller Manager]                                   │
+│  - Namespace: datasciencepipelinesapplications-controller                │
+│  - ServiceAccount: controller-manager                                    │
+│  - Image: /manager (Dockerfile.konflux)                                  │
+│  - FIPS: Go native FIPS 140 v1.0.0 (CGO_ENABLED=0, no_openssl)         │
+│  - TLS: Dynamically aligned with OpenShift APIServer TLS profile         │
+│  - ALPN: h2, http/1.1                                                    │
+│         │                                                                │
+│         │ Port: 8080/TCP                                                 │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: None (cluster-internal metrics)                     │
+│         │ Auth: None                                                     │
+│         │ Purpose: Prometheus metrics endpoint                           │
+│         ▼                                                                │
+│  [Prometheus / ServiceMonitor]                                           │
+│  - Scrapes /metrics on port 8080                                         │
+│                                                                          │
+│  [Kubelet Health Probes]                                                 │
+│         │                                                                │
+│         │ Port: 8081/TCP                                                 │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: None                                               │
+│         │ Auth: None (unauthenticated by design)                         │
+│         │ Endpoints: /healthz, /readyz                                   │
+│         ▼                                                                │
+│  [Controller Manager - Health Endpoints]                                 │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES API (Control Plane)                                          │
+│                                                                          │
+│  [Controller Manager]                                                    │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS / WSS (watches)                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token (controller-manager)                │
+│         ▼                                                                │
+│  [Kubernetes API Server]                                                 │
+│  - Resource operations:                                                  │
+│    ▸ DSPA CRs (watch, CRUD, status, finalizers)                         │
+│    ▸ Argo Workflow CRDs (full CRUD on 9 CRD types)                      │
+│    ▸ Pipeline/PipelineVersion CRs (CRUD, finalizers)                    │
+│    ▸ Deployments, Services, ConfigMaps, Secrets (CRUD)                  │
+│    ▸ Roles, RoleBindings, ClusterRoles, ClusterRoleBindings (CRUD)      │
+│    ▸ NetworkPolicies (CRUD)                                              │
+│    ▸ Routes (CRUD)                                                       │
+│    ▸ ServiceAccounts (CRUD)                                              │
+│    ▸ ServiceMonitors (CRUD)                                              │
+│    ▸ PersistentVolumes, PersistentVolumeClaims (CRUD)                   │
+│    ▸ Pods, Pods/exec, Pods/log (full access)                            │
+│    ▸ Jobs (full access)                                                  │
+│    ▸ VolumeSnapshots (create, delete, get)                               │
+│                                                                          │
+│  - Platform CRD watches (read-only):                                     │
+│    ▸ MLflow CRs (mlflow.opendatahub.io) - get, list, watch             │
+│    ▸ KServe InferenceServices (serving.kserve.io) - create,delete,      │
+│      get,list,patch                                                      │
+│    ▸ OpenShift APIServer TLS profile - get, list, watch                  │
+│    ▸ OpenShift ImageStreamTags - get                                     │
+│                                                                          │
+│  - Cross-component CRD access:                                          │
+│    ▸ Kubeflow resources (kubeflow.org/*) - full CRUD                    │
+│    ▸ Seldon deployments (machinelearning.seldon.io) - full CRUD         │
+│    ▸ Ray clusters/jobs/services (ray.io) - CRUD                         │
+│    ▸ CodeFlare AppWrappers (workload.codeflare.dev) - full CRUD         │
+│                                                                          │
+│  - Auth operations:                                                      │
+│    ▸ TokenReviews (authentication.k8s.io) - create                      │
+│    ▸ SubjectAccessReviews (authorization.k8s.io) - create               │
+│                                                                          │
+│  - Admission webhooks:                                                   │
+│    ▸ MutatingWebhookConfigurations - full CRUD                          │
+│    ▸ ValidatingWebhookConfigurations - full CRUD                        │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ARGO WORKFLOW ENGINE (Managed by DSPO)                                  │
+│                                                                          │
+│  [Argo Workflow Controller]                                              │
+│  - ServiceAccount: argo                                                  │
+│  - Namespace: user-defined (per DSPA)                                    │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token (argo)                              │
+│         ▼                                                                │
+│  [Kubernetes API Server]                                                 │
+│  - Argo-specific RBAC:                                                   │
+│    ▸ Workflows, CronWorkflows, WorkflowTemplates (full CRUD)            │
+│    ▸ WorkflowArtifactGCTasks (full CRUD)                                │
+│    ▸ Pods, Pods/exec (full CRUD)                                        │
+│    ▸ PVCs (create, delete, get, update)                                  │
+│    ▸ Secrets: RESTRICTED to argo-workflows-agent-ca-certificates only   │
+│    ▸ Leader election via coordination.k8s.io/leases                     │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+
+ClusterRoles:
+- manager-role (ServiceAccount: controller-manager)
+  - 14+ API Groups, broadest RBAC footprint
+  - Full CRUD on DSPA, Argo, Kubeflow, Pipeline, Seldon, Ray, CodeFlare resources
+  - Auth token/SAR creation for webhook validation
+  - Admission webhook management
+
+- argo-cluster-role (ServiceAccount: argo)
+  - Argo workflow execution permissions
+  - Secret access RESTRICTED to argo-workflows-agent-ca-certificates (resourceNames)
+
+- aggregate-dspa-admin-edit
+  - Aggregates into OpenShift admin/edit ClusterRoles
+  - Full CRUD on DSPA and Pipeline resources
+
+- aggregate-dspa-admin-view
+  - Aggregates into OpenShift view ClusterRole
+  - Read-only on DSPA and Pipeline resources
+
+- argo-aggregate-to-admin/edit/view
+  - Tiered access to Argo Workflow resources
+  - admin/edit: full CRUD; view: read-only
+
+- leader-election-role (Role, not ClusterRole)
+  - ConfigMaps, Leases, Events in operator namespace
+
+Service Accounts:
+- controller-manager (namespace: datasciencepipelinesapplications-controller)
+  - Bound to: manager-role, manager-argo-role, leader-election-role
+- argo (namespace: argo)
+  - Bound to: argo-cluster-role, argo-role
+
+FIPS Compliance:
+- Build: GOFIPS140=v1.0.0, CGO_ENABLED=0, -tags no_openssl
+- Runtime: Go native FIPS 140 crypto module (no OpenSSL dependency)
+- TLS: Cipher suites from OpenShift APIServer TLS profile
+- Fallback: Intermediate TLS profile on non-OpenShift clusters
+
+Security Notes:
+- No external ingress (operator is cluster-internal only)
+- No secrets defined in architecture (uses existing cluster secrets)
+- Health/readiness probes unauthenticated by design (port 8081)
+- Metrics endpoint unauthenticated (port 8080, cluster-internal)
+- Webhook server TLS auto-configured from cluster TLS profile
+- SecurityProfileWatcher triggers graceful restart on TLS profile changes

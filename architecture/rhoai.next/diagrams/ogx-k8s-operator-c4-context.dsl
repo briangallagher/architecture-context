@@ -1,67 +1,56 @@
 workspace {
     model {
-        dataScientist = person "Data Scientist" "Creates and manages OGXServer instances for AI inference"
-        platformAdmin = person "Platform Admin" "Deploys and configures the OGX K8s Operator"
+        dataScientist = person "Data Scientist" "Creates and deploys OGX AI distribution servers on Kubernetes"
+        platformAdmin = person "Platform Admin" "Manages ODH/RHOAI platform, enables OGX component"
 
-        ogxOperator = softwareSystem "OGX K8s Operator" "Kubernetes operator managing OGX AI distribution server lifecycle on OpenShift/Kubernetes" {
-            controller = container "OGXServerReconciler" "Primary reconcile loop for OGXServer CRs; creates/updates Deployments, Services, PVCs, NetworkPolicies, HPAs, PDBs, RoleBindings" "Go (controller-runtime)"
-            webhook = container "OGXServerValidator" "Validates OGXServer create/update: distribution name, provider ID uniqueness, provider references, adoption safety" "Go Webhook Server"
-            kustomizePipeline = container "Kustomize Pipeline" "Embedded kustomize engine with Go plugins for namespace injection, name prefixing, field mutation, NetworkPolicy transformation" "kustomize/api"
-            legacyAdoption = container "Legacy Adoption Controller" "Transfers ownership of LlamaStackDistribution (v1alpha1) PVCs, Services, Ingresses to OGXServer (v1beta1)" "Go"
-
-            controller -> kustomizePipeline "Renders manifests"
-            controller -> legacyAdoption "Triggers adoption"
+        ogxOperator = softwareSystem "OGX K8s Operator" "Kubernetes operator managing OGX AI distribution server lifecycle" {
+            ogxModule = container "ogx-module" "Platform integration controller that deploys the root OGX operator as an ODH/RHOAI component module" "Go / controller-runtime"
+            rootOperator = container "OGX Controller" "Reconciles OGXServer CRs, generates config from declarative providers, deploys and manages server Deployments" "Go / controller-runtime"
+            webhook = container "Validating Webhook" "Validates OGXServer CRs: distribution name, provider ID uniqueness, model-provider references" "Go / Admission Webhook"
+            configGenerator = container "Config Generator" "Resolves OCI image labels, merges provider specs, generates immutable ConfigMaps" "Go"
+            secretResolver = container "Secret Resolver" "Collects provider secret references, generates OGX_<PROVIDER_ID>_<FIELD> env vars" "Go"
         }
 
-        ogxServer = softwareSystem "OGX Server Instance" "AI distribution server providing inference, vector I/O, tool runtime, and file storage APIs" {
-            serverPod = container "OGX Server Pod" "Deployed OGX distribution image (starter, remote-vllm, meta-reference-gpu, postgres-demo)" "Container 8321/TCP"
-        }
+        ogxServer = softwareSystem "OGX Distribution Server" "AI distribution server instance managed by the operator" "Managed"
 
-        k8sAPI = softwareSystem "Kubernetes API Server" "Kubernetes control plane for resource management" "External"
-        certManager = softwareSystem "cert-manager" "TLS certificate provisioning for webhook" "External"
-        containerRegistries = softwareSystem "Container Registries" "Image reference validation and distribution image pulls" "External"
+        rhodsOperator = softwareSystem "rhods-operator / opendatahub-operator" "Platform operator that manages ODH/RHOAI component lifecycle" "Internal Platform"
+        ociRegistry = softwareSystem "OCI Container Registry" "Hosts distribution container images with base config in OCI labels" "External"
+        kubernetesAPI = softwareSystem "Kubernetes API Server" "Kubernetes control plane API" "External"
+        openshiftAPI = softwareSystem "OpenShift API Server" "Provides cluster TLS security profile configuration" "External"
+        prometheus = softwareSystem "Prometheus / OpenShift Monitoring" "Metrics collection and alerting platform" "External"
+        certManager = softwareSystem "cert-manager / OpenShift service-ca" "Provisions TLS certificates for webhook server" "External"
+        kubeRBACProxy = softwareSystem "kube-rbac-proxy" "Sidecar that authenticates and authorizes metrics scraping" "External"
+        redis = softwareSystem "Redis" "Optional KV storage backend for OGX server" "External Optional"
+        postgresql = softwareSystem "PostgreSQL" "Optional SQL storage backend for OGX server" "External Optional"
 
-        // AI Provider Backends (accessed by OGX Server)
-        vllm = softwareSystem "vLLM" "High-performance LLM inference engine" "External"
-        openai = softwareSystem "OpenAI API" "OpenAI-compatible inference endpoint" "External"
-        azure = softwareSystem "Azure OpenAI" "Azure-hosted OpenAI inference" "External"
-        bedrock = softwareSystem "AWS Bedrock" "AWS managed AI inference" "External"
-        watsonx = softwareSystem "IBM watsonx" "IBM AI platform inference" "External"
-
-        // Vector I/O backends
-        pgvector = softwareSystem "pgvector" "PostgreSQL vector database extension" "External"
-        milvus = softwareSystem "Milvus" "Vector similarity search engine" "External"
-        qdrant = softwareSystem "Qdrant" "Vector database" "External"
-
-        // Platform operators
-        platformOperator = softwareSystem "rhods-operator / opendatahub-operator" "Platform operator that deploys this operator as a managed component" "Internal Platform"
-
-        // Configuration
-        odhTrustedCA = softwareSystem "odh-trusted-ca-bundle" "Platform-injected CA certificate bundle" "Internal Platform"
-        operatorConfig = softwareSystem "ogx-operator-config" "Operator-level image mapping overrides" "Internal Platform"
-
-        // Relationships
+        # Relationships - Users
         dataScientist -> ogxOperator "Creates OGXServer CRs via kubectl" "HTTPS/443"
-        platformAdmin -> ogxOperator "Deploys and configures operator" "HTTPS/443"
-        platformOperator -> ogxOperator "Deploys as managed component" "CRD deployment"
+        platformAdmin -> rhodsOperator "Enables OGX component"
 
-        ogxOperator -> k8sAPI "CRUD on managed resources (Deployments, Services, PVCs, etc.)" "HTTPS/443 TLS 1.2+"
-        ogxOperator -> ogxServer "Health checks, provider info, version polling" "HTTP/8321"
-        ogxOperator -> containerRegistries "Image reference validation" "HTTPS/443 TLS 1.2+"
-        ogxOperator -> certManager "Optional TLS cert provisioning for webhook" "CRD"
-        ogxOperator -> odhTrustedCA "Auto-detected CA certificates" "API Read HTTPS"
-        ogxOperator -> operatorConfig "Image mapping overrides" "API Read HTTPS"
+        # Relationships - Platform tier
+        rhodsOperator -> ogxOperator "Creates OGX CR to enable module" "CRD Watch"
+        ogxModule -> rootOperator "Deploys via kustomize manifests" "Kubernetes API"
+        ogxModule -> kubernetesAPI "Apply operator resources, watch OGX/OGXServer CRs" "HTTPS/443"
 
-        ogxServer -> vllm "Inference requests" "HTTPS"
-        ogxServer -> openai "Inference requests" "HTTPS"
-        ogxServer -> azure "Inference requests" "HTTPS"
-        ogxServer -> bedrock "Inference requests" "HTTPS"
-        ogxServer -> watsonx "Inference requests" "HTTPS"
-        ogxServer -> pgvector "Vector I/O" "TCP"
-        ogxServer -> milvus "Vector I/O" "gRPC"
-        ogxServer -> qdrant "Vector I/O" "gRPC/HTTPS"
+        # Relationships - Internal
+        rootOperator -> webhook "Validates CRs on create/update" "HTTPS/9443"
+        rootOperator -> configGenerator "Generates server configuration" "In-process"
+        rootOperator -> secretResolver "Resolves provider secrets" "In-process"
 
-        k8sAPI -> ogxOperator "Webhook validation callbacks" "HTTPS/443"
+        # Relationships - Operator to external
+        rootOperator -> kubernetesAPI "CRUD for all managed resources" "HTTPS/443"
+        rootOperator -> openshiftAPI "Fetch TLS security profile" "HTTPS/443"
+        configGenerator -> ociRegistry "Fetch distribution image labels for base config" "HTTPS/443"
+        rootOperator -> ogxServer "Health check /v1/health, provider info /v1/providers" "HTTP/8321"
+
+        # Relationships - Managed server
+        ogxServer -> redis "KV storage (optional)" "TCP/6379"
+        ogxServer -> postgresql "SQL storage (optional)" "TCP/5432"
+
+        # Relationships - Monitoring
+        prometheus -> ogxOperator "Scrapes metrics via ServiceMonitor" "HTTPS/8443"
+        ogxOperator -> kubeRBACProxy "Authenticates metrics requests" "TokenReview"
+        certManager -> ogxOperator "Provisions webhook TLS certificate" "Secret"
     }
 
     views {
@@ -70,7 +59,7 @@ workspace {
             autoLayout
         }
 
-        container ogxOperator "OperatorContainers" {
+        container ogxOperator "Containers" {
             include *
             autoLayout
         }
@@ -80,17 +69,26 @@ workspace {
                 background #999999
                 color #ffffff
             }
+            element "External Optional" {
+                background #cccccc
+                color #333333
+                shape RoundedBox
+            }
             element "Internal Platform" {
                 background #7ed321
                 color #ffffff
             }
-            element "Person" {
-                shape Person
+            element "Managed" {
                 background #4a90e2
                 color #ffffff
             }
+            element "Person" {
+                shape Person
+                background #08427b
+                color #ffffff
+            }
             element "Software System" {
-                background #4a90e2
+                background #1168bd
                 color #ffffff
             }
             element "Container" {

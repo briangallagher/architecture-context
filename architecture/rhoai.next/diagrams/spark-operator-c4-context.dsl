@@ -1,46 +1,73 @@
 workspace {
     model {
-        user = person "Data Scientist" "Creates and manages Spark applications on OpenShift/Kubernetes"
+        user = person "Data Scientist" "Creates and deploys Spark applications on OpenShift"
+        clusterAdmin = person "Cluster Admin" "Manages platform components and RBAC"
 
-        sparkOperator = softwareSystem "Spark Operator" "Kubernetes operator that automates lifecycle management of Apache Spark applications, scheduled Spark applications, and Spark Connect servers" {
-            controller = container "spark-operator controller" "Reconciles SparkApplication, ScheduledSparkApplication, and SparkConnect CRs; manages driver/executor pods, web UI services, ingress, and monitoring ConfigMaps" "Go Operator (controller-runtime)" "Component"
-            webhook = container "spark-operator webhook" "Validates and defaults SparkApplication/ScheduledSparkApplication CRs; mutates Spark driver/executor pods with configuration injection (26 categories)" "Go Webhook Server" "Component"
-            certProvider = container "Certificate Provider" "Manages TLS certificates for webhook server via internal self-signed CA (RSA 2048, 10yr) or cert-manager" "Go Library" "Component"
-            schedulerRegistry = container "Scheduler Registry" "Pluggable batch scheduler abstraction supporting Volcano, Yunikorn, and kube-scheduler PodGroups" "Go Library" "Component"
+        sparkOperator = softwareSystem "Spark Operator" "Kubernetes operator that automates Apache Spark application lifecycle management on OpenShift" {
+            controller = container "Spark Controller" "Watches SparkApplication, ScheduledSparkApplication, SparkConnect CRs; manages Spark job lifecycle via 13-state state machine reconciliation" "Go Operator (controller-runtime)"
+            webhook = container "Webhook Server" "Validates/defaults CRs on create/update; mutates Spark pods to inject 23 categories of configuration (volumes, env, sidecars, GPU, scheduling)" "Go Webhook Server" {
+                tags "Webhook"
+            }
+            moduleController = container "Module Controller" "Platform bridge -- watches SparkOperator CR from ODH/RHOAI and renders workload operator manifests via server-side apply" "Go Operator (controller-runtime)" {
+                tags "Platform Bridge"
+            }
         }
 
-        k8sApiServer = softwareSystem "Kubernetes API Server" "Core Kubernetes control plane" "External"
-        sparkSubmit = softwareSystem "spark-submit" "Spark application submission CLI bundled in operator image" "External"
-        volcano = softwareSystem "Volcano Scheduler" "Optional batch scheduler for gang scheduling via PodGroups" "External"
-        yunikorn = softwareSystem "Yunikorn Scheduler" "Optional batch scheduler via task group annotations" "External"
-        kubeScheduler = softwareSystem "kube-scheduler PodGroups" "Optional coscheduling via scheduler-plugins" "External"
-        certManager = softwareSystem "cert-manager" "Optional external TLS certificate management" "External"
-        prometheus = softwareSystem "Prometheus" "Metrics collection via PodMonitor" "External"
-        kueue = softwareSystem "Kueue" "Optional workload queuing via pod labels" "External"
-        odhOperator = softwareSystem "ODH / RHOAI Operator" "Deploys spark-operator via kustomize overlays; manages image references" "Internal Platform"
+        k8sAPI = softwareSystem "Kubernetes API Server" "Kubernetes control plane API" {
+            tags "External"
+        }
+        rhodsOperator = softwareSystem "rhods-operator / opendatahub-operator" "RHOAI/ODH platform operator that manages component lifecycles" {
+            tags "Internal Platform"
+        }
+        odhDashboard = softwareSystem "ODH Dashboard" "Web UI for managing data science workloads" {
+            tags "Internal Platform"
+        }
+        prometheus = softwareSystem "Prometheus" "Metrics collection and monitoring" {
+            tags "External"
+        }
+        certManager = softwareSystem "cert-manager" "TLS certificate lifecycle management" {
+            tags "External"
+        }
+        volcano = softwareSystem "Volcano Scheduler" "Batch scheduler with gang scheduling via PodGroup" {
+            tags "External"
+        }
+        yunikorn = softwareSystem "YuniKorn Scheduler" "Batch scheduler via pod annotations" {
+            tags "External"
+        }
+        kubeScheduler = softwareSystem "kube-scheduler-plugins" "Kubernetes native gang scheduling via PodGroup" {
+            tags "External"
+        }
+        openShiftAPI = softwareSystem "OpenShift APIServer" "Provides cluster TLS security profile configuration" {
+            tags "External"
+        }
+        restSubmitter = softwareSystem "REST Spark Submitter" "External Spark submission service with mTLS (optional, feature gate)" {
+            tags "External"
+        }
 
-        # Relationships
-        user -> sparkOperator "Creates SparkApplication / ScheduledSparkApplication / SparkConnect CRs" "kubectl / HTTPS"
-        sparkOperator -> k8sApiServer "CRUD on pods, services, ingresses, configmaps, secrets, CRDs, webhook configs" "HTTPS/443 TLS 1.2+"
-        sparkOperator -> sparkSubmit "Submits Spark applications via 29-stage argument pipeline" "Local exec"
-        sparkOperator -> volcano "Gang scheduling via PodGroup CRDs (auto-detects CRD availability)" "HTTPS/443 TLS 1.2+"
-        sparkOperator -> yunikorn "Gang scheduling via task group annotations" "Pod annotations"
-        sparkOperator -> kubeScheduler "Coscheduling via PodGroup CRDs" "HTTPS/443 TLS 1.2+"
-        sparkOperator -> certManager "Optional TLS certificate provisioning" "Secret watch"
-        sparkOperator -> kueue "Workload queuing via pod labels" "Pod labels"
-        prometheus -> sparkOperator "Scrapes metrics" "HTTP/8080"
-        odhOperator -> sparkOperator "Deploys via kustomize; injects RELATED_IMAGE env vars" "Kustomize"
-        k8sApiServer -> sparkOperator "Admission review requests to webhook" "HTTPS/9443 TLS"
+        // User interactions
+        user -> sparkOperator "Creates SparkApplication/ScheduledSparkApplication/SparkConnect CRs via kubectl"
+        clusterAdmin -> rhodsOperator "Configures platform components"
 
-        # Container-level relationships
-        controller -> k8sApiServer "CRUD operations" "HTTPS/443"
-        controller -> sparkSubmit "spark-submit subprocess" "Local exec"
-        controller -> schedulerRegistry "Selects batch scheduler" "In-process"
-        schedulerRegistry -> volcano "PodGroup management" "HTTPS/443"
-        schedulerRegistry -> yunikorn "Annotation injection" "Pod annotations"
-        schedulerRegistry -> kubeScheduler "PodGroup management" "HTTPS/443"
-        k8sApiServer -> webhook "Admission reviews" "HTTPS/9443"
-        certProvider -> webhook "Provisions TLS certificates" "In-process"
+        // Platform interactions
+        rhodsOperator -> sparkOperator "Creates SparkOperator CR to trigger module controller"
+        odhDashboard -> sparkOperator "Workbench clients connect via SparkConnect gRPC/15002"
+
+        // External dependencies
+        sparkOperator -> k8sAPI "CRD watches, pod CRUD, RBAC enforcement" "HTTPS/443"
+        sparkOperator -> prometheus "Exposes application and executor metrics" "HTTP/8080"
+        sparkOperator -> certManager "Optional TLS certificate management for webhook"
+        sparkOperator -> volcano "Gang scheduling via PodGroup CR" "HTTPS/443"
+        sparkOperator -> yunikorn "Gang scheduling via pod annotations"
+        sparkOperator -> kubeScheduler "Gang scheduling via scheduler-plugins PodGroup" "HTTPS/443"
+        sparkOperator -> openShiftAPI "Fetches cluster TLS security profile" "HTTPS/443"
+        sparkOperator -> restSubmitter "External Spark submission with mTLS" "HTTPS (mTLS)"
+
+        // Container-level interactions
+        controller -> k8sAPI "Watches CRs, creates pods/services/ingresses" "HTTPS/443"
+        webhook -> k8sAPI "Receives admission reviews" "HTTPS/9443"
+        moduleController -> k8sAPI "Server-side apply of workload operator manifests" "HTTPS/443"
+        controller -> openShiftAPI "Fetches TLS security profile" "HTTPS/443"
+        controller -> restSubmitter "REST submission with mTLS" "HTTPS"
     }
 
     views {
@@ -55,6 +82,10 @@ workspace {
         }
 
         styles {
+            element "Software System" {
+                background #438dd5
+                color #ffffff
+            }
             element "External" {
                 background #999999
                 color #ffffff
@@ -63,17 +94,21 @@ workspace {
                 background #7ed321
                 color #ffffff
             }
-            element "Component" {
-                background #4a90e2
-                color #ffffff
-            }
             element "Person" {
                 background #08427b
                 color #ffffff
                 shape Person
             }
-            element "Software System" {
-                background #1168bd
+            element "Container" {
+                background #438dd5
+                color #ffffff
+            }
+            element "Webhook" {
+                background #f5a623
+                color #ffffff
+            }
+            element "Platform Bridge" {
+                background #9b59b6
                 color #ffffff
             }
         }

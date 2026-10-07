@@ -1,35 +1,47 @@
 sequenceDiagram
+    participant Admin as Admin / Platform Operator
     participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
-    participant Operator as mlflow-operator<br/>controller-runtime
-    participant Helm as Helm Renderer<br/>(in-process)
+    participant Reconciler as MLflowReconciler<br/>Go Operator
+    participant Helm as HelmRenderer<br/>(in-process)
     participant Client as External Client
     participant Gateway as data-science-gateway<br/>443/TCP HTTPS TLS 1.2+
-    participant MLflow as MLflow Pod<br/>8443/TCP HTTPS TLS (service-ca)
-    participant DB as PostgreSQL/MySQL<br/>5432/3306 TCP
-    participant S3 as S3-compatible Storage<br/>443/TCP HTTPS
-    participant Prom as Prometheus
+    participant MLflow as MLflow Server<br/>8443/TCP HTTPS
+    participant DB as PostgreSQL<br/>5432/TCP TLS
+    participant S3 as Artifact Storage<br/>443/TCP HTTPS
 
-    Note over K8sAPI,Operator: Flow 1: MLflow CR Reconciliation
-    K8sAPI->>Operator: Watch event: MLflow CR created/updated<br/>HTTPS/6443 | TLS 1.2+ | SA Token
-    Operator->>Helm: Render chart with CR spec as values<br/>(in-process, no network)
-    Helm-->>Operator: Rendered K8s manifests
-    Operator->>K8sAPI: Server-side apply: Deployment, Service,<br/>HTTPRoute, ConsoleLink, NetworkPolicy, RBAC<br/>HTTPS/6443 | TLS 1.2+ | SA Token
-    Operator->>K8sAPI: Update MLflow CR status<br/>HTTPS/6443 | TLS 1.2+ | SA Token
-    K8sAPI-->>Operator: Status updated
+    rect rgb(230, 245, 255)
+        Note over Admin,Helm: Flow 1: MLflow CR Reconciliation
+        Admin->>K8sAPI: Create/Update MLflow CR
+        K8sAPI-->>Reconciler: Watch event (TLS 1.2+, SA token)
+        Reconciler->>Helm: Render embedded Helm chart
+        Helm-->>Reconciler: Rendered manifests (Deployment, Service, NetworkPolicy, SA, RBAC, PVC, CronJob)
+        Reconciler->>K8sAPI: Server-Side Apply manifests<br/>HTTPS/6443, SA token
+        Reconciler->>K8sAPI: Create HTTPRoute<br/>HTTPS/6443, SA token
+        K8sAPI-->>Reconciler: Resources created/updated
+    end
 
-    Note over Client,S3: Flow 2: MLflow Client Request via Gateway API
-    Client->>Gateway: POST /mlflow/api/2.0/...<br/>HTTPS/443 | TLS 1.2+ | Bearer Token (K8s)
-    Gateway->>MLflow: Forward (path rewrite: /mlflow/api → /api)<br/>HTTPS/8443 | TLS (service-ca) | Passthrough
-    MLflow->>K8sAPI: SelfSubjectAccessReview<br/>HTTPS/6443 | TLS 1.2+ | Bearer Token
-    K8sAPI-->>MLflow: Access decision (allow/deny)
-    MLflow->>DB: Query/store metadata<br/>5432 or 3306/TCP | DB wire protocol<br/>TLS verify-full (when CA configured)<br/>Connection string credentials
-    DB-->>MLflow: Query results
-    MLflow->>S3: Store/retrieve artifacts<br/>HTTPS/443 or HTTP/9000<br/>TLS 1.2+ | S3 credentials from secret
-    S3-->>MLflow: Artifact data
-    MLflow-->>Gateway: JSON Response
-    Gateway-->>Client: JSON Response
+    rect rgb(230, 255, 230)
+        Note over Client,S3: Flow 2: MLflow Server Traffic (RHOAI 3.x)
+        Client->>Gateway: HTTPS/443<br/>TLS 1.2+, Platform auth
+        Gateway->>MLflow: HTTPS/8443 (via HTTPRoute)<br/>TLS (service-ca cert), K8s auth token
+        MLflow->>DB: PostgreSQL/5432<br/>TLS (PGSSLMODE), Connection string
+        MLflow->>S3: HTTPS/443 or 9000<br/>TLS 1.2+, AWS IAM / credentials
+        S3-->>MLflow: Artifact data
+        DB-->>MLflow: Query results
+        MLflow-->>Gateway: Response
+        Gateway-->>Client: JSON Response
+    end
 
-    Note over Prom,MLflow: Flow 3: Prometheus Metrics Scraping
-    Prom->>Prom: ServiceMonitor discovery
-    Prom->>MLflow: GET /metrics<br/>HTTPS/8443 | TLS (service-ca verified<br/>via openshift-service-ca.crt)<br/>Bearer Token
-    MLflow-->>Prom: Prometheus metrics
+    rect rgb(255, 240, 230)
+        Note over Reconciler,DB: Flow 3: Database Migration
+        Reconciler->>Reconciler: Detect migration needed<br/>(version mismatch)
+        Reconciler->>K8sAPI: Scale Deployment to 0 replicas<br/>HTTPS/6443, SA token
+        K8sAPI-->>Reconciler: Deployment scaled
+        Reconciler->>K8sAPI: Create migration Job<br/>HTTPS/6443, SA token
+        Note over K8sAPI,DB: Migration Job runs db-migrate container
+        K8sAPI->>DB: Run migrations<br/>PostgreSQL/5432, TLS, Connection string
+        DB-->>K8sAPI: Migrations complete
+        K8sAPI-->>Reconciler: Job succeeded (exit code 0)
+        Reconciler->>K8sAPI: Restore Deployment replicas<br/>HTTPS/6443, SA token
+        K8sAPI-->>Reconciler: Deployment scaled up
+    end

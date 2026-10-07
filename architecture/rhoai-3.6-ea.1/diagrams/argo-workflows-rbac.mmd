@@ -1,0 +1,82 @@
+graph TD
+    subgraph "Argo Server Authentication Modes"
+        ClientMode["Client Mode<br/>Bearer/Basic Token"]
+        ServerMode["Server Mode<br/>Server's own SA"]
+        SSOMode["SSO Mode<br/>OIDC Tokens"]
+        HybridMode["Hybrid Mode<br/>(Client + Server)"]
+    end
+
+    subgraph "Gatekeeper Interceptor"
+        GK["Gatekeeper<br/>(server/auth/gatekeeper.go)"]
+        GRPCUnary["gRPC Unary Interceptor"]
+        GRPCStream["gRPC Stream Interceptor"]
+        HTTPInterceptor["HTTP Request Interceptor"]
+
+        GK --> GRPCUnary
+        GK --> GRPCStream
+        GK --> HTTPInterceptor
+    end
+
+    subgraph "Authorization Checks"
+        SSAR["SelfSubjectAccessReview<br/>authorization/v1"]
+        RBACDelegation["RBAC Delegation<br/>(SSO mode: annotated SAs)"]
+    end
+
+    subgraph "Kubernetes API Resources"
+        Workflows["argoproj.io<br/>Workflows"]
+        CronWorkflows["argoproj.io<br/>CronWorkflows"]
+        ClusterWFT["argoproj.io<br/>ClusterWorkflowTemplates"]
+        WFTemplates["argoproj.io<br/>WorkflowTemplates"]
+        Pods["core/v1<br/>Pods"]
+        ConfigMaps["core/v1<br/>ConfigMaps"]
+        Secrets["core/v1<br/>Secrets"]
+        PDBs["policy/v1<br/>PodDisruptionBudgets"]
+    end
+
+    subgraph "Endpoint Authentication"
+        HealthzEndpoint["/healthz (port 6060)<br/>No Auth Required"]
+        MetricsEndpoint["/metrics (port 2746)<br/>Conditional Auth<br/>(ARGO_SERVER_METRICS_AUTH)"]
+        APIEndpoint["/api/* (port 2746)<br/>Full Auth Required"]
+        ArtifactEndpoint["/artifacts/* (port 2746)<br/>Full Auth Required"]
+    end
+
+    %% Auth mode flows
+    ClientMode -->|"per-request k8s client"| GK
+    ServerMode -->|"server ServiceAccount"| GK
+    SSOMode -->|"OIDC + RBAC delegation"| GK
+    HybridMode -->|"client + server"| GK
+
+    %% Interceptor to authz
+    GK -->|"validates"| SSAR
+    SSOMode -->|"delegates via"| RBACDelegation
+
+    %% Controller resource access
+    SSAR -->|"authorizes"| Workflows
+    SSAR -->|"authorizes"| CronWorkflows
+    SSAR -->|"authorizes"| ClusterWFT
+    SSAR -->|"authorizes"| WFTemplates
+    SSAR -->|"authorizes"| Pods
+    SSAR -->|"authorizes"| ConfigMaps
+    SSAR -->|"authorizes"| Secrets
+    SSAR -->|"authorizes"| PDBs
+
+    %% Styles
+    style GK fill:#e74c3c,color:#fff
+    style ClientMode fill:#4a90e2,color:#fff
+    style ServerMode fill:#4a90e2,color:#fff
+    style SSOMode fill:#4a90e2,color:#fff
+    style HybridMode fill:#4a90e2,color:#fff
+    style SSAR fill:#f5a623
+    style RBACDelegation fill:#f5a623
+    style HealthzEndpoint fill:#7ed321
+    style MetricsEndpoint fill:#f5a623
+    style APIEndpoint fill:#e74c3c,color:#fff
+    style ArtifactEndpoint fill:#e74c3c,color:#fff
+    style Workflows fill:#d5e8d4,stroke:#82b366
+    style CronWorkflows fill:#d5e8d4,stroke:#82b366
+    style ClusterWFT fill:#d5e8d4,stroke:#82b366
+    style WFTemplates fill:#d5e8d4,stroke:#82b366
+    style Pods fill:#dae8fc,stroke:#6c8ebf
+    style ConfigMaps fill:#dae8fc,stroke:#6c8ebf
+    style Secrets fill:#dae8fc,stroke:#6c8ebf
+    style PDBs fill:#dae8fc,stroke:#6c8ebf

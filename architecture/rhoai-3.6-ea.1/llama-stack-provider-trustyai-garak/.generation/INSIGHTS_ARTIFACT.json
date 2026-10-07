@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "llama-stack-provider-trustyai-garak",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "llama-stack-provider-trustyai-garak-pattern-001",
+      "claim": "This component is a batch-job adapter, not a persistent service, which means standard HTTP endpoint, Service, and ingress architecture tables are correctly empty rather than missing.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/llama_stack_provider_trustyai_garak/evalhub/__init__.py:7-13"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "src/llama_stack_provider_trustyai_garak/evalhub/garak_adapter.py:1-18"
+        }
+      ],
+      "reasoning": "The evalhub __init__.py documents the adapter as running via 'CMD [\"python\", \"-m\", ...]' in a K8s Job. The garak_adapter.py header confirms it reads a ConfigMap-mounted job spec and reports via sidecar callbacks. There is no HTTP server, FastAPI/Starlette app creation, or route registration anywhere in the source. The uvicorn dependency is transitive from eval-hub-sdk, not directly used.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "llama-stack-provider-trustyai-garak-risk-001",
+      "claim": "The cascading API key resolution falls back to a hardcoded 'DUMMY' sentinel when no credential source is available, which may allow scans to proceed against targets that do not require authentication.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/llama_stack_provider_trustyai_garak/core/pipeline_steps.py:155-169"
+        }
+      ],
+      "reasoning": "The read_model_auth_key function in pipeline_steps.py:155-169 tries multiple credential sources and returns 'DUMMY' as a final fallback. This is a design choice enabling scans against unauthenticated local models, but could mask misconfiguration where credentials should have been provided.",
+      "applicability": "component",
+      "confidence": "medium"
+    },
+    {
+      "id": "llama-stack-provider-trustyai-garak-trade-off-001",
+      "claim": "The dual execution-mode architecture (simple vs. KFP) doubles the credential injection surface, requiring different secret provisioning paths for each mode.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/llama_stack_provider_trustyai_garak/evalhub/kfp_pipeline.py:7-11"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "src/llama_stack_provider_trustyai_garak/evalhub/garak_adapter.py:879-899"
+        }
+      ],
+      "reasoning": "Simple mode uses in-cluster service account config or envFrom secrets. KFP mode additionally needs KFP_AUTH_TOKEN and kubernetes.use_secret_as_env for S3 Data Connection injection into pipeline pods. The garak_adapter.py fallback chain (in-cluster config -> KFP_AUTH_TOKEN+KUBERNETES_SERVICE_HOST -> env vars) shows three distinct credential paths converging on the same secret retrieval goal.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

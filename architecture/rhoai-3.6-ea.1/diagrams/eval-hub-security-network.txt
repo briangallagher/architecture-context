@@ -1,0 +1,131 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [External Client]                                                       │
+│         │                                                                │
+│         │ Port: 8080/TCP                                                 │
+│         │ Protocol: HTTP/1.1                                             │
+│         │ Encryption: Platform-delegated (no in-repo TLS config)         │
+│         │ Auth: Conditional (X-User + X-Tenant headers)                  │
+│         │       Enforced when RequiresIdentityHeaders() = true           │
+│         │       Bypassed in local/development mode                       │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  APPLICATION LAYER                                                       │
+│                                                                          │
+│  [Eval-Hub API Server]                                                   │
+│  - Port: 8080/TCP (REST API)                                            │
+│  - Port: 8081/TCP (Prometheus metrics - cluster mode)                   │
+│  - Image: built with GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1      │
+│  - Base: ubi9/ubi-minimal (OpenSSL for FIPS)                            │
+│  - Namespace: platform-delegated                                         │
+│  - ServiceAccount: platform-delegated                                    │
+│  - io.openshift.expose-services="" (no in-repo service exposure)        │
+│                                                                          │
+│  Protected Endpoints (conditional identity gate):                        │
+│  - /api/v1/evaluations/jobs       → X-User + X-Tenant required          │
+│  - /api/v1/evaluations/collections → X-User + X-Tenant required         │
+│  - /api/v1/evaluations/providers  → X-User + X-Tenant required          │
+│                                                                          │
+│  Unprotected Endpoints (bypass identity gate):                           │
+│  - /api/v1/health                 → No auth                             │
+│  - /docs                          → No auth                             │
+│  - /openapi.yaml                  → No auth                             │
+│  - /metrics                       → No auth                             │
+│         │                                                                │
+│         │                                                                │
+│  [eval_runtime_init]  (Init Container)                                   │
+│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                  │
+│  - Purpose: Download test data from S3 before Job starts                 │
+│         │                                                                │
+│  [eval_runtime_sidecar]  (Sidecar Container)                             │
+│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                  │
+│  - Purpose: Proxy between evaluation runtime and eval-hub               │
+│         │                                                                │
+│  [evalhub_mcp]  (MCP Server)                                             │
+│  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1                  │
+│  - Endpoints: /, /health                                                 │
+│  - Purpose: Model Context Protocol server for AI agent integration       │
+│         │                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL                                                        │
+│                                                                          │
+│  [Kubernetes API Server]                                                 │
+│  - Port: 6443/TCP                                                        │
+│  - Protocol: HTTPS/WSS                                                   │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: ServiceAccount / kubeconfig credential chain                    │
+│  - Resources managed:                                                    │
+│    - batch/v1 Jobs (create)                                              │
+│    - v1 ConfigMaps (create)                                              │
+│    - v1 Secrets (create)                                                 │
+│    - infrastructure.opendatahub.io/v1 HardwareProfiles (get, delete)    │
+│         │                                                                │
+│  [PostgreSQL Database]  (production)                                     │
+│  - Protocol: PostgreSQL wire protocol (pgx driver)                       │
+│  - Encryption: Unknown (platform-configured)                             │
+│  - Auth: Connection string credentials                                   │
+│         │                                                                │
+│  [SQLite Database]  (development/local)                                  │
+│  - Protocol: File-based                                                  │
+│  - No network exposure                                                   │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                       │
+│                                                                          │
+│  [S3-Compatible Storage]                                                 │
+│  - Port: Configured by runtime                                           │
+│  - Protocol: HTTP/HTTPS                                                  │
+│  - Encryption: Configured by runtime                                     │
+│  - Auth: AWS SDK credentials (AccessKeyID, SecretAccessKey)              │
+│  - Purpose: Test data storage for evaluation workloads                   │
+│                                                                          │
+│  [MLflow Tracking Server]                                                │
+│  - Port: Configured by runtime                                           │
+│  - Protocol: HTTP/HTTPS                                                  │
+│  - Encryption: TLS 1.2 min, TLS 1.3 max                                │
+│  - Auth: Unknown (client-side)                                           │
+│  - Certificate: System trust store + optional custom CA (CACertPath)    │
+│  - Purpose: Experiment tracking and model versioning                     │
+│  - Optional: nil-safe client (server starts without MLflow if unconfigured) │
+│                                                                          │
+│  [OpenTelemetry Collector]                                               │
+│  - Port: Configured by runtime                                           │
+│  - Protocol: OTLP/gRPC                                                   │
+│  - Encryption: Configured by runtime (gRPC credentials imported)        │
+│  - Auth: Configured by runtime                                           │
+│  - Purpose: Traces, metrics, and logs export                             │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No ClusterRoles or RoleBindings defined in repository
+- Kubernetes access uses kubeconfig credential chain
+- RBAC configuration is platform-delegated
+
+Authentication & Authorization Summary:
+- Conditional identity enforcement via X-User and X-Tenant headers
+- Enforcement gated by RequiresIdentityHeaders() configuration
+- Bypassed entirely in local/development mode (server.go:430-441)
+- Health, docs, OpenAPI, and metrics endpoints: No authentication
+- Kubernetes API: ServiceAccount / kubeconfig credential chain
+
+FIPS Compliance:
+- All 4 Go binaries: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1
+- Builder: ubi9/go-toolset
+- Runtime: ubi9/ubi-minimal (OpenSSL for FIPS)
+- TLS: crypto/tls routed through system OpenSSL at runtime
+- MLflow client: explicit TLS 1.2 min / TLS 1.3 max
+
+Security Evidence:
+- tls-config: crypto/tls (dependency-signal)
+- tls-config: google.golang.org/grpc/credentials (dependency-signal)
+
+Secrets:
+- No Secrets defined in repository manifests
+- Secrets created dynamically by KubernetesHelper for evaluation credentials
+
+Service Exposure:
+- io.openshift.expose-services="" label in Dockerfile
+- No Kubernetes Service or Ingress manifests in repository
+- Service exposure is platform-delegated

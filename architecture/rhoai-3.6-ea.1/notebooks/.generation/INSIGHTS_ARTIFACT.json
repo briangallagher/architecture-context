@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "notebooks",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "notebooks-auth-delegation-001",
+      "claim": "Notebook workbench images deliberately disable all built-in authentication, making them entirely dependent on correct platform sidecar injection for access control.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "jupyter/minimal/ubi9-python-3.12/kustomize/base/statefulset.yaml:26-29"
+        },
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/security/authentication"
+        }
+      ],
+      "reasoning": "The kustomize StatefulSet template sets --ServerApp.token='' and --ServerApp.password='', meaning any direct access to port 8888 bypasses authentication. If the oauth-proxy sidecar is not correctly injected by odh-notebook-controller, the workbench is unauthenticated. This is a deliberate design choice but represents a safety-critical coupling.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "notebooks-culling-cgi-002",
+      "claim": "Code-server workbenches implement idle culling through an nginx/httpd/CGI shim that translates code-server healthz responses into Jupyter-compatible kernel API responses.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "tests/containers/workbenches/culling_api_test.py:87-135"
+        }
+      ],
+      "reasoning": "The culling API compatibility shim at /api/kernels/ allows odh-notebook-controller to use a single polling mechanism for both JupyterLab and code-server workbenches, despite code-server not natively exposing a Jupyter kernel API. This architectural bridge enables unified idle detection across IDE types.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "notebooks-fips-pycryptodome-003",
+      "claim": "Notebook images bundle pycryptodome alongside the FIPS-capable system OpenSSL, creating a mixed cryptographic environment where user code may use non-FIPS-validated crypto primitives.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/dependencies/external"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "jupyter/minimal/ubi9-python-3.12/Dockerfile.konflux.cpu:27-30"
+        }
+      ],
+      "reasoning": "While the UBI9 base image and compat-openssl11 provide FIPS-capable OpenSSL, pycryptodome (v3.23.0) is a pure-Python/C cryptographic library that does not use the system FIPS provider. User code or transitive dependencies that import pycryptodome instead of the cryptography library will operate outside FIPS validation.",
+      "applicability": "component",
+      "confidence": "medium"
+    }
+  ]
+}

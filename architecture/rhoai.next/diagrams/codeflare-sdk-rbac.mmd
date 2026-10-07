@@ -1,89 +1,117 @@
 graph TD
-    subgraph AuthMethods["Authentication Methods"]
-        BearerToken["Bearer Token<br/>(TokenAuthentication)"]
-        Kubeconfig["kubeconfig File<br/>(KubeConfigFileAuthentication)"]
-        InCluster["In-Cluster SA Token<br/>(auto-detected)"]
+    subgraph "Authentication Methods"
+        AuthKit["kube-authkit<br/>(auto-detect)"]
+        OIDC["OIDC Token"]
+        OAuth["OpenShift OAuth"]
+        BearerToken["Bearer Token"]
+        KubeConfig["kubeconfig"]
+        LegacyToken["TokenAuthentication<br/>(deprecated)"]
+        LegacyKube["KubeConfigFileAuthentication<br/>(deprecated)"]
     end
 
-    subgraph UserSA["User / Service Account"]
-        SA["Authenticated Identity<br/>(user or SA)"]
+    subgraph "User Identity"
+        User["Authenticated User<br/>(Data Scientist)"]
     end
 
-    BearerToken -->|authenticates as| SA
-    Kubeconfig -->|authenticates as| SA
-    InCluster -->|authenticates as| SA
+    AuthKit --> User
+    OIDC --> User
+    OAuth --> User
+    BearerToken --> User
+    KubeConfig --> User
+    LegacyToken -.->|deprecated| User
+    LegacyKube -.->|deprecated| User
 
-    subgraph RequiredPermissions["Required RBAC Permissions (Minimum)"]
+    subgraph "Required RBAC Permissions"
         direction TB
 
         subgraph RayIO["API Group: ray.io"]
-            RayClusters["rayclusters<br/>get, list, create, delete"]
-        end
-
-        subgraph WorkloadCF["API Group: workload.codeflare.dev"]
-            AppWrappers["appwrappers<br/>get, list, create, delete"]
+            RayClusters["rayclusters<br/>get, list, create, patch, delete"]
+            RayJobs["rayjobs<br/>get, list, create, patch, delete"]
         end
 
         subgraph KueueIO["API Group: kueue.x-k8s.io"]
-            LocalQueues["localqueues<br/>get, list"]
+            LocalQueues["localqueues<br/>list"]
+            Workloads["workloads<br/>list"]
+            PriorityClasses["workloadpriorityclasses<br/>get"]
         end
 
-        subgraph RouteOCP["API Group: route.openshift.io"]
-            Routes["routes<br/>get, list"]
+        subgraph CoreAPI["API Group: core ('')"]
+            Secrets["secrets<br/>get, list, create, update"]
         end
 
-        subgraph CoreAPI["API Group: core (v1)"]
-            Secrets["secrets<br/>get, list"]
-            Namespaces["namespaces<br/>get"]
+        subgraph RouteAPI["API Group: route.openshift.io"]
+            Routes["routes<br/>list"]
         end
 
-        subgraph NetworkingAPI["API Group: networking.k8s.io"]
-            Ingresses["ingresses<br/>get, list"]
+        subgraph GatewayNetAPI["API Group: gateway.networking.k8s.io"]
+            HTTPRoutes["httproutes<br/>get, list"]
+            Gateways["gateways<br/>get, list"]
+        end
+
+        subgraph PlatformAPI["API Group: services.platform.opendatahub.io"]
+            GatewayConfigs["gatewayconfigs<br/>get"]
+        end
+
+        subgraph NetworkAPI["API Group: networking.k8s.io"]
+            Ingresses["ingresses<br/>list"]
         end
     end
 
-    SA -->|"requires"| RayClusters
-    SA -->|"requires"| AppWrappers
-    SA -->|"requires"| LocalQueues
-    SA -->|"requires"| Routes
-    SA -->|"requires"| Secrets
-    SA -->|"requires"| Namespaces
-    SA -->|"requires"| Ingresses
+    User -->|"operates with<br/>user's own permissions"| RayClusters
+    User --> RayJobs
+    User --> LocalQueues
+    User --> Workloads
+    User --> PriorityClasses
+    User --> Secrets
+    User --> Routes
+    User --> HTTPRoutes
+    User --> Gateways
+    User --> GatewayConfigs
+    User --> Ingresses
 
-    subgraph SecretsManaged["Secrets Managed by SDK"]
-        CASecret["{cluster}-ca-secret-*<br/>Type: Opaque<br/>Keys: ca.key, ca.crt<br/>Purpose: Ray TLS mTLS<br/>Validity: 30 days<br/>Auto-Rotate: No"]
+    subgraph "Secrets Accessed"
+        CASecret["{cluster}-ca-secret-{suffix}<br/>Type: Opaque<br/>CA cert + key<br/>Provisioned by: KubeRay"]
+        FileSecret["{rayjob}-files<br/>Type: Opaque<br/>Scripts + working_dir<br/>Created by: SDK<br/>ownerRef cleanup"]
     end
 
-    SA -->|"get, create"| CASecret
+    Secrets -->|read| CASecret
+    Secrets -->|create/update| FileSecret
 
-    subgraph DashboardAuth["Ray Dashboard Authentication"]
-        OCPDashAuth["OpenShift Dashboard<br/>Auth: Bearer Token (OAuth)<br/>Enforcement: Route + oauth-proxy"]
-        K8sDashAuth["Vanilla K8s Dashboard<br/>Auth: None<br/>Enforcement: Ingress"]
+    subgraph "Network Auth"
+        K8sAPIAuth["Kubernetes API<br/>6443/TCP HTTPS<br/>Auth: kube-authkit"]
+        RayHeadAuth["Ray Head<br/>10001/TCP<br/>Auth: mTLS client cert<br/>(SDK-generated)"]
+        DashboardAuth["Ray Dashboard<br/>8265/TCP HTTPS<br/>Auth: Bearer Token<br/>(OpenShift OAuth proxy)"]
     end
 
-    SA -.->|"token forwarded"| OCPDashAuth
-    SA -.->|"no auth needed"| K8sDashAuth
-
-    %% Note about RBAC model
-    Note["Note: SDK does NOT create<br/>ClusterRoles or RoleBindings.<br/>It operates with existing<br/>user/SA permissions."]
+    User -->|authenticates| K8sAPIAuth
+    User -->|mTLS| RayHeadAuth
+    User -->|bearer token| DashboardAuth
 
     %% Styling
-    style SA fill:#4a90e2,stroke:#333,color:#fff
-    style BearerToken fill:#e3f2fd,stroke:#1565c0
-    style Kubeconfig fill:#e3f2fd,stroke:#1565c0
-    style InCluster fill:#e3f2fd,stroke:#1565c0
+    style User fill:#4a90e2,stroke:#333,color:#fff
+    style AuthKit fill:#7ed321,stroke:#333,color:#fff
+    style OIDC fill:#e8e8e8,stroke:#333
+    style OAuth fill:#e8e8e8,stroke:#333
+    style BearerToken fill:#e8e8e8,stroke:#333
+    style KubeConfig fill:#e8e8e8,stroke:#333
+    style LegacyToken fill:#ffcccc,stroke:#cc0000
+    style LegacyKube fill:#ffcccc,stroke:#cc0000
 
-    style RayClusters fill:#c8e6c9,stroke:#2e7d32
-    style AppWrappers fill:#c8e6c9,stroke:#2e7d32
-    style LocalQueues fill:#c8e6c9,stroke:#2e7d32
-    style Routes fill:#c8e6c9,stroke:#2e7d32
-    style Secrets fill:#c8e6c9,stroke:#2e7d32
-    style Namespaces fill:#c8e6c9,stroke:#2e7d32
-    style Ingresses fill:#c8e6c9,stroke:#2e7d32
+    style RayClusters fill:#f5a623,stroke:#333
+    style RayJobs fill:#f5a623,stroke:#333
+    style LocalQueues fill:#f5a623,stroke:#333
+    style Workloads fill:#f5a623,stroke:#333
+    style PriorityClasses fill:#f5a623,stroke:#333
+    style Secrets fill:#f5a623,stroke:#333
+    style Routes fill:#f5a623,stroke:#333
+    style HTTPRoutes fill:#f5a623,stroke:#333
+    style Gateways fill:#f5a623,stroke:#333
+    style GatewayConfigs fill:#f5a623,stroke:#333
+    style Ingresses fill:#f5a623,stroke:#333
 
-    style CASecret fill:#ffcdd2,stroke:#c62828
+    style CASecret fill:#fce4ec,stroke:#b71c1c
+    style FileSecret fill:#fce4ec,stroke:#b71c1c
 
-    style OCPDashAuth fill:#ffe0b2,stroke:#d79b00
-    style K8sDashAuth fill:#ffe0b2,stroke:#d79b00
-
-    style Note fill:#fff9c4,stroke:#f9a825,stroke-dasharray: 5 5
+    style K8sAPIAuth fill:#d5e8d4,stroke:#82b366
+    style RayHeadAuth fill:#d5e8d4,stroke:#82b366
+    style DashboardAuth fill:#d5e8d4,stroke:#82b366

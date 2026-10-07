@@ -1,0 +1,62 @@
+sequenceDiagram
+    participant User as User / kubectl
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant Webhook as Validating Webhook<br/>9443/TCP TLS
+    participant Reconciler as OGXServerReconciler<br/>ogx-k8s-operator
+    participant ModReconciler as OGX Reconciler<br/>ogx-module
+    participant Prometheus as Prometheus Operator
+
+    Note over User,Prometheus: Flow 1: OGXServer Reconciliation
+
+    User->>K8sAPI: kubectl create OGXServer CR<br/>(ogx.io/v1beta1)
+    K8sAPI->>Webhook: Admission review<br/>POST /validate-ogx-io-v1beta1-ogxserver<br/>Fail policy
+    Webhook-->>K8sAPI: Admission response<br/>(allow/deny)
+    K8sAPI-->>User: CR created / rejected
+
+    K8sAPI->>Reconciler: Watch event: OGXServer created
+    Reconciler->>K8sAPI: Get Secrets<br/>(label: app.kubernetes.io/managed-by: ogx-operator)
+    K8sAPI-->>Reconciler: Model credentials
+    Reconciler->>K8sAPI: Get ConfigMaps<br/>(label-scoped watch)
+    K8sAPI-->>Reconciler: Runtime configuration
+
+    par Create child resources
+        Reconciler->>K8sAPI: Create Deployment<br/>(inference server image)
+        Reconciler->>K8sAPI: Create Service
+        Reconciler->>K8sAPI: Create HPA
+        Reconciler->>K8sAPI: Create PDB
+        Reconciler->>K8sAPI: Create NetworkPolicy
+        Reconciler->>K8sAPI: Create ConfigMap
+        Reconciler->>K8sAPI: Create Ingress (optional)
+        Reconciler->>K8sAPI: Create PVC (optional)
+    end
+
+    Reconciler->>K8sAPI: Update OGXServer/status
+
+    Note over User,Prometheus: Flow 2: OGX Platform Component Lifecycle
+
+    K8sAPI->>ModReconciler: Watch event: OGX CR<br/>(components.platform.opendatahub.io)
+    ModReconciler->>ModReconciler: Platform detection<br/>(ODH vs RHOAI)
+    ModReconciler->>ModReconciler: Render kustomize manifests<br/>(odh-platform-utilities)
+
+    par Install operator resources
+        ModReconciler->>K8sAPI: Create/Update operator Deployment
+        ModReconciler->>K8sAPI: Create/Update CRDs
+        ModReconciler->>K8sAPI: Create/Update RBAC
+        ModReconciler->>K8sAPI: Create/Update ValidatingWebhookConfiguration
+        ModReconciler->>K8sAPI: Create/Update Services
+    end
+
+    ModReconciler->>K8sAPI: Update OGX/status
+
+    Note over User,Prometheus: Flow 3: Monitoring Integration
+
+    Reconciler->>K8sAPI: Create/Update PrometheusRules<br/>(monitoring.coreos.com)
+    Reconciler->>K8sAPI: Create/Update ServiceMonitors<br/>(monitoring.coreos.com)
+    Prometheus->>K8sAPI: Watch PrometheusRules & ServiceMonitors
+    Prometheus-->>Prometheus: Configure scrape targets
+
+    Note over User,Prometheus: Flow 4: TLS Configuration at Startup
+
+    Reconciler->>K8sAPI: GET APIServer TLS profile<br/>(config.openshift.io/apiservers)
+    K8sAPI-->>Reconciler: TLS profile<br/>(or Intermediate fallback)
+    Reconciler->>Reconciler: Apply TLS config to webhook server

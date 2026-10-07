@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "component": "lm-evaluation-harness",
+  "reads": [
+    {
+      "path": "Dockerfile.konflux.lmes-job",
+      "line_range": "1-51",
+      "gap_category": ["fips_compliance", "services"],
+      "question": "What base images are used, are there FIPS build flags, and does the Dockerfile define any services?",
+      "expected_signal": "FIPS build flags, OpenSSL presence, base image identity, service definitions",
+      "outcome": "resolved",
+      "sections": ["Security", "FIPS Compliance", "Architectural Analysis", "Purpose"]
+    },
+    {
+      "path": "lm_eval/__main__.py",
+      "line_range": "290-329",
+      "gap_category": ["authentication"],
+      "question": "How does the main CLI entrypoint handle HF_TOKEN and authentication?",
+      "expected_signal": "Environment variable reads, token usage, auth configuration",
+      "outcome": "resolved",
+      "sections": ["Data Flows", "Purpose"]
+    },
+    {
+      "path": "pyproject.toml",
+      "line_range": "1-90",
+      "gap_category": ["http_endpoints", "fips_compliance", "internal_dependencies"],
+      "question": "What does the api extra contain (HTTP server or client?), what crypto dependencies exist, and are there platform component references?",
+      "expected_signal": "HTTP server framework dependency, crypto library, platform component reference",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "FIPS Compliance"]
+    },
+    {
+      "path": "lm_eval/models/openai_completions.py",
+      "line_range": "90-129",
+      "gap_category": ["authentication"],
+      "question": "How does the OpenAI model backend authenticate to its API?",
+      "expected_signal": "API key retrieval from environment variable",
+      "outcome": "resolved",
+      "sections": ["Data Flows", "Architectural Analysis"]
+    },
+    {
+      "path": "lm_eval/models/anthropic_llms.py",
+      "line_range": "170-189",
+      "gap_category": ["authentication"],
+      "question": "How does the Anthropic model backend authenticate to its API?",
+      "expected_signal": "API key retrieval from environment variable",
+      "outcome": "resolved",
+      "sections": ["Data Flows", "Architectural Analysis"]
+    },
+    {
+      "path": "lm_eval/models/ibm_watsonx_ai.py",
+      "line_range": "50-74",
+      "gap_category": ["authentication"],
+      "question": "How does the watsonx model backend authenticate to its API?",
+      "expected_signal": "API key and credential retrieval from environment variables",
+      "outcome": "resolved",
+      "sections": ["Data Flows", "Architectural Analysis"]
+    },
+    {
+      "path": "Dockerfile.lmes-job",
+      "line_range": "1-30",
+      "gap_category": ["fips_compliance"],
+      "question": "What base image is used for the development Dockerfile variant and does it include OpenSSL?",
+      "expected_signal": "UBI base image with OpenSSL",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Architectural Analysis"]
+    }
+  ]
+}

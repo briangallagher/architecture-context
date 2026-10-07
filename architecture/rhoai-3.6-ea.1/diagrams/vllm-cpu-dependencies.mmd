@@ -1,0 +1,57 @@
+graph LR
+    VllmCpu["vllm-cpu<br/>LLM Inference Server"]
+
+    %% External Dependencies
+    VllmCpu -->|"model storage<br/>HTTPS/443 boto3"| S3["S3-Compatible Storage"]
+    VllmCpu -->|"model downloads<br/>HTTPS/443 huggingface_hub"| HFHub["HuggingFace Hub"]
+    VllmCpu -->|"runtime"| Python["Python >=3.10, <3.15"]
+    VllmCpu -->|"base image"| UBI9["UBI9 Minimal<br/>(registry.access.redhat.com)"]
+    VllmCpu -->|"gRPC TLS"| OpenSSL["System OpenSSL<br/>(GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1)"]
+
+    %% Platform Integration
+    KServe["KServe<br/>ServingRuntime"] -->|"deploys as<br/>ServingRuntime"| VllmCpu
+    K8s["Kubernetes"] -->|"health probes<br/>HTTP /health /ready"| VllmCpu
+
+    %% Multi-Architecture Targets
+    subgraph "Build Targets"
+        direction TB
+        CPU["x86_64 CPU<br/>(Dockerfile.cpu.ubi)"]
+        Konflux["Konflux CPU<br/>(Dockerfile.konflux.cpu)"]
+        PPC["ppc64le<br/>(+TGIS adapter)"]
+        S390["s390x<br/>(+TGIS adapter)"]
+        ROCm["ROCm GPU"]
+        HPU["Habana HPU"]
+        TPU["Google TPU"]
+        XPU["Intel XPU"]
+    end
+
+    VllmCpu -.->|"built as"| CPU
+    VllmCpu -.->|"built as"| Konflux
+    VllmCpu -.->|"built as"| PPC
+    VllmCpu -.->|"built as"| S390
+    VllmCpu -.->|"built as"| ROCm
+    VllmCpu -.->|"built as"| HPU
+    VllmCpu -.->|"built as"| TPU
+    VllmCpu -.->|"built as"| XPU
+
+    %% Optional: TGIS adapter on some architectures
+    PPC -->|"includes"| TGIS["vllm_tgis_adapter<br/>(TGIS protocol compat)"]
+    S390 -->|"includes"| TGIS
+
+    style VllmCpu fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style S3 fill:#f5a623,stroke:#333
+    style HFHub fill:#f5a623,stroke:#333
+    style Python fill:#999,stroke:#333
+    style UBI9 fill:#999,stroke:#333
+    style OpenSSL fill:#999,stroke:#333
+    style KServe fill:#7ed321,stroke:#333
+    style K8s fill:#7ed321,stroke:#333
+    style TGIS fill:#e8e8e8,stroke:#333
+    style CPU fill:#dae8fc,stroke:#6c8ebf
+    style Konflux fill:#dae8fc,stroke:#6c8ebf
+    style PPC fill:#dae8fc,stroke:#6c8ebf
+    style S390 fill:#dae8fc,stroke:#6c8ebf
+    style ROCm fill:#dae8fc,stroke:#6c8ebf
+    style HPU fill:#dae8fc,stroke:#6c8ebf
+    style TPU fill:#dae8fc,stroke:#6c8ebf
+    style XPU fill:#dae8fc,stroke:#6c8ebf

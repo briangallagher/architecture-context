@@ -1,0 +1,41 @@
+graph TD
+    subgraph "Service Account"
+        SA["user-one"]
+    end
+
+    subgraph "Role Bindings"
+        RB["user-one-view<br/>(RoleBinding)"]
+    end
+
+    subgraph "Cluster Roles"
+        CR["view<br/>(ClusterRole - built-in)"]
+    end
+
+    subgraph "Permissions (view ClusterRole)"
+        Read["core<br/>pods, services, configmaps,<br/>endpoints, persistentvolumeclaims"]
+        ReadApps["apps<br/>deployments, replicasets,<br/>statefulsets, daemonsets"]
+        ReadBatch["batch<br/>jobs, cronjobs"]
+    end
+
+    SA -->|"bound via"| RB
+    RB -->|"references"| CR
+    CR -->|"get, list, watch"| Read
+    CR -->|"get, list, watch"| ReadApps
+    CR -->|"get, list, watch"| ReadBatch
+
+    subgraph "Authentication Note"
+        AuthNote["WARNING: No application-level auth<br/>All HTTP endpoints unprotected<br/>Security depends on platform/network layer<br/>(Istio service mesh, KServe, NetworkPolicies)"]
+    end
+
+    subgraph "Secrets"
+        Secret["aws-connection-minio-data-connection-<br/>guardrails-guardian<br/>Type: Opaque<br/>Purpose: MinIO/S3 credentials<br/>Provisioned: manifest"]
+    end
+
+    style SA fill:#4a90e2,color:#fff
+    style RB fill:#6cb4ee,color:#fff
+    style CR fill:#f5a623,color:#fff
+    style Read fill:#7ed321,color:#fff
+    style ReadApps fill:#7ed321,color:#fff
+    style ReadBatch fill:#7ed321,color:#fff
+    style AuthNote fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style Secret fill:#fff2cc,stroke:#d6b656,stroke-width:2px

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jctanner/odh.architecture-context/schemas/structured-component-synthesis-input-v1.schema.json",
+  "title": "Trusted parent inputs for bounded structured component synthesis v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "instructions", "components"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "instructions": {"type": "string"},
+    "components": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/component"}
+    }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nominations": {"type": "array", "items": {"$ref": "#/$defs/nomination"}},
+        "allowed_followup_paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "corrections": {"type": "array", "items": {"$ref": "#/$defs/correction"}},
+        "assembly_policies": {"type": "array", "items": {"$ref": "structured-component-assembly-policy-v1.schema.json"}},
+        "section_policy": {"$ref": "#/$defs/sectionPolicy"},
+        "observations": {"type": "object"},
+        "semantic_configuration": {"type": "object"},
+        "reuse_from": {"$ref": "#/$defs/reuseFrom"}
+      }
+    },
+    "reuseFrom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version_scope", "component"],
+      "properties": {
+        "version_scope": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+        "component": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"}
+      }
+    },
+    "nomination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "start_line", "end_line", "justification"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "justification": {"type": "string", "minLength": 1}
+      }
+    },
+    "correction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version_scope", "patch", "policy"],
+      "properties": {
+        "version_scope": {"type": "string", "minLength": 1},
+        "patch": {"$ref": "structured-component-patch-v1.schema.json"},
+        "policy": {"$ref": "structured-component-assembly-policy-v1.schema.json"}
+      }
+    },
+    "sectionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_id", "version_scope", "decisions"],
+      "properties": {
+        "policy_id": {"type": "string", "minLength": 1},
+        "version_scope": {"type": "string", "minLength": 1},
+        "decisions": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/sectionDecision"}
+        }
+      }
+    },
+    "sectionDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "decided_by", "reason", "origin"],
+      "properties": {
+        "decision": {"enum": ["accept", "reject"]},
+        "decided_by": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id", "claim_class"],
+          "properties": {
+            "kind": {"enum": ["model", "human-correction", "overlay"]},
+            "id": {"type": "string", "minLength": 1},
+            "claim_class": {"enum": ["implementation", "support", "planned", "correction"]}
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+sequenceDiagram
+    participant User as User / AI Agent
+    participant CLI as rhai-cli<br/>(kubectl-odh)
+    participant RBAC as RBAC Checker<br/>pkg/util/kube/rbac/
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant OLM as OLM<br/>(ClusterServiceVersions)
+    participant TrustYAI as TrustYAI Service<br/>443/TCP HTTPS
+    participant MCP as MCP Server<br/>stdio / SSE 127.0.0.1:8080
+
+    Note over User,K8sAPI: Flow 1: Standard Kubernetes Operations (status, diagnose, components, etc.)
+    User->>CLI: kubectl odh status<br/>--kubeconfig credentials
+    CLI->>RBAC: SelfSubjectAccessReview<br/>(pre-flight check)
+    RBAC->>K8sAPI: POST /apis/authorization.k8s.io/v1<br/>TLS 1.2+ / ServiceAccount
+    K8sAPI-->>RBAC: Allowed/Denied
+    RBAC-->>CLI: RBAC result
+    CLI->>K8sAPI: GET/LIST resources<br/>Dynamic + Discovery clients<br/>TLS 1.2+
+    K8sAPI-->>CLI: Resource data
+    CLI-->>User: Formatted output
+
+    Note over User,OLM: Flow 2: OLM Inspection (deps, components)
+    User->>CLI: kubectl odh deps
+    CLI->>K8sAPI: GET ClusterServiceVersions<br/>GET Subscriptions<br/>TLS 1.2+
+    K8sAPI-->>CLI: OLM resources
+    CLI-->>User: Dependency analysis
+
+    Note over User,TrustYAI: Flow 3: TrustYAI Metric Migration
+    User->>CLI: kubectl odh migrate trustyai
+    CLI->>K8sAPI: GET Route (by label/name)<br/>TLS 1.2+
+    K8sAPI-->>CLI: TrustYAI Route URL
+    CLI->>TrustYAI: GET /metrics/schedule<br/>Bearer Token<br/>TLS 1.2+ (InsecureSkipVerify)
+    TrustYAI-->>CLI: Metric scheduling data (backup)
+    CLI->>TrustYAI: POST /metrics/schedule<br/>Bearer Token<br/>TLS 1.2+ (InsecureSkipVerify)
+    TrustYAI-->>CLI: Restore confirmation
+    CLI-->>User: Migration result
+
+    Note over User,MCP: Flow 4: MCP Server Mode (AI Agent Integration)
+    User->>CLI: kubectl odh mcp serve [--sse]
+    CLI->>MCP: Register all subcommands<br/>as MCP tool definitions
+    MCP-->>User: Tools available (stdio/SSE)
+    User->>MCP: Tool call (e.g., status)
+    MCP->>CLI: Execute subcommand
+    CLI->>K8sAPI: Kubernetes operations<br/>TLS 1.2+
+    K8sAPI-->>CLI: Results
+    CLI-->>MCP: Tool result
+    MCP-->>User: JSON response

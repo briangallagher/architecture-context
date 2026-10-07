@@ -1,0 +1,52 @@
+sequenceDiagram
+    participant LLMd as llm-d Inference Engine
+    participant TrainSvc as Training Server<br/>8000/TCP HTTP
+    participant PVC as PVC Model Storage<br/>/models/*.joblib
+    participant PredSync as Prediction Server<br/>Sync Thread (10s)
+    participant LocalFS as Local Model Cache<br/>emptyDir
+    participant PredAPI as Prediction Server<br/>8001/TCP HTTP
+    participant Router as llm-d Routing Layer
+
+    rect rgb(230, 240, 255)
+        Note over LLMd, PVC: Flow 1: Training Data Ingestion & Model Training
+
+        LLMd->>TrainSvc: POST /add_training_data_bulk<br/>HTTP 8000/TCP, No Auth<br/>{features: [kv_cache_pct, input_tokens,<br/>queue_depth, prefix_score, tokens_in_flight],<br/>actual_ttft, actual_tpot}
+        TrainSvc->>TrainSvc: Bucket sampling<br/>(5×20×4 = 400 buckets,<br/>RandomDropDeque, max 500/bucket)
+
+        Note over TrainSvc: Retrain loop (every 30min,<br/>min 1000 samples)
+
+        TrainSvc->>TrainSvc: Split by queue regime<br/>(ensemble mode)
+        TrainSvc->>TrainSvc: Train XGBoost/LightGBM/<br/>BayesianRidge models<br/>(quantile p90 or mean)
+        TrainSvc->>PVC: Write *.joblib<br/>(ttft_noqueue, ttft_queued,<br/>tpot_noqueue, tpot_queued)
+    end
+
+    rect rgb(230, 255, 230)
+        Note over PredSync, LocalFS: Flow 2: Model Sync
+
+        loop Every 10 seconds
+            PredSync->>TrainSvc: GET /model/{name}/info<br/>HTTP 8000/TCP, No Auth
+            TrainSvc-->>PredSync: {size, last_modified, checksum}
+
+            alt Checksum changed
+                PredSync->>TrainSvc: GET /model/{name}/download<br/>HTTP 8000/TCP, No Auth<br/>(3 retries, 30s timeout)
+                TrainSvc-->>PredSync: joblib binary
+                PredSync->>LocalFS: Atomic file replace<br/>MD5 checksum validation
+                PredSync->>PredAPI: Signal model reload
+            end
+        end
+    end
+
+    rect rgb(255, 245, 230)
+        Note over Router, PredAPI: Flow 3: Prediction Serving
+
+        Router->>PredAPI: POST /predict<br/>HTTP 80/TCP → 8001/TCP, No Auth<br/>{kv_cache_pct, input_tokens,<br/>num_request_waiting, prefix_cache_score,<br/>prefill_tokens_in_flight, decode_tokens_in_flight}
+        PredAPI->>PredAPI: Feature extraction<br/>(numpy array)
+        PredAPI->>PredAPI: Ensemble gate:<br/>queue_depth == 0 → noqueue model<br/>queue_depth > 0 → queued model
+        PredAPI-->>Router: {ttft_prediction, tpot_prediction}
+
+        Note over Router, PredAPI: Bulk mode (up to 10,000 requests)
+
+        Router->>PredAPI: POST /predict/bulk/strict<br/>HTTP 80/TCP → 8001/TCP, No Auth<br/>[{request_1}, ..., {request_10000}]
+        PredAPI->>PredAPI: np.fromiter + DataFrame batch<br/>ORJSONResponse fast path
+        PredAPI-->>Router: [{ttft, tpot}, ...]
+    end

@@ -1,0 +1,114 @@
+graph TD
+    subgraph ServiceAccounts["Service Accounts"]
+        SA_CM["controller-manager<br/>NS: datasciencepipelinesapplications-controller"]
+        SA_Argo["argo<br/>NS: argo"]
+    end
+
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        CRB_Manager["manager-rolebinding"]
+        CRB_ManagerArgo["manager-argo-rolebinding"]
+        CRB_ArgoDS["ds-pipeline-argo-binding"]
+    end
+
+    subgraph RoleBindings["Role Bindings"]
+        RB_Leader["leader-election-rolebinding"]
+        RB_Argo["argo-binding"]
+    end
+
+    subgraph ClusterRoles["ClusterRoles"]
+        CR_Manager["manager-role<br/>(broadest scope)"]
+        CR_ManagerArgo["manager-argo-role"]
+        CR_ArgoCluster["argo-cluster-role"]
+        CR_AggAdmin["aggregate-dspa-admin-edit<br/>(aggregates to admin/edit)"]
+        CR_AggView["aggregate-dspa-admin-view<br/>(aggregates to view)"]
+        CR_ArgoAdmin["argo-aggregate-to-admin"]
+        CR_ArgoEdit["argo-aggregate-to-edit"]
+        CR_ArgoView["argo-aggregate-to-view"]
+    end
+
+    subgraph Roles["Roles (Namespaced)"]
+        R_Leader["leader-election-role"]
+        R_Argo["argo-role"]
+    end
+
+    %% Service Account → Bindings
+    SA_CM -->|"bound via"| CRB_Manager
+    SA_CM -->|"bound via"| CRB_ManagerArgo
+    SA_CM -->|"bound via"| RB_Leader
+    SA_Argo -->|"bound via"| CRB_ArgoDS
+    SA_Argo -->|"bound via"| RB_Argo
+
+    %% Bindings → Roles
+    CRB_Manager -->|"grants"| CR_Manager
+    CRB_ManagerArgo -->|"grants"| CR_ManagerArgo
+    CRB_ArgoDS -->|"grants"| CR_ArgoCluster
+    RB_Leader -->|"grants"| R_Leader
+    RB_Argo -->|"grants"| R_Argo
+
+    subgraph ManagerResources["manager-role Resources"]
+        direction TB
+        DSPA_Res["datasciencepipelinesapplications.opendatahub.io<br/>DSPA, DSPA/api, DSPA/finalizers, DSPA/status<br/>Verbs: full CRUD"]
+        Pipeline_Res["pipelines.kubeflow.org<br/>Pipelines, PipelineVersions<br/>Verbs: full CRUD"]
+        Argo_Res["argoproj.io<br/>Workflows, WorkflowArtifactGCTasks,<br/>WorkflowTaskResults<br/>Verbs: full CRUD / create,patch"]
+        Core_Res["core<br/>ConfigMaps, Secrets, ServiceAccounts,<br/>PVCs, PVs, Services, Pods/*<br/>Verbs: full CRUD"]
+        Apps_Res["apps<br/>Deployments, ReplicaSets<br/>Verbs: full CRUD"]
+        RBAC_Res["rbac.authorization.k8s.io<br/>ClusterRoles, ClusterRoleBindings,<br/>Roles, RoleBindings<br/>Verbs: full CRUD"]
+        Net_Res["networking.k8s.io<br/>NetworkPolicies, Ingresses<br/>Verbs: CRUD / read"]
+        Route_Res["route.openshift.io<br/>Routes<br/>Verbs: full CRUD"]
+        Monitor_Res["monitoring.coreos.com<br/>ServiceMonitors<br/>Verbs: full CRUD"]
+        CrossComp["Cross-Component CRDs<br/>kubeflow.org/*, seldon, ray.io,<br/>kserve, codeflare, mlflow<br/>Verbs: varies (CRUD / read)"]
+        Admission_Res["admissionregistration.k8s.io<br/>MutatingWebhookConfigurations,<br/>ValidatingWebhookConfigurations<br/>Verbs: full CRUD"]
+        Auth_Res["authentication/authorization<br/>TokenReviews, SubjectAccessReviews<br/>Verbs: create"]
+    end
+
+    CR_Manager -->|"grants access"| DSPA_Res
+    CR_Manager -->|"grants access"| Pipeline_Res
+    CR_Manager -->|"grants access"| Argo_Res
+    CR_Manager -->|"grants access"| Core_Res
+    CR_Manager -->|"grants access"| Apps_Res
+    CR_Manager -->|"grants access"| RBAC_Res
+    CR_Manager -->|"grants access"| Net_Res
+    CR_Manager -->|"grants access"| Route_Res
+    CR_Manager -->|"grants access"| Monitor_Res
+    CR_Manager -->|"grants access"| CrossComp
+    CR_Manager -->|"grants access"| Admission_Res
+    CR_Manager -->|"grants access"| Auth_Res
+
+    subgraph ArgoResources["argo-cluster-role Resources"]
+        Argo_WF["argoproj.io<br/>Workflows, CronWorkflows,<br/>WorkflowTemplates, WorkflowTaskSets<br/>Verbs: full CRUD"]
+        Argo_Pods["core<br/>Pods, Pods/exec<br/>Verbs: full CRUD"]
+        Argo_PVC["core<br/>PVCs<br/>Verbs: create,delete,get,update"]
+        Argo_Secret["core/Secrets<br/>Verbs: get<br/>⚠️ RESTRICTED: resourceNames:<br/>argo-workflows-agent-ca-certificates"]
+    end
+
+    CR_ArgoCluster -->|"grants access"| Argo_WF
+    CR_ArgoCluster -->|"grants access"| Argo_Pods
+    CR_ArgoCluster -->|"grants access"| Argo_PVC
+    CR_ArgoCluster -->|"grants access"| Argo_Secret
+
+    subgraph AggregateResources["Aggregate Roles (self-service)"]
+        Agg_DSPA_Edit["DSPA + Pipeline resources<br/>Verbs: full CRUD"]
+        Agg_DSPA_View["DSPA + Pipeline resources<br/>Verbs: get, list, watch"]
+        Agg_Argo_Admin["All Argo resources<br/>Verbs: full CRUD"]
+        Agg_Argo_View["All Argo resources<br/>Verbs: get, list, watch"]
+    end
+
+    CR_AggAdmin -->|"grants"| Agg_DSPA_Edit
+    CR_AggView -->|"grants"| Agg_DSPA_View
+    CR_ArgoAdmin -->|"grants"| Agg_Argo_Admin
+    CR_ArgoView -->|"grants"| Agg_Argo_View
+
+    %% Styling
+    style SA_CM fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Argo fill:#4a90e2,stroke:#333,color:#fff
+    style CR_Manager fill:#f5a623,stroke:#333
+    style CR_ManagerArgo fill:#f5a623,stroke:#333
+    style CR_ArgoCluster fill:#f5a623,stroke:#333
+    style CR_AggAdmin fill:#d4edda,stroke:#333
+    style CR_AggView fill:#d4edda,stroke:#333
+    style CR_ArgoAdmin fill:#d4edda,stroke:#333
+    style CR_ArgoEdit fill:#d4edda,stroke:#333
+    style CR_ArgoView fill:#d4edda,stroke:#333
+    style R_Leader fill:#fff3cd,stroke:#333
+    style R_Argo fill:#fff3cd,stroke:#333
+    style Argo_Secret fill:#f8d7da,stroke:#dc3545,stroke-width:2px

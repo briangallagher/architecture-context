@@ -1,0 +1,149 @@
+===============================================================================
+  SECURITY NETWORK DIAGRAM: llm-d-planner
+  Generated: 2026-08-13
+===============================================================================
+
++-------------------------------------------------------------------------+
+|  EXTERNAL (Untrusted)                                                   |
+|                                                                         |
+|  [Platform Operator / User]                                             |
+|         |                                                               |
+|         | Port: 443/TCP                                                 |
+|         | Protocol: HTTPS                                               |
+|         | Encryption: TLS (OpenShift Route termination)                 |
+|         | Auth: None (no auth middleware on application)                 |
+|         |                                                               |
+|         +------------------+-------------------+                        |
+|         |                                      |                        |
+|         v                                      v                        |
++---------+--------------------------------------+------------------------+
+|  INGRESS (OpenShift Routes - TLS Termination)                           |
+|                                                                         |
+|  [Route: planner]              [Route: planner-backend]                 |
+|  - Type: Route                  - Type: Route                           |
+|  - Protocol: HTTPS              - Protocol: HTTPS                      |
+|  - TLS: Edge termination        - TLS: Edge termination                 |
+|  - Target: ui:8501              - Target: backend:8000                  |
+|         |                                      |                        |
+|         | Port: 8501/TCP                        | Port: 8000/TCP         |
+|         | Protocol: HTTP                        | Protocol: HTTP         |
+|         | Encryption: None (post-TLS term.)     | Encryption: None       |
+|         | Auth: None                            | Auth: None             |
+|         v                                      v                        |
++---------+--------------------------------------+------------------------+
+|  NAMESPACE: planner (Internal - ClusterIP Services)                     |
+|                                                                         |
+|  [Streamlit UI]                  [FastAPI Backend]                      |
+|  - Service: ui (ClusterIP)       - Service: backend (ClusterIP)         |
+|  - Port: 8501/TCP                - Port: 8000/TCP                       |
+|  - SA: default                   - SA: planner-backend                  |
+|  - Image: quay.io/llm-d-         - Image: quay.io/llm-d-               |
+|    planner/llm-d-planner-          planner/llm-d-planner-               |
+|    ui:latest                       backend:latest                       |
+|  - CORS: allow_origins=["*"]     - CORS: allow_origins=["*"]           |
+|  - Auth middleware: NONE          - Auth middleware: NONE                |
+|         |                                      |                        |
+|         | Port: 8000/TCP                        |                        |
+|         | Protocol: HTTP                        |                        |
+|         | Encryption: None                      |                        |
+|         +----->---->---->---->---->---->--------+                        |
+|                                                |                        |
+|                                                |                        |
+|  [Ollama]                        [SQLite DB]                            |
+|  - Service: ollama (ClusterIP)   - Path: /app/db/planner.db            |
+|  - Port: 11434/TCP               - Storage: planner-data-pvc (1Gi)     |
+|  - Protocol: HTTP                - Single-writer constraint             |
+|  - Encryption: None              - Admin: DB_ADMIN_PASSWORD             |
+|  - Auth: None                                                           |
+|  - Image: ollama/ollama:latest                                          |
+|         ^                                                               |
+|         |                                                               |
+|         | Port: 11434/TCP                                               |
+|         | Protocol: HTTP                                                |
+|         | Encryption: None                                              |
+|         | Auth: None                                                    |
+|         |                                                               |
+|  [FastAPI Backend]----->---->----+                                       |
+|                                 |                                       |
++---------------------------------+---------------------------------------+
+|  EXTERNAL SERVICES (Outbound)                                           |
+|                                                |                        |
+|                    +---------------------------+                        |
+|                    |                                                    |
+|                    v                                                    |
+|  [Kubernetes API Server]                                                |
+|  - Port: 6443/TCP                                                       |
+|  - Protocol: HTTPS                                                      |
+|  - Encryption: TLS 1.2+                                                 |
+|  - Auth: ServiceAccount token (planner-backend)                         |
+|  - Purpose: list nodes (GPU detection)                                  |
+|                                                                         |
+|  [OpenAI-compatible API Endpoint]                                       |
+|  - Port: Configured by OPENAI_BASE_URL                                  |
+|  - Protocol: HTTPS                                                      |
+|  - Encryption: TLS                                                      |
+|  - Auth: OPENAI_API_KEY (Bearer token)                                  |
+|  - Purpose: LLM inference                                               |
+|                                                                         |
+|  [Google Vertex AI]                                                     |
+|  - Port: 443/TCP                                                        |
+|  - Protocol: HTTPS                                                      |
+|  - Encryption: TLS 1.2+                                                 |
+|  - Auth: GCP credentials                                                |
+|  - Purpose: LLM inference                                               |
+|                                                                         |
+|  [Hugging Face Hub]                                                     |
+|  - Port: 443/TCP                                                        |
+|  - Protocol: HTTPS                                                      |
+|  - Encryption: TLS 1.2+                                                 |
+|  - Auth: HF_TOKEN (Bearer token)                                        |
+|  - Purpose: Model catalog/downloads                                     |
++-------------------------------------------------------------------------+
+
+RBAC Summary:
+- ClusterRole: planner-gpu-reader
+  - API Groups: "" (core)
+  - Resources: nodes
+  - Verbs: list
+
+- ClusterRoleBinding: planner-gpu-reader
+  - Namespace: planner
+  - Role: planner-gpu-reader (ClusterRole)
+  - ServiceAccount: planner-backend
+
+Authentication & Authorization:
+- No authentication middleware registered on FastAPI application
+- CORS configured with allow_origins=["*"] (fully open)
+- API access control relies on:
+  - Network-level isolation (ClusterIP services, not directly exposed)
+  - TLS-terminated OpenShift Routes (edge termination)
+- DB admin operations use DB_ADMIN_PASSWORD env var for app-level verification
+  (not standard auth middleware)
+
+Secrets:
+- planner-secrets (Opaque) - Provisioned by manifest
+  - HF_TOKEN - Hugging Face API token
+  - OPENAI_API_KEY - OpenAI/compatible API key
+  - DB_ADMIN_PASSWORD - Database admin operations
+  - MODEL_CATALOG_TOKEN - Model catalog access
+  - AA_API_KEY - Additional API key
+- All consumed as environment variables by backend Deployment
+
+TLS Trust:
+- OpenShift Service CA bundle mounted at /etc/pki/service-ca
+  - Injected via service-ca operator annotation
+  - Provides platform TLS trust for outbound connections
+
+FIPS Compliance:
+- NOT FIPS compliant
+- Base image: python:3.14-slim (Debian, not UBI)
+- No FIPS-specific crypto configuration
+- Standard Python ssl module (system OpenSSL)
+
+Security Concerns:
+1. No authentication middleware on any API endpoint
+2. CORS allows all origins (allow_origins=["*"])
+3. Non-UBI base image (python:3.14-slim)
+4. Internal communication between components is unencrypted HTTP
+5. Ollama service has no authentication
+6. Single-replica SQLite limits HA but reduces attack surface

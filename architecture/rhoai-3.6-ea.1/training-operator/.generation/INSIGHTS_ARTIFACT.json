@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "component": "training-operator",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "training-operator-tls-profile-001",
+      "claim": "The training-operator reads the OpenShift APIServer cluster singleton at startup to derive TLS cipher suites and minimum version, applying them uniformly to both the webhook server and metrics server.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/training-operator.v1/main.go:100-141"
+        }
+      ],
+      "reasoning": "This is a platform-aware TLS integration pattern where the operator inherits cluster-wide security policy rather than hardcoding its own. The fallback to TLS 1.2 intermediate defaults on non-OpenShift clusters ensures portability. This pattern could be adopted by other RHOAI operators that serve TLS endpoints.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "training-operator-webhook-fail-policy-002",
+      "claim": "All five validating admission webhooks use Fail policy, meaning operator unavailability blocks training job creation and updates across the entire cluster.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/webhooks"
+        }
+      ],
+      "reasoning": "Fail-closed webhooks are security-correct but create an availability dependency. If the training-operator pod is evicted, rescheduled, or experiencing certificate rotation delays, all CREATE/UPDATE operations on the six training job CRDs will fail with admission errors. This is a standard trade-off for operators with validating webhooks, but operators should be aware of the blast radius.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "training-operator-metrics-no-auth-003",
+      "claim": "The Prometheus metrics endpoint on port 8080 is TLS-encrypted but has no application-level authentication, relying on network-level access control for protection.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "cmd/training-operator.v1/main.go:330-333"
+        }
+      ],
+      "reasoning": "The metrics server binds with TLS options but does not configure FilterProvider or any authentication handler. This means any client with network access to port 8080 can scrape metrics. In OpenShift, NetworkPolicy or the service mesh may restrict access, but the operator itself does not enforce authentication on this surface. This is consistent with many controller-runtime operators but worth documenting for security audits.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

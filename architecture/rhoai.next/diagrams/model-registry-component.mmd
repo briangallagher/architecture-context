@@ -1,77 +1,123 @@
 graph TB
-    subgraph "Model Registry Platform"
+    subgraph ModelRegistry["Model Registry Platform"]
         direction TB
 
-        subgraph "REST API Layer"
-            Proxy["model-registry proxy<br/>(Go REST Service)<br/>Port: 8080/TCP"]
-            Catalog["model-registry catalog<br/>(Go REST Service)<br/>Port: 8080/TCP"]
+        subgraph ProxyServer["model-registry (proxy server)"]
+            RestAPI["REST API Server<br/>Go / 8080/TCP"]
+            HealthCheck["Health & Readiness<br/>/readyz/health, /readyz/isDirty"]
+            CORS["CORS Middleware"]
+            Validation["Request Validation"]
+            RestAPI --> CORS
+            RestAPI --> Validation
+            RestAPI --> HealthCheck
         end
 
-        subgraph "Controller Layer"
-            Controller["model-registry controller<br/>(controller-runtime)<br/>Port: 8081/TCP (health)"]
+        subgraph CatalogService["model-catalog (catalog server)"]
+            CatalogAPI["Catalog API Server<br/>Go / 8080/TCP"]
+            ModelPlugin["Model Catalog Plugin<br/>(HuggingFace sync)"]
+            MCPPlugin["MCP Server Plugin<br/>(YAML sources)"]
+            AgentPlugin["Agent Catalog Plugin<br/>(YAML sources)"]
+            LeaderElection["Leader Election<br/>(PostgreSQL pglock)"]
+            FileMonitor["File Monitor<br/>(CRC32 change detection)"]
+            CatalogAPI --> ModelPlugin
+            CatalogAPI --> MCPPlugin
+            CatalogAPI --> AgentPlugin
+            ModelPlugin --> LeaderElection
+            MCPPlugin --> LeaderElection
+            AgentPlugin --> LeaderElection
+            ModelPlugin --> FileMonitor
         end
 
-        subgraph "Utility Components"
-            CSI["CSI Storage Initializer<br/>(Go CLI / KServe Provider)<br/>model-registry:// URI"]
-            AsyncUpload["async-upload Job<br/>(Python 3.12)<br/>Kubernetes Job"]
+        subgraph Controller["inference-service-controller"]
+            ISController["KServe Controller<br/>Go / controller-runtime"]
+            Finalizer["Finalizer Manager"]
+            ISController --> Finalizer
+        end
+
+        subgraph CSI["storage-initializer (CSI)"]
+            StorageInit["Storage Initializer<br/>Go CLI"]
+            URIValidator["URI Validator<br/>(blocks 169.254.169.254)"]
+            StorageInit --> URIValidator
+        end
+
+        subgraph UI["model-registry-ui"]
+            Frontend["React/TypeScript Frontend"]
+            BFF["Go BFF Server<br/>8080/TCP"]
+            SARCheck["SubjectAccessReview<br/>Permission Checks"]
+            Frontend --> BFF
+            BFF --> SARCheck
+        end
+
+        subgraph AsyncUpload["async-upload-job"]
+            UploadJob["Python Job<br/>(K8s Job)"]
+            SigningModule["Sigstore Signing<br/>(cosign/Fulcio/Rekor)"]
+            UploadJob --> SigningModule
         end
     end
 
-    %% External Clients
-    Client["Client<br/>(Dashboard / CLI / SDK)"]
-    Client -->|"REST API v1alpha3<br/>8080/TCP HTTP"| Proxy
+    %% Data Stores
+    RegistryDB[("PostgreSQL<br/>model-registry-db<br/>5432/TCP")]
+    CatalogDB[("PostgreSQL<br/>model-catalog-postgres<br/>5432/TCP")]
 
-    %% Database Backends
-    MySQL[("MySQL 8.3<br/>3306/TCP")]
-    PostgreSQL[("PostgreSQL 16+<br/>5432/TCP")]
-    CatalogDB[("Catalog PostgreSQL<br/>5432/TCP")]
-
-    Proxy -->|"EmbedMD datastore<br/>MySQL protocol"| MySQL
-    Proxy -->|"EmbedMD datastore<br/>PostgreSQL protocol"| PostgreSQL
-    Catalog -->|"Catalog metadata<br/>PostgreSQL protocol"| CatalogDB
-
-    %% KServe Integration
-    InferenceServiceCR["InferenceService CR<br/>(serving.kserve.io/v1beta1)"]
-    KServePod["KServe Inference Pod"]
-
-    Controller -->|"watches"| InferenceServiceCR
-    Controller -->|"syncs metadata<br/>8080/TCP HTTP"| Proxy
-    CSI -->|"resolves artifacts<br/>8080/TCP HTTP"| Proxy
-    KServePod -->|"init container"| CSI
-
-    %% Async Upload Dependencies
+    %% External Services
+    HuggingFace["HuggingFace API<br/>443/TCP HTTPS"]
     S3["S3 Storage<br/>443/TCP HTTPS"]
     OCI["OCI Registry<br/>443/TCP HTTPS"]
-    HuggingFace["HuggingFace Hub<br/>443/TCP HTTPS"]
-    Sigstore["Sigstore<br/>(Fulcio/Rekor)<br/>443/TCP HTTPS"]
+    Sigstore["Sigstore<br/>(Fulcio/Rekor/TUF)"]
 
-    AsyncUpload -->|"download models"| S3
-    AsyncUpload -->|"upload OCI images<br/>via skopeo"| OCI
-    AsyncUpload -->|"download models"| HuggingFace
-    AsyncUpload -->|"code signing<br/>via cosign"| Sigstore
-    AsyncUpload -->|"register artifacts<br/>8080/TCP"| Proxy
+    %% Platform Dependencies
+    Istio["Istio Service Mesh<br/>(mTLS, AuthZ)"]
+    KServe["KServe<br/>(InferenceService CRD)"]
+    KubeAPI["Kubernetes API<br/>443/TCP"]
+    KubeflowGW["Kubeflow Gateway<br/>(Istio Ingress)"]
 
-    %% Catalog Sources
-    Catalog -->|"fetch metadata<br/>443/TCP HTTPS"| HuggingFace
+    %% User
+    User["Data Scientist / User"]
 
-    %% Istio Integration
-    IstioGW["Istio Gateway<br/>(kubeflow-gateway)"]
-    IstioGW -->|"VirtualService<br/>mTLS"| Proxy
+    %% Connections
+    User -->|HTTPS/443| KubeflowGW
+    KubeflowGW -->|VirtualService| RestAPI
+    KubeflowGW -->|VirtualService| CatalogAPI
+    KubeflowGW -->|VirtualService| Frontend
+
+    RestAPI -->|GORM| RegistryDB
+    CatalogAPI -->|GORM| CatalogDB
+    ModelPlugin -->|HTTPS/443| HuggingFace
+
+    ISController -->|watches| KServe
+    ISController -->|REST| RestAPI
+    ISController -->|HTTPS/443| KubeAPI
+
+    StorageInit -->|REST| RestAPI
+    StorageInit -->|delegates| KServe
+
+    UploadJob -->|HTTPS| RestAPI
+    UploadJob -->|HTTPS/443| S3
+    UploadJob -->|HTTPS/443| OCI
+    UploadJob -->|HTTPS/443| Sigstore
+
+    BFF -->|HTTPS/443| KubeAPI
+
+    Istio -.->|sidecar inject| ProxyServer
+    Istio -.->|sidecar inject| CatalogService
+    Istio -.->|sidecar inject| UI
 
     %% Styling
-    style Proxy fill:#4a90e2,stroke:#333,color:#fff
-    style Catalog fill:#4a90e2,stroke:#333,color:#fff
-    style Controller fill:#4a90e2,stroke:#333,color:#fff
-    style CSI fill:#4a90e2,stroke:#333,color:#fff
-    style AsyncUpload fill:#4a90e2,stroke:#333,color:#fff
-    style MySQL fill:#f5a623,stroke:#333,color:#fff
-    style PostgreSQL fill:#f5a623,stroke:#333,color:#fff
-    style CatalogDB fill:#f5a623,stroke:#333,color:#fff
-    style InferenceServiceCR fill:#f5a623,stroke:#333
-    style S3 fill:#999,stroke:#333,color:#fff
-    style OCI fill:#999,stroke:#333,color:#fff
-    style HuggingFace fill:#999,stroke:#333,color:#fff
-    style Sigstore fill:#999,stroke:#333,color:#fff
-    style IstioGW fill:#7ed321,stroke:#333,color:#fff
-    style Client fill:#e8e8e8,stroke:#333
-    style KServePod fill:#e8e8e8,stroke:#333
+    style RestAPI fill:#4a90e2,color:#fff
+    style CatalogAPI fill:#4a90e2,color:#fff
+    style ISController fill:#4a90e2,color:#fff
+    style StorageInit fill:#4a90e2,color:#fff
+    style BFF fill:#4a90e2,color:#fff
+    style UploadJob fill:#9b59b6,color:#fff
+    style Frontend fill:#3498db,color:#fff
+    style RegistryDB fill:#f5a623,color:#fff
+    style CatalogDB fill:#f5a623,color:#fff
+    style HuggingFace fill:#e8e8e8,stroke:#333
+    style S3 fill:#e8e8e8,stroke:#333
+    style OCI fill:#e8e8e8,stroke:#333
+    style Sigstore fill:#e8e8e8,stroke:#333
+    style Istio fill:#7ed321,color:#fff
+    style KServe fill:#7ed321,color:#fff
+    style KubeAPI fill:#e8e8e8,stroke:#333
+    style KubeflowGW fill:#7ed321,color:#fff
+    style User fill:#fff,stroke:#333,stroke-width:2px

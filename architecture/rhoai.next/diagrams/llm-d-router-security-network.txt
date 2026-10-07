@@ -1,0 +1,187 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                        │
+│                                                                              │
+│  [External Client]                                                           │
+│         │                                                                    │
+│         │ Port: 443/TCP                                                      │
+│         │ Protocol: HTTPS                                                    │
+│         │ Encryption: TLS 1.2+                                               │
+│         │ Auth: Bearer Token / API Key                                       │
+│         ▼                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  INGRESS (Envoy Gateway / L7 Proxy)                                          │
+│                                                                              │
+│  [Envoy Gateway]                                                             │
+│  - Port: 443/TCP (external) → 8000/TCP or 9002/TCP (internal)              │
+│  - TLS Termination: TLS 1.2+                                                │
+│  - AuthN: Gateway-level (Bearer Token / API Key)                             │
+│         │                                                                    │
+│         │ ext-proc gRPC                                                      │
+│         │ Port: 9002/TCP                                                     │
+│         │ Protocol: gRPC                                                     │
+│         │ Encryption: Self-signed TLS (RSA 4096-bit, 10-year validity)       │
+│         │ Auth: None (cluster-internal, trusted Envoy only)                  │
+│         ▼                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL (EPP Namespace)                                            │
+│                                                                              │
+│  [Endpoint Picker (EPP)]                                                     │
+│  - Namespace: {release-namespace}                                            │
+│  - ServiceAccount: llm-d-router                                              │
+│  - Image: odh-llm-d-inference-scheduler                                      │
+│  - Ports: 9002/TCP (ext-proc), 9003/TCP (health), 9090/TCP (metrics)        │
+│  - FIPS: CGO_ENABLED=1 (no strictfipsruntime tag -- verify!)                │
+│         │                                                                    │
+│         ├───────────────────────────────────────────────────────────┐        │
+│         │ Port: 443/TCP                                             │        │
+│         │ Protocol: HTTPS                                           │        │
+│         │ Encryption: TLS 1.2+                                      │        │
+│         │ Auth: ServiceAccount token                                │        │
+│         ▼                                                           │        │
+│  [Kubernetes API Server]                                            │        │
+│  - Watch: InferencePool, InferenceObjective,                        │        │
+│           InferenceModelRewrite, Pods                               │        │
+│                                                                     │        │
+│         ├───────────────────────────────────────────────────────────┘        │
+│         │ Port: 8000/TCP                                                     │
+│         │ Protocol: HTTP/HTTPS                                               │
+│         │ Encryption: Configurable (InsecureSkipVerify=true DEFAULT)         │
+│         │ Auth: None                                                         │
+│         │ ⚠ WARNING: TLS cert verification disabled by default              │
+│         ▼                                                                    │
+│  [Model Server Pods (vLLM/SGLang/Triton)]                                    │
+│  - Purpose: Prometheus metrics scraping                                      │
+│  - Metrics: KV-cache utilization, queue depth, active requests               │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL (Decode Pod — Sidecar)                                     │
+│                                                                              │
+│  [pd-sidecar]                                                                │
+│  - Runs alongside decode model server pods                                   │
+│  - ServiceAccount: llm-d-router                                              │
+│  - Image: odh-llm-d-routing-sidecar                                          │
+│  - Port: 8000/TCP (HTTP proxy)                                               │
+│  - FIPS: CGO_ENABLED=1, -tags strictfipsruntime (FIPS-compliant)            │
+│  - SSRF Protection: Optional InferencePool-based target validation           │
+│         │                                                                    │
+│         ├─── Prefill Request ──────────────────────────────────────┐        │
+│         │ Port: Dynamic                                             │        │
+│         │ Protocol: HTTP/HTTPS                                      │        │
+│         │ Encryption: Configurable TLS                              │        │
+│         │ Auth: None                                                │        │
+│         ▼                                                           │        │
+│  [Prefill Worker Pods]                                              │        │
+│  - Executes prefill computation                                     │        │
+│         │                                                           │        │
+│         │ KV-Cache Transfer                                         │        │
+│         │ Port: 61005/TCP (NIXL RDMA)                               │        │
+│         │ Protocol: NIXL/RDMA (or shared storage)                   │        │
+│         │ Encryption: None                                          │        │
+│         │ Auth: None                                                │        │
+│         ▼                                                           │        │
+│  [Local vLLM Decoder]                                               │        │
+│  - Port: 8200/TCP                                                   │        │
+│  - Protocol: HTTP/HTTPS                                             │        │
+│  - Encryption: Configurable TLS                                     │        │
+│         ├───────────────────────────────────────────────────────────┘        │
+│         │                                                                    │
+│         ├─── Encode Request (E/P/D mode) ──────────────────────────┐        │
+│         │ Port: Dynamic                                             │        │
+│         │ Protocol: HTTP/HTTPS                                      │        │
+│         │ Encryption: Configurable TLS                              │        │
+│         │ Auth: None                                                │        │
+│         ▼                                                           │        │
+│  [Encoder Worker Pods]                                              │        │
+│  - Multimodal content encoding                                      │        │
+│         └───────────────────────────────────────────────────────────┘        │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  CLUSTER INTERNAL (Coordinator — Experimental)                               │
+│                                                                              │
+│  [Coordinator]                                                               │
+│  - Image: upstream only (distroless base, not RHOAI product)                │
+│  - Port: 8080/TCP (HTTP)                                                     │
+│  - Encryption: None                                                          │
+│  - Auth: None                                                                │
+│         │                                                                    │
+│         ├─── Port: 80/TCP, HTTP/2, None, EPP-Phase headers ─────→          │
+│         │    [Inference Gateway]                                             │
+│         │    - Routes encode/prefill/decode phases                           │
+│         │                                                                    │
+│         └─── Port: 8080/TCP, HTTP, None ────────────────────────→          │
+│              [Rendering Service]                                             │
+│              - Tokenization and multimodal feature processing                │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  OBSERVABILITY                                                               │
+│                                                                              │
+│  [Prometheus]                                                                │
+│  - Scrapes EPP /metrics endpoint                                             │
+│  - Port: 9090/TCP                                                            │
+│  - Protocol: HTTP                                                            │
+│  - Encryption: Optional TLS                                                  │
+│  - Auth: Optional Bearer token (SA token review via kube-rbac-proxy)        │
+│                                                                              │
+│  [OTLP Collector] (optional)                                                 │
+│  - Port: 4317/TCP                                                            │
+│  - Protocol: gRPC                                                            │
+│  - Encryption: None                                                          │
+│  - Auth: None                                                                │
+│                                                                              │
+│  [Redis] (optional)                                                          │
+│  - Port: 6379/TCP                                                            │
+│  - Protocol: Redis                                                           │
+│  - Encryption: None                                                          │
+│  - Auth: None                                                                │
+│                                                                              │
+│  [ZMQ kv-events] (optional)                                                  │
+│  - Port: 5557/TCP                                                            │
+│  - Protocol: ZMQ SUB                                                         │
+│  - Encryption: None                                                          │
+│  - Auth: None                                                                │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- ClusterRole: llm-d-router-cluster-rbac
+  - API Groups: authentication.k8s.io
+  - Resources: tokenreviews
+  - Verbs: create
+  - API Groups: authorization.k8s.io
+  - Resources: subjectaccessreviews
+  - Verbs: create
+  - Non-resource: /metrics
+  - Verbs: get
+
+- Role: llm-d-router-sa (namespace-scoped)
+  - API Groups: "" (core)
+  - Resources: pods
+  - Verbs: get, watch, list
+
+- ServiceAccount: llm-d-router
+  - Namespace: {release-namespace}
+
+Security Considerations:
+- ⚠ FIPS Asymmetry: EPP lacks strictfipsruntime build tag; sidecar has it
+- ⚠ InsecureSkipVerify=true default on metrics, models, and DCGM data sources
+- ⚠ NIXL RDMA KV-cache transfers (61005/TCP) have no encryption or auth
+- ⚠ Coordinator uses no encryption (HTTP only, no TLS)
+- ⚠ Self-signed TLS cert for ext-proc has 10-year validity (no auto-rotation)
+
+Secrets:
+- inference-gateway-sa-metrics-reader-secret (ServiceAccount token) - Bearer for /metrics, auto-rotate: Yes
+- Self-signed TLS cert (In-memory) - ext-proc gRPC + health, generated at startup (RSA 4096), auto-rotate: No
+- llm-d-hf-token (Opaque) - HuggingFace token for tokenizer sidecar, manual provision, auto-rotate: No
+
+KV-Cache Transfer Protocols:
+- NIXL v2 RDMA (61005/TCP) - Sub-millisecond transfers, no encryption
+- Shared storage - File-based transfer via shared filesystem
+- SGLang bootstrap - SGLang-native protocol
+- Mooncake - Mooncake-native protocol
+- Offloading/P2P - Peer-to-peer offloading
+
+Multi-Tenancy:
+- Tenant boundary: per-InferencePool (namespace-scoped)
+- Single EPP instance per InferencePool
+- No cross-pool data leakage (controller-runtime predicates)
+- No NetworkPolicy defined by router (relies on cluster-level)

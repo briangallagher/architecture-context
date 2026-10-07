@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jctanner/odh.architecture-context/schemas/structured-component-evidence-bundle-v1.schema.json",
+  "title": "Parent-built structured component evidence bundle v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "bundle_identity", "analyzer", "corrections", "contracts", "source_evidence", "observations", "synthesis_configuration"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "bundle_identity": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "analyzer": {"type": "object", "required": ["content_hash", "payload"], "properties": {"content_hash": {"type": "string", "pattern": "^sha256:"}, "payload": {"type": "object"}}, "additionalProperties": false},
+    "corrections": {"type": "array", "items": {"$ref": "#/$defs/correction"}},
+    "contracts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["structured-component-synthesis-response-v1.schema.json", "structured-component-patch-v1.schema.json", "structured-component-assembly-policy-v1.schema.json", "structured-component-document-v1.schema.json"],
+      "properties": {
+        "structured-component-synthesis-response-v1.schema.json": {"type": "object"},
+        "structured-component-patch-v1.schema.json": {"type": "object"},
+        "structured-component-assembly-policy-v1.schema.json": {"type": "object"},
+        "structured-component-document-v1.schema.json": {"type": "object"}
+      }
+    },
+    "source_evidence": {"type": "array", "items": {"$ref": "#/$defs/source"}},
+    "observations": {"type": "object"},
+    "synthesis_configuration": {"$ref": "#/$defs/configuration"}
+  },
+  "$defs": {
+    "correction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version_scope", "patch", "policy"],
+      "properties": {
+        "version_scope": {"type": "string", "minLength": 1},
+        "patch": {"$ref": "structured-component-patch-v1.schema.json"},
+        "policy": {"$ref": "structured-component-assembly-policy-v1.schema.json"}
+      }
+    },
+    "configuration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["component", "version_scope", "distribution", "semantic_configuration", "model_context", "limits"],
+      "properties": {
+        "component": {"type": "string", "minLength": 1}, "version_scope": {"type": "string", "minLength": 1}, "distribution": {"type": "string", "minLength": 1},
+        "semantic_configuration": {"type": "object"},
+        "model_context": {
+          "type": "object", "additionalProperties": false,
+          "required": ["protocol", "adapter", "adapter_version", "parent_response_instructions", "instructions", "requested_model", "requested_settings", "implicit_context", "unobserved_context", "tool_free_enforced"],
+          "properties": {
+            "protocol": {"type": "string"}, "adapter": {"type": "string"}, "adapter_version": {"type": "string"}, "parent_response_instructions": {"type": "string"}, "instructions": {"type": "string"}, "requested_model": {"type": "string"}, "requested_settings": {"type": "object"}, "implicit_context": {"type": "object"}, "unobserved_context": {"type": "array", "items": {"type": "string"}}, "tool_free_enforced": {"type": "boolean"}
+          }
+        },
+        "limits": {
+          "type": "object", "additionalProperties": false,
+          "required": ["total_calls", "evidence_followups", "repairs", "max_evidence_files", "max_lines_per_read"],
+          "properties": {"total_calls": {"type": "integer", "minimum": 1}, "evidence_followups": {"type": "integer", "minimum": 0}, "repairs": {"type": "integer", "minimum": 0}, "max_evidence_files": {"type": "integer", "minimum": 1}, "max_lines_per_read": {"type": "integer", "minimum": 1}}
+        }
+      }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "start_line", "end_line", "revision", "content", "whole_file_hash", "whole_file_line_count", "origin", "justification"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000-\\u001F\\u007F-\\u009F]+$"}, "start_line": {"type": "integer", "minimum": 1}, "end_line": {"type": "integer", "minimum": 1},
+        "revision": {"type": "string"}, "content": {"type": "string"}, "whole_file_hash": {"type": "string", "pattern": "^sha256:"}, "whole_file_line_count": {"type": "integer", "minimum": 1},
+        "origin": {"enum": ["analyzer-nominated", "parent-follow-up"]}, "justification": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

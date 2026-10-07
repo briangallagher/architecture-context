@@ -1,84 +1,76 @@
 graph TB
-    subgraph BBR["AI Gateway Payload Processing (BBR Plugin Host)"]
+    subgraph ExtProc["AI Gateway Payload Processing Service"]
         direction TB
 
-        subgraph PluginPipeline["Plugin Pipeline (ext_proc)"]
-            direction LR
-            ModelResolver["model-provider-resolver<br/>RequestProcessor"]
-            APITranslation["api-translation<br/>Req + Resp Processor"]
-            APIKeyInjection["apikey-injection<br/>RequestProcessor"]
-            NemoReqGuard["nemo-request-guard<br/>RequestProcessor"]
-            NemoRespGuard["nemo-response-guard<br/>ResponseProcessor"]
+        subgraph Controllers["Control Plane (controller-runtime)"]
+            EPCtrl["ExternalProvider<br/>Controller"]
+            EMCtrl["ExternalModel<br/>Controller"]
+            LegacyCtrl["Legacy Migration<br/>Controller"]
         end
 
-        subgraph Controllers["Kubernetes Controllers"]
+        subgraph PluginPipeline["Data Plane (IPP Plugin Pipeline)"]
             direction LR
-            EMController["ExternalModel<br/>Controller"]
-            EPController["ExternalProvider<br/>Controller"]
+            HeadersGuard["maas-headers-guard"]
+            ModelResolver["model-provider-resolver"]
+            StreamUsage["stream-usage-enforcer"]
+            APITranslation["api-translation"]
+            APIKeyInject["apikey-injection"]
         end
+
+        subgraph OptionalPlugins["Optional Plugins"]
+            direction LR
+            ExtMetering["external-metering"]
+            NemoReqGuard["nemo-request-guard"]
+            NemoRespGuard["nemo-response-guard"]
+        end
+
+        subgraph SharedState["Shared In-Memory State"]
+            InfoStore["infoStore<br/>(model/provider cache)"]
+            SecretStore["secretStore<br/>(credential cache)"]
+        end
+
+        Controllers -->|populate| SharedState
+        PluginPipeline -->|read| SharedState
     end
 
+    %% External Inputs
+    Client["Client"] -->|HTTPS/443| Gateway["AI Gateway<br/>(Envoy)"]
+    Gateway -->|gRPC/9004<br/>ext_proc| HeadersGuard
+    HeadersGuard --> ModelResolver
+    ModelResolver --> StreamUsage
+    StreamUsage --> APITranslation
+    APITranslation --> APIKeyInject
+    APIKeyInject -->|response| Gateway
+
     %% CRDs
-    ExternalModelCR["ExternalModel CR<br/>(inference.opendatahub.io/v1alpha1)"]
-    ExternalProviderCR["ExternalProvider CR<br/>(inference.opendatahub.io/v1alpha1)"]
-    MaaSModelCR["ExternalModel CR<br/>(maas.opendatahub.io)"]
+    ExternalModelCR["ExternalModel CR<br/>(inference.opendatahub.io)"] -->|watched by| EMCtrl
+    ExternalProviderCR["ExternalProvider CR<br/>(inference.opendatahub.io)"] -->|watched by| EPCtrl
+    LegacyCR["ExternalModel CR<br/>(maas.opendatahub.io)"] -.->|watched by| LegacyCtrl
 
-    %% Created Resources
-    HTTPRoute["HTTPRoute<br/>(Gateway API)"]
-    ExtNameSvc["ExternalName Service"]
-    ServiceEntry["Istio ServiceEntry"]
-    DestRule["Istio DestinationRule"]
+    %% Controller outputs
+    EPCtrl -->|creates| SvcEntry["ServiceEntry +<br/>DestinationRule +<br/>ExternalName Service"]
+    EMCtrl -->|creates| HTTPRoute["Gateway API<br/>HTTPRoute"]
+    LegacyCtrl -->|creates| ExternalModelCR
+    LegacyCtrl -->|creates| ExternalProviderCR
 
-    %% External Systems
-    Envoy["Istio Gateway<br/>(Envoy)"]
-    K8sAPI["Kubernetes API"]
-    Secrets["Kubernetes Secrets<br/>(labeled)"]
-    NeMo["NeMo Guardrails<br/>(optional)"]
+    %% Egress
+    Gateway -->|HTTPS/443| Providers["External LLM Providers<br/>(OpenAI, Anthropic, Bedrock,<br/>Vertex AI, Azure)"]
 
-    %% External Providers
-    Providers["External LLM Providers<br/>(OpenAI, Anthropic, Azure,<br/>Bedrock, Vertex AI)"]
-
-    %% Connections - Plugin Pipeline
-    Envoy -->|"gRPC ext_proc<br/>9004/TCP"| PluginPipeline
-    ModelResolver -->|"reads model mapping"| MaaSModelCR
-    APIKeyInjection -->|"reads API keys"| Secrets
-    NemoReqGuard -->|"HTTP POST"| NeMo
-    NemoRespGuard -->|"HTTP POST"| NeMo
-
-    %% Connections - Controllers
-    ExternalModelCR -->|"watched by"| EMController
-    ExternalProviderCR -->|"watched by"| EPController
-    EMController -->|"creates"| HTTPRoute
-    EPController -->|"creates"| ExtNameSvc
-    EPController -->|"creates"| ServiceEntry
-    EPController -->|"creates"| DestRule
-    EMController -->|"validates"| K8sAPI
-    EPController -->|"validates"| K8sAPI
-
-    %% Traffic Flow
-    HTTPRoute -->|"references"| Envoy
-    Envoy -->|"routes via mesh"| Providers
+    %% Optional plugin targets
+    ExtMetering -.->|HTTP| MeteringSvc["Metering Service"]
+    NemoReqGuard -.->|HTTP| NemoSvc["NeMo Guardrails"]
+    NemoRespGuard -.->|HTTP| NemoSvc
 
     %% Styling
-    style BBR fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
-    style PluginPipeline fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style Controllers fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    style ModelResolver fill:#4a90e2,color:#fff
-    style APITranslation fill:#4a90e2,color:#fff
-    style APIKeyInjection fill:#4a90e2,color:#fff
-    style NemoReqGuard fill:#4a90e2,color:#fff
-    style NemoRespGuard fill:#4a90e2,color:#fff
-    style EMController fill:#4a90e2,color:#fff
-    style EPController fill:#4a90e2,color:#fff
-    style ExternalModelCR fill:#f5a623,color:#fff
-    style ExternalProviderCR fill:#f5a623,color:#fff
-    style MaaSModelCR fill:#f5a623,color:#fff
-    style HTTPRoute fill:#7ed321,color:#fff
-    style ExtNameSvc fill:#7ed321,color:#fff
-    style ServiceEntry fill:#7ed321,color:#fff
-    style DestRule fill:#7ed321,color:#fff
-    style Envoy fill:#e8e8e8,stroke:#999
-    style K8sAPI fill:#e8e8e8,stroke:#999
-    style Secrets fill:#e8e8e8,stroke:#999
-    style NeMo fill:#e8e8e8,stroke:#999
-    style Providers fill:#f9f,stroke:#333
+    style ExtProc fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style Controllers fill:#d5e8d4,stroke:#82b366
+    style PluginPipeline fill:#fff2cc,stroke:#d6b656
+    style OptionalPlugins fill:#f8cecc,stroke:#b85450
+    style SharedState fill:#e1d5e7,stroke:#9673a6
+    style Gateway fill:#ffe6cc,stroke:#d79b00
+    style ExternalModelCR fill:#f5a623,stroke:#333
+    style ExternalProviderCR fill:#f5a623,stroke:#333
+    style LegacyCR fill:#ccc,stroke:#999
+    style Providers fill:#f9f9f9,stroke:#999
+    style MeteringSvc fill:#f9f9f9,stroke:#999
+    style NemoSvc fill:#f9f9f9,stroke:#999

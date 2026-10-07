@@ -1,0 +1,70 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client"]
+    end
+
+    subgraph Ingress["INGRESS"]
+        Route["OpenShift Route<br/>HTTPS<br/>TLS termination"]
+        VS["VirtualService<br/>HTTP"]
+    end
+
+    subgraph ClusterService["SERVICE (ClusterIP)"]
+        SVC["{registry-name}<br/>443/TCP → 8443"]
+    end
+
+    subgraph Pod["POD (TrustyAI Workload)"]
+        direction TB
+        Proxy["kube-rbac-proxy<br/>:8443/TCP TLS<br/>:9443/TCP health HTTPS<br/>SubjectAccessReview auth"]
+        TrustyAI["TrustyAI Quarkus Service<br/>:8080/TCP localhost only<br/>Metrics: /q/metrics"]
+    end
+
+    subgraph OperatorNS["OPERATOR NAMESPACE"]
+        direction TB
+        Manager["Operator Manager<br/>:8081 health (HTTP)<br/>/convert webhook (HTTPS)<br/>7 controllers"]
+        Module["trustyai-operator-module<br/>SA: trustyai-operator-module-controller-manager"]
+    end
+
+    subgraph ClusterServices["CLUSTER SERVICES"]
+        direction TB
+        K8sAPI["Kubernetes API Server<br/>6443/TCP HTTPS/WSS<br/>TLS 1.2+<br/>ServiceAccount auth"]
+        OSAPIServer["OpenShift APIServer<br/>TLS profile config<br/>FIPS cipher suites"]
+        PromOp["prometheus-operator<br/>(conditional)"]
+        Kueue["Kueue<br/>(conditional)"]
+        KServe["KServe<br/>InferenceService watch<br/>HTTPS TLS 1.2+"]
+    end
+
+    %% External flows
+    Client -->|"HTTPS/443<br/>TLS<br/>SubjectAccessReview"| Route
+    Client -->|"HTTP<br/>VirtualService"| VS
+    Route --> SVC
+    VS --> SVC
+    SVC -->|"443→8443<br/>TLS"| Proxy
+    Proxy -->|"HTTP/8080<br/>localhost loopback<br/>pre-authenticated"| TrustyAI
+
+    %% Operator flows
+    Manager -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
+    Module -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA token"| K8sAPI
+    Manager -->|"startup read"| OSAPIServer
+    Manager -.->|"conditional watch"| PromOp
+    Manager -.->|"conditional watch"| Kueue
+    Manager -->|"watch InferenceService"| KServe
+
+    %% Proxy auth
+    Proxy -->|"SubjectAccessReview<br/>HTTPS/6443"| K8sAPI
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef service fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef pod fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef operator fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    classDef cluster fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef conditional fill:#e8e8e8,stroke:#999,stroke-dasharray:5 5
+
+    class Client external
+    class Route,VS ingress
+    class SVC service
+    class Proxy,TrustyAI pod
+    class Manager,Module operator
+    class K8sAPI,OSAPIServer,KServe cluster
+    class PromOp,Kueue conditional

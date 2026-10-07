@@ -1,89 +1,82 @@
 graph TD
-    subgraph ServiceAccounts["Service Accounts"]
+    subgraph ServiceAccounts["Service Account"]
         SA["payload-processing-{release}"]
     end
 
-    subgraph ClusterRoleBindings["Cluster Role Bindings"]
-        CRB1["{release}-externalmodels-reader<br/>binding"]
-        CRB2["controller RBAC binding<br/>(kubebuilder-generated)"]
+    subgraph Bindings["ClusterRole Binding"]
+        CRB["{release}-externalmodels-reader<br/>ClusterRoleBinding"]
     end
 
-    subgraph ClusterRoles["Cluster Roles"]
-        CR1["{release}-externalmodels-reader"]
-        CR2["controller RBAC role<br/>(kubebuilder markers)"]
+    subgraph ClusterRolePerms["ClusterRole: {release}-externalmodels-reader"]
+        CR["{release}-externalmodels-reader"]
     end
 
-    subgraph APIResources_Core["API Group: core ('')"]
+    subgraph CoreResources["API Group: core ('')"]
         Secrets["secrets"]
         Services["services"]
     end
 
-    subgraph APIResources_MaaS["API Group: maas.opendatahub.io"]
-        MaaSExternalModels["externalmodels"]
+    subgraph MaasResources["API Group: maas.opendatahub.io"]
+        MaasEM["externalmodels<br/>(legacy)"]
     end
 
-    subgraph APIResources_Inference["API Group: inference.opendatahub.io"]
-        InfExternalModels["externalmodels"]
-        InfExternalModelsStatus["externalmodels/status"]
-        InfExternalModelsFinalizers["externalmodels/finalizers"]
-        InfExternalProviders["externalproviders"]
-        InfExternalProvidersStatus["externalproviders/status"]
-        InfExternalProvidersFinalizers["externalproviders/finalizers"]
+    subgraph InferenceResources["API Group: inference.opendatahub.io"]
+        EP["externalproviders"]
+        EM["externalmodels"]
+        EPStatus["externalproviders/status"]
+        EMStatus["externalmodels/status"]
+        EPFinalizers["externalproviders/finalizers"]
+        EMFinalizers["externalmodels/finalizers"]
     end
 
-    subgraph APIResources_Istio["API Group: networking.istio.io"]
-        ServiceEntries["serviceentries"]
-        DestinationRules["destinationrules"]
-    end
-
-    subgraph APIResources_GW["API Group: gateway.networking.k8s.io"]
+    subgraph GatewayResources["API Group: gateway.networking.k8s.io"]
         HTTPRoutes["httproutes"]
     end
 
-    %% Bindings
-    SA -->|"bound via"| CRB1
-    SA -->|"bound via"| CRB2
-    CRB1 -->|"grants"| CR1
-    CRB2 -->|"grants"| CR2
+    subgraph IstioResources["API Group: networking.istio.io"]
+        ServiceEntries["serviceentries"]
+        DestRules["destinationrules"]
+    end
 
-    %% Reader Role Permissions
-    CR1 -->|"get, list, watch"| Secrets
-    CR1 -->|"get, list, watch"| MaaSExternalModels
+    %% Binding chain
+    SA -->|"bound via"| CRB
+    CRB -->|"grants"| CR
 
-    %% Controller Role Permissions - inference.opendatahub.io
-    CR2 -->|"get, list, watch"| InfExternalModels
-    CR2 -->|"get, update, patch"| InfExternalModelsStatus
-    CR2 -->|"update"| InfExternalModelsFinalizers
-    CR2 -->|"get, list, watch"| InfExternalProviders
-    CR2 -->|"get, update, patch"| InfExternalProvidersStatus
-    CR2 -->|"update"| InfExternalProvidersFinalizers
+    %% Core permissions
+    CR -->|"get, list, watch"| Secrets
+    CR -->|"get, list, watch,<br/>create, update, delete"| Services
 
-    %% Controller Role Permissions - core
-    CR2 -->|"get, list, watch"| Secrets
-    CR2 -->|"get, list, watch,<br/>create, update, delete"| Services
+    %% Legacy permissions
+    CR -->|"get, list, watch"| MaasEM
 
-    %% Controller Role Permissions - networking.istio.io
-    CR2 -->|"get, list, watch,<br/>create, update, delete"| ServiceEntries
-    CR2 -->|"get, list, watch,<br/>create, update, delete"| DestinationRules
+    %% Inference CRD permissions
+    CR -->|"get, list, watch,<br/>create, update"| EP
+    CR -->|"get, list, watch,<br/>create, update"| EM
+    CR -->|"get, update, patch"| EPStatus
+    CR -->|"get, update, patch"| EMStatus
+    CR -->|"update"| EPFinalizers
+    CR -->|"update"| EMFinalizers
 
-    %% Controller Role Permissions - gateway.networking.k8s.io
-    CR2 -->|"get, list, watch,<br/>create, update, delete"| HTTPRoutes
+    %% Gateway API permissions
+    CR -->|"get, list, watch,<br/>create, update, delete"| HTTPRoutes
+
+    %% Istio permissions
+    CR -->|"get, list, watch,<br/>create, update, delete"| ServiceEntries
+    CR -->|"get, list, watch,<br/>create, update, delete"| DestRules
 
     %% Styling
     style SA fill:#4a90e2,color:#fff
-    style CRB1 fill:#dae8fc,stroke:#6c8ebf
-    style CRB2 fill:#dae8fc,stroke:#6c8ebf
-    style CR1 fill:#f5a623,color:#fff
-    style CR2 fill:#f5a623,color:#fff
-    style Secrets fill:#7ed321,color:#fff
+    style CRB fill:#d5e8d4,stroke:#82b366
+    style CR fill:#f5a623,color:#fff
+    style Secrets fill:#f8cecc,stroke:#b85450
     style Services fill:#7ed321,color:#fff
-    style MaaSExternalModels fill:#7ed321,color:#fff
-    style InfExternalModels fill:#7ed321,color:#fff
-    style InfExternalModelsStatus fill:#7ed321,color:#fff
-    style InfExternalModelsFinalizers fill:#7ed321,color:#fff
-    style InfExternalProviders fill:#7ed321,color:#fff
-    style InfExternalProvidersStatus fill:#7ed321,color:#fff
-    style InfExternalProvidersFinalizers fill:#7ed321,color:#fff
-    style ServiceEntries fill:#7ed321,color:#fff
-    style DestinationRules fill:#7ed321,color:#fff
-    style HTTPRoutes fill:#7ed321,color:#fff
+    style MaasEM fill:#ccc,stroke:#999
+    style EP fill:#7ed321,color:#fff
+    style EM fill:#7ed321,color:#fff
+    style EPStatus fill:#d5e8d4,stroke:#82b366
+    style EMStatus fill:#d5e8d4,stroke:#82b366
+    style EPFinalizers fill:#e1d5e7,stroke:#9673a6
+    style EMFinalizers fill:#e1d5e7,stroke:#9673a6
+    style HTTPRoutes fill:#fff2cc,stroke:#d6b656
+    style ServiceEntries fill:#ffe6cc,stroke:#d79b00
+    style DestRules fill:#ffe6cc,stroke:#d79b00

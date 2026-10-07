@@ -1,46 +1,58 @@
 sequenceDiagram
-    participant User as Data Scientist
+    participant User as User / Data Scientist
     participant K8sAPI as Kubernetes API Server<br/>443/TCP HTTPS TLS 1.2+
-    participant Webhook as Kueue Webhook<br/>9443/TCP HTTPS TLS
-    participant Controller as Kueue Controller<br/>(controller-runtime)
-    participant Scheduler as Kueue Scheduler<br/>(in-process goroutine)
+    participant Webhook as Kueue Webhook Server<br/>9443/TCP HTTPS TLS
+    participant Controller as Kueue Controller<br/>(watch via 443/TCP)
+    participant Scheduler as Kueue Scheduler<br/>(in-process)
     participant Cache as In-Memory Cache
-    participant RemoteK8s as Remote Kueue Cluster<br/>443/TCP HTTPS TLS 1.2+
+    participant Prometheus as Prometheus<br/>8443/TCP HTTPS TLS
 
-    Note over User,Cache: Flow 1: Job Admission (Standard Path)
+    Note over User,Prometheus: Flow 1: Job Admission
 
-    User->>K8sAPI: kubectl apply -f pytorchjob.yaml<br/>Auth: Bearer Token / Client Cert
-    K8sAPI->>Webhook: POST /mutate (admission review)<br/>mTLS (API server cert)
-    Webhook->>Webhook: Apply defaults: queue-name label,<br/>suspend=true, managed-by annotation
-    Webhook-->>K8sAPI: Mutated admission response
-    K8sAPI->>Webhook: POST /validate (admission review)<br/>mTLS (API server cert)
-    Webhook->>Webhook: Validate queue-name, TAS annotations,<br/>immutability constraints
-    Webhook-->>K8sAPI: Validated admission response
+    User->>K8sAPI: 1. Create Job with queue-name label<br/>Auth: User credentials (OIDC/cert)
+
+    K8sAPI->>Webhook: 2. Admission Review (mutating)<br/>9443/TCP HTTPS, API server client cert
+    Webhook->>Webhook: Default queue label, suspend job,<br/>set managedBy field
+    Webhook-->>K8sAPI: Admit (mutated)
+
+    K8sAPI->>Webhook: 3. Admission Review (validating)<br/>9443/TCP HTTPS, API server client cert
+    Webhook->>K8sAPI: Validate constraints<br/>443/TCP HTTPS, SA Token
+    Webhook-->>K8sAPI: Admit (validated)
+
     K8sAPI-->>User: Job created (suspended)
 
-    Controller->>K8sAPI: Watch event: new PyTorchJob<br/>Auth: ServiceAccount Bearer Token
-    Controller->>Controller: Create Workload CR from job spec<br/>(pod sets, resource requirements)
-    Controller->>K8sAPI: Create Workload CR<br/>Auth: ServiceAccount Bearer Token
+    Note over Controller,Cache: Controller detects new Job via watch
 
-    Scheduler->>Cache: Read ClusterQueue state<br/>(quotas, flavors, utilization)
-    Scheduler->>Scheduler: Evaluate admission:<br/>quota check, priority, fair sharing,<br/>flavor assignment, preemption
-    Scheduler->>K8sAPI: Update Workload.status.admission<br/>Auth: ServiceAccount Bearer Token
+    K8sAPI->>Controller: 4. Watch event: new Job<br/>443/TCP HTTPS, SA Token
+    Controller->>K8sAPI: Create Workload CR<br/>443/TCP HTTPS, SA Token
 
-    Controller->>K8sAPI: Resume job (set suspend=false)<br/>Auth: ServiceAccount Bearer Token
-    K8sAPI-->>User: Job pods created and scheduled
+    Controller->>Cache: Update cache with new Workload
+    Controller->>Scheduler: Notify: new pending Workload
 
-    Note over Controller,RemoteK8s: Flow 2: MultiKueue Workload Distribution
+    Scheduler->>Cache: 5. Evaluate Workload against<br/>ClusterQueue quotas
+    Note over Scheduler,Cache: Check: quota available?<br/>Check: priority & fair sharing<br/>Check: admission checks passed?
 
-    Controller->>K8sAPI: Watch admitted Workload<br/>with MultiKueue AdmissionCheck
-    Controller->>RemoteK8s: Create remote Workload + Job<br/>Auth: kubeconfig from Secret
-    RemoteK8s-->>Controller: Remote Workload status updates<br/>Auth: kubeconfig watch
-    Controller->>K8sAPI: Sync remote status to local Workload<br/>Auth: ServiceAccount Bearer Token
+    alt Quota Available
+        Scheduler->>Cache: Reserve quota, mark admitted
+        Scheduler->>Controller: Admission decision: ADMIT
+        Controller->>K8sAPI: 6. Patch Job: set suspend=false<br/>443/TCP HTTPS, SA Token
+        K8sAPI-->>Controller: Job unsuspended, pods created
+    else Quota Exhausted
+        Scheduler->>Scheduler: Evaluate preemption candidates
+        alt Preemption Possible
+            Scheduler->>Controller: Preempt lower-priority Workload
+            Controller->>K8sAPI: Evict preempted Workload
+            Controller->>K8sAPI: Patch preempted Job: suspend=true
+            Scheduler->>Controller: Admit new Workload
+            Controller->>K8sAPI: Patch Job: suspend=false
+        else No Preemption
+            Note over Scheduler: Workload stays pending<br/>Requeued with backoff
+        end
+    end
 
-    Note over Controller,K8sAPI: Flow 3: Provisioning Request (Autoscaler Integration)
+    Note over Prometheus,Controller: Flow 2: Metrics Scraping
 
-    Controller->>K8sAPI: Workload needs unavailable resources
-    Controller->>K8sAPI: Create ProvisioningRequest CR<br/>Auth: ServiceAccount Bearer Token
-    Note right of K8sAPI: Cluster Autoscaler processes<br/>ProvisioningRequest, provisions nodes
-    K8sAPI-->>Controller: ProvisioningRequest status: Provisioned
-    Controller->>Scheduler: Re-evaluate admission with new capacity
-    Scheduler->>K8sAPI: Admit Workload
+    Prometheus->>Controller: 1. GET /metrics<br/>8443/TCP HTTPS TLS, Bearer Token
+    Controller->>K8sAPI: 2. SubjectAccessReview<br/>443/TCP HTTPS, SA Token
+    K8sAPI-->>Controller: Authorized
+    Controller-->>Prometheus: Metrics response<br/>(queue depths, admission latency, etc.)

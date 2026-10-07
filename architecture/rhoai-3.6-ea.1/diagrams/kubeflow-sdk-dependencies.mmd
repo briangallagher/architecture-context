@@ -1,0 +1,58 @@
+graph LR
+    KubeflowSDK["Kubeflow SDK<br/>(Python Client Library)"]
+
+    %% Core Runtime Dependencies
+    KubeflowSDK -->|"training jobs"| TrainerAPI["kubeflow-trainer-api<br/>>=2.2.0,<2.3"]
+    KubeflowSDK -->|"HP tuning"| KatibAPI["kubeflow-katib-api<br/>>=0.19.0,<0.20"]
+
+    %% Optional Dependencies
+    KubeflowSDK -.->|"optional: spark"| SparkAPI["kubeflow-spark-api<br/>>=2.4.0,<2.5"]
+    KubeflowSDK -.->|"optional: pipelines"| KFP["kfp<br/>>=2.17.0,<2.18"]
+
+    %% Platform Client Libraries
+    KubeflowSDK -->|"K8s API calls"| K8sClient["kubernetes<br/>>=27.2.0,<36.0.0"]
+    KubeflowSDK -->|"model metadata"| ModelRegistry["model-registry<br/>>=0.3.14,<0.4"]
+
+    %% Transport & Security (transitive)
+    K8sClient -.->|"transport"| GRPC["grpcio 1.78.0"]
+    K8sClient -.->|"serialization"| Protobuf["protobuf 6.33.5"]
+    K8sClient -.->|"TLS/crypto"| Cryptography["cryptography 46.0.5"]
+    K8sClient -.->|"JWT auth"| PyJWT["pyjwt 2.11.0"]
+    K8sClient -.->|"OAuth"| OAuthLib["requests-oauthlib 2.0.0"]
+
+    %% Runtime Libraries
+    KubeflowSDK -->|"data handling"| Pandas["pandas 2.3.3"]
+    KubeflowSDK -->|"numerical"| NumPy["numpy 2.2.6"]
+    KubeflowSDK -->|"HTTP"| Requests["requests >=2.25.0"]
+    KubeflowSDK -->|"logging"| Structlog["structlog >=24.1.0"]
+    KubeflowSDK -->|"validation"| Pydantic["pydantic >=2.10.0"]
+
+    %% Platform Services (runtime targets)
+    K8sClient -->|"API calls"| K8sAPI["Kubernetes API Server"]
+    KFP -->|"pipeline ops"| KFPAPI["KF Pipelines API Server"]
+
+    %% Integration Points
+    TrainerCtrl["Kubeflow Trainer Controller"] -.->|"watches CRs from"| K8sAPI
+    KatibCtrl["Katib Controller"] -.->|"watches CRs from"| K8sAPI
+
+    style KubeflowSDK fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style TrainerAPI fill:#5dade2,stroke:#333,color:#fff
+    style KatibAPI fill:#5dade2,stroke:#333,color:#fff
+    style SparkAPI fill:#5dade2,stroke:#333,color:#fff,stroke-dasharray: 5 5
+    style KFP fill:#5dade2,stroke:#333,color:#fff,stroke-dasharray: 5 5
+    style K8sClient fill:#e8e8e8,stroke:#333
+    style ModelRegistry fill:#7ed321,stroke:#333,color:#fff
+    style GRPC fill:#f0f0f0,stroke:#999
+    style Protobuf fill:#f0f0f0,stroke:#999
+    style Cryptography fill:#f8cecc,stroke:#b85450
+    style PyJWT fill:#f8cecc,stroke:#b85450
+    style OAuthLib fill:#f8cecc,stroke:#b85450
+    style Pandas fill:#f0f0f0,stroke:#999
+    style NumPy fill:#f0f0f0,stroke:#999
+    style Requests fill:#f0f0f0,stroke:#999
+    style Structlog fill:#f0f0f0,stroke:#999
+    style Pydantic fill:#f0f0f0,stroke:#999
+    style K8sAPI fill:#f5a623,stroke:#333,color:#fff
+    style KFPAPI fill:#f5a623,stroke:#333,color:#fff
+    style TrainerCtrl fill:#7ed321,stroke:#333,color:#fff
+    style KatibCtrl fill:#7ed321,stroke:#333,color:#fff

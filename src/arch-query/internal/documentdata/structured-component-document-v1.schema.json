@@ -1,0 +1,530 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jctanner/odh.architecture-context/schemas/structured-component-document-v1.schema.json",
+  "title": "Structured component accepted document v1",
+  "description": "Phase-one accepted component model. Facts remain typed JSON records; trusted parent mapping inputs are retained separately and rendering_view is a fully revalidated compatibility projection for the sole arch-analyzer Markdown renderer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "identity",
+    "producers",
+    "analyzer_input",
+    "rendering_config",
+    "assembly_inputs",
+    "facts",
+    "fact_accounting",
+    "sections",
+    "patch_inputs",
+    "proposal_dispositions",
+    "uncertainty",
+    "rendering_view"
+  ],
+  "properties": {
+    "schema_version": {"enum": ["1.0.0", "1.1.0"]},
+    "identity": {"$ref": "#/$defs/identity"},
+    "producers": {"$ref": "#/$defs/producers"},
+    "analyzer_input": {"$ref": "#/$defs/analyzerInput"},
+    "rendering_config": {"$ref": "#/$defs/renderingConfig"},
+    "assembly_inputs": {"$ref": "#/$defs/assemblyInputs"},
+    "facts": {"type": "array", "items": {"$ref": "#/$defs/fact"}},
+    "fact_accounting": {"type": "array", "items": {"$ref": "#/$defs/factAccounting"}},
+    "sections": {"type": "array", "items": {"$ref": "#/$defs/section"}},
+    "patch_inputs": {"type": "array", "items": {"$ref": "#/$defs/patchInput"}},
+    "proposal_dispositions": {"type": "array", "items": {"$ref": "#/$defs/disposition"}},
+    "uncertainty": {"type": "array", "items": {"$ref": "#/$defs/uncertainty"}},
+    "reuse": {"$ref": "#/$defs/reuseRecord"},
+    "publication": {"$ref": "#/$defs/publication"},
+    "rendering_view": {"$ref": "#/$defs/renderingView"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"schema_version": {"const": "1.1.0"}}, "required": ["schema_version"]},
+      "then": {"required": ["publication"]},
+      "else": {"not": {"required": ["publication"]}}
+    },
+    {
+      "if": {"properties": {"identity": {"properties": {"integration_status": {"const": "current"}}, "required": ["integration_status"]}}, "required": ["identity"]},
+      "then": {"properties": {"uncertainty": {
+        "contains": {"type": "object", "properties": {"scope": {"const": "component-integration"}, "status": {"const": "current"}}, "required": ["scope", "status"]},
+        "minContains": 1,
+        "maxContains": 1,
+        "items": {"if": {"properties": {"scope": {"const": "component-integration"}}, "required": ["scope"]}, "then": {"properties": {"status": {"const": "current"}}}}
+      }}}
+    },
+    {
+      "if": {"properties": {"identity": {"properties": {"integration_status": {"const": "planned"}}, "required": ["integration_status"]}}, "required": ["identity"]},
+      "then": {"properties": {"uncertainty": {
+        "contains": {"type": "object", "properties": {"scope": {"const": "component-integration"}, "status": {"const": "planned"}}, "required": ["scope", "status"]},
+        "minContains": 1,
+        "maxContains": 1,
+        "items": {"if": {"properties": {"scope": {"const": "component-integration"}}, "required": ["scope"]}, "then": {"properties": {"status": {"const": "planned"}}}}
+      }}}
+    },
+    {
+      "if": {"properties": {"identity": {"properties": {"integration_status": {"const": "not-integrated"}}, "required": ["integration_status"]}}, "required": ["identity"]},
+      "then": {"properties": {"uncertainty": {
+        "contains": {"type": "object", "properties": {"scope": {"const": "component-integration"}, "status": {"const": "not-integrated"}}, "required": ["scope", "status"]},
+        "minContains": 1,
+        "maxContains": 1,
+        "items": {"if": {"properties": {"scope": {"const": "component-integration"}}, "required": ["scope"]}, "then": {"properties": {"status": {"const": "not-integrated"}}}}
+      }}}
+    },
+    {
+      "if": {"properties": {"identity": {"properties": {"integration_status": {"const": "unknown"}}, "required": ["integration_status"]}}, "required": ["identity"]},
+      "then": {"properties": {"uncertainty": {
+        "contains": {"type": "object", "properties": {"scope": {"const": "component-integration"}, "status": {"const": "unknown"}}, "required": ["scope", "status"]},
+        "minContains": 1,
+        "maxContains": 1,
+        "items": {"if": {"properties": {"scope": {"const": "component-integration"}}, "required": ["scope"]}, "then": {"properties": {"status": {"const": "unknown"}}}}
+      }}}
+    }
+  ],
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "inlineContent": {"allOf": [{"$ref": "#/$defs/nonEmptyString"}, {"pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029]+$"}]},
+    "evidenceAtom": {"type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029]+$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "factType": {
+      "enum": [
+        "summary", "source_component", "crd", "serving_runtime_definition",
+        "api_reference_contract", "field_projection", "managed_component_contract",
+        "service", "deployment", "rbac_cluster_role", "rbac_role",
+        "rbac_cluster_role_binding", "rbac_role_binding", "secret_reference",
+        "http_endpoint", "grpc_service", "dependency_go_version", "dependency_go_module",
+        "dependency_package", "dependency_internal", "controller_watch", "webhook",
+        "external_webhook", "ingress_route", "external_connection", "authentication",
+        "integration_point", "recent_change", "component_ref", "entrypoint",
+        "security_evidence", "dockerfile", "source_default", "runtime_client",
+        "runtime_module_use", "runtime_managed_component", "runtime_server",
+        "runtime_security_control", "runtime_proxy_control", "runtime_webhook_server",
+        "behavioral_evidence", "access_policy", "infrastructure_resource",
+        "data_coverage", "category_coverage", "cross_reference", "coverage_finding",
+        "synthesis_evidence", "cross_cutting_evidence", "gap_evidence_candidate",
+        "context_contract"
+      ]
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "source_component", "repository", "source_revision", "version_scope", "integration_status", "aliases"],
+      "properties": {
+        "component": {"$ref": "#/$defs/nonEmptyString"},
+        "source_component": {"$ref": "#/$defs/nonEmptyString"},
+        "repository": {"type": "string"},
+        "source_revision": {"type": "string"},
+        "version_scope": {"$ref": "#/$defs/nonEmptyString"},
+        "integration_status": {"enum": ["current", "planned", "not-integrated", "unknown"]},
+        "aliases": {"type": "array", "items": {"$ref": "#/$defs/nonEmptyString"}, "uniqueItems": true}
+      }
+    },
+    "producers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analyzer_version", "normalizer_version", "renderer_version"],
+      "properties": {
+        "analyzer_version": {"type": "string"},
+        "normalizer_version": {"const": "structured-component-normalizer/v1"},
+        "renderer_version": {"const": "arch-analyzer-markdown/v1"}
+      }
+    },
+    "analyzerInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "bundle_fingerprint", "extracted_at"],
+      "properties": {
+        "schema_version": {"const": "1"},
+        "bundle_fingerprint": {"$ref": "#/$defs/sha256"},
+        "extracted_at": {"type": "string"}
+      }
+    },
+    "renderingConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distribution", "generated_by"],
+      "properties": {
+        "distribution": {"$ref": "#/$defs/nonEmptyString"},
+        "generated_by": {"$ref": "#/$defs/nonEmptyString"}
+      }
+    },
+    "assemblyInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component_map"],
+      "properties": {
+        "component_map": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/componentMapInput"}]}
+      }
+    },
+    "componentMapInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_fingerprint", "origin", "value"],
+      "properties": {
+        "content_fingerprint": {"$ref": "#/$defs/sha256"},
+        "origin": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {"kind": {"const": "orchestrator"}, "id": {"$ref": "#/$defs/nonEmptyString"}}
+        },
+        "value": {"$ref": "#/$defs/componentMap"}
+      }
+    },
+    "componentMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["components"],
+      "properties": {
+        "components": {"type": "object", "additionalProperties": {"$ref": "#/$defs/componentEntry"}},
+        "provenance": {"$ref": "#/$defs/componentMapProvenance"}
+      }
+    },
+    "componentEntry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repo_org", "repo_name", "repo_url"],
+      "properties": {"repo_org": {"type": "string"}, "repo_name": {"type": "string"}, "repo_url": {"type": "string"}}
+    },
+    "componentMapProvenance": {
+      "type": "object", "additionalProperties": false, "required": ["repos"],
+      "properties": {"repos": {"type": "object", "additionalProperties": {"$ref": "#/$defs/componentMapRepo"}}}
+    },
+    "componentMapRepo": {
+      "type": "object", "additionalProperties": false,
+      "required": ["org", "repo", "is_fork", "upstream", "upstream_detection", "downstream", "downstream_detection", "sync_mechanism", "sync_workflows", "sync_branch"],
+      "properties": {
+        "org": {"type": "string"}, "repo": {"type": "string"}, "is_fork": {"type": "boolean"},
+        "upstream": {"type": "string"}, "upstream_detection": {"type": "string"},
+        "downstream": {"type": ["array", "null"], "items": {"type": "string"}}, "downstream_detection": {"type": "string"},
+        "sync_mechanism": {"type": "string"}, "sync_workflows": {"type": ["array", "null"], "items": {"type": "string"}},
+        "sync_branch": {"type": "string"}
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "ordinal", "value", "input_pointer", "evidence", "uncertainty", "authority"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^fact:[a-z][a-z0-9_]*:[0-9a-f]{64}(?::([2-9]|[1-9][0-9]+))?$"},
+        "type": {"$ref": "#/$defs/factType"},
+        "key": {"$ref": "#/$defs/nonEmptyString"},
+        "ordinal": {"type": "integer", "minimum": 0},
+        "value": {},
+        "input_pointer": {"type": "string", "pattern": "^/"},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
+        "uncertainty": {"$ref": "#/$defs/factUncertainty"},
+        "authority": {"$ref": "#/$defs/factAuthority"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"enum": ["summary", "dependency_go_version", "data_coverage"]}}, "required": ["type"]},
+          "then": {"properties": {"value": {"type": "string"}}},
+          "else": {"properties": {"value": {"type": "object"}}}
+        },
+        {
+          "if": {"properties": {"type": {"enum": ["data_coverage", "category_coverage", "synthesis_evidence", "cross_cutting_evidence", "gap_evidence_candidate"]}}, "required": ["type"]},
+          "then": {"required": ["key"]}
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "revision"],
+      "properties": {
+        "path": {"allOf": [{"$ref": "#/$defs/evidenceAtom"}, {"pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}]},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "revision": {"$ref": "#/$defs/evidenceAtom"}
+      }
+    },
+    "factUncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["extracted", "unknown", "not-extracted", "unresolved", "planned", "not-verified"]},
+        "detail": {"type": "string"}
+      }
+    },
+    "factAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "origin", "claim_class"],
+      "properties": {
+        "kind": {"enum": ["analyzer", "model", "human-correction", "overlay"]},
+        "origin": {"$ref": "#/$defs/nonEmptyString"},
+        "claim_class": {"enum": ["implementation", "support", "planned", "correction"]}
+      }
+    },
+    "factAccounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fact_id", "input_pointer", "disposition", "sections"],
+      "properties": {
+        "fact_id": {"type": "string", "pattern": "^fact:"},
+        "input_pointer": {"type": "string", "pattern": "^/"},
+        "disposition": {"enum": ["rendered", "retained"]},
+        "sections": {"type": "array", "items": {"$ref": "#/$defs/nonEmptyString"}}
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "authority", "blocks", "evidence"],
+      "properties": {
+        "id": {"enum": ["aipcc-ecosystems-use", "sub-component-details", "deployment-manifests", "security.fips-compliance", "security.build-hermeticity", "multi-tenancy"]},
+        "status": {"enum": ["documented", "unresolved", "not-applicable"]},
+        "authority": {"$ref": "#/$defs/sectionAuthority"},
+        "blocks": {"type": "array", "items": {"$ref": "#/$defs/block"}},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sectionEvidence"}},
+        "uncertainty": {"$ref": "#/$defs/inlineContent"}
+      },
+      "allOf": [
+        {"if": {"properties": {"id": {"const": "aipcc-ecosystems-use"}}, "required": ["id"]}, "then": {"properties": {"blocks": {"items": {"if": {"properties": {"type": {"const": "table"}}, "required": ["type"]}, "then": {"properties": {"table_id": {"enum": ["aipcc.accelerator-build-variants", "aipcc.package-index", "aipcc.tooling"]}}}}}}}},
+        {"if": {"properties": {"id": {"const": "sub-component-details"}}, "required": ["id"]}, "then": {"properties": {"blocks": {"items": {"if": {"properties": {"type": {"const": "table"}}, "required": ["type"]}, "then": {"properties": {"table_id": {"enum": ["subcomponent.summary", "subcomponent.api-routes", "subcomponent.upstream-dependencies", "subcomponent.configuration"]}}}}}}}},
+        {"if": {"properties": {"id": {"const": "deployment-manifests"}}, "required": ["id"]}, "then": {"properties": {"blocks": {"items": {"if": {"properties": {"type": {"const": "table"}}, "required": ["type"]}, "then": {"properties": {"table_id": {"enum": ["deployment.kustomize-structure", "deployment.parameterization", "deployment.distribution-variants"]}}}}}}}},
+        {"if": {"properties": {"id": {"const": "security.fips-compliance"}}, "required": ["id"]}, "then": {"properties": {"blocks": {"items": {"if": {"properties": {"type": {"const": "table"}}, "required": ["type"]}, "then": {"properties": {"table_id": {"enum": ["security.fips-build-time", "security.fips-application-crypto"]}}}}}}}},
+        {"if": {"properties": {"id": {"const": "security.build-hermeticity"}}, "required": ["id"]}, "then": {"properties": {"blocks": {"items": {"if": {"properties": {"type": {"const": "table"}}, "required": ["type"]}, "then": {"properties": {"table_id": {"const": "security.build-hermeticity"}}}}}}}},
+        {"if": {"properties": {"id": {"const": "multi-tenancy"}}, "required": ["id"]}, "then": {"properties": {"blocks": {"items": {"if": {"properties": {"type": {"const": "table"}}, "required": ["type"]}, "then": {"properties": {"table_id": {"enum": ["multi-tenancy.tenant-model", "multi-tenancy.isolation-mechanisms", "multi-tenancy.shared-services"]}}}}}}}}
+      ]
+    },
+    "sectionAuthority": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "origin", "claim_class"],
+      "properties": {
+        "kind": {"enum": ["model", "human-correction", "overlay"]},
+        "origin": {"$ref": "#/$defs/nonEmptyString"},
+        "claim_class": {"enum": ["implementation", "support", "planned", "correction"]}
+      }
+    },
+    "block": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["type", "text"], "properties": {"type": {"const": "paragraph"}, "text": {"$ref": "#/$defs/inlineContent"}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "items"], "properties": {"type": {"const": "list"}, "items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/inlineContent"}}}},
+        {"type": "object", "additionalProperties": false, "required": ["type", "table_id", "rows"], "properties": {
+          "type": {"const": "table"},
+          "table_id": {"enum": [
+            "aipcc.accelerator-build-variants", "aipcc.package-index", "aipcc.tooling",
+            "subcomponent.summary", "subcomponent.api-routes", "subcomponent.upstream-dependencies", "subcomponent.configuration",
+            "deployment.kustomize-structure", "deployment.parameterization", "deployment.distribution-variants",
+            "security.fips-build-time", "security.fips-application-crypto", "security.build-hermeticity",
+            "multi-tenancy.tenant-model", "multi-tenancy.isolation-mechanisms", "multi-tenancy.shared-services"
+          ]},
+          "rows": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/tableRow"}}
+        }, "allOf": [
+          {"if": {"properties": {"table_id": {"const": "aipcc.package-index"}}, "required": ["table_id"]}, "then": {"properties": {"rows": {"items": {"properties": {"cells": {"minItems": 2, "maxItems": 2}}}}}}},
+          {"if": {"properties": {"table_id": {"enum": ["aipcc.tooling", "deployment.kustomize-structure", "deployment.distribution-variants", "security.fips-build-time", "security.fips-application-crypto", "multi-tenancy.tenant-model", "multi-tenancy.shared-services"]}}, "required": ["table_id"]}, "then": {"properties": {"rows": {"items": {"properties": {"cells": {"minItems": 3, "maxItems": 3}}}}}}},
+          {"if": {"properties": {"table_id": {"enum": ["deployment.parameterization", "multi-tenancy.isolation-mechanisms"]}}, "required": ["table_id"]}, "then": {"properties": {"rows": {"items": {"properties": {"cells": {"minItems": 4, "maxItems": 4}}}}}}},
+          {"if": {"properties": {"table_id": {"enum": ["subcomponent.configuration", "security.build-hermeticity"]}}, "required": ["table_id"]}, "then": {"properties": {"rows": {"items": {"properties": {"cells": {"minItems": 5, "maxItems": 5}}}}}}},
+          {"if": {"properties": {"table_id": {"enum": ["subcomponent.summary", "subcomponent.api-routes", "subcomponent.upstream-dependencies"]}}, "required": ["table_id"]}, "then": {"properties": {"rows": {"items": {"properties": {"cells": {"minItems": 6, "maxItems": 6}}}}}}},
+          {"if": {"properties": {"table_id": {"const": "aipcc.accelerator-build-variants"}}, "required": ["table_id"]}, "then": {"properties": {"rows": {"items": {"properties": {"cells": {"minItems": 7, "maxItems": 7}}}}}}}
+        ]}
+      ]
+    },
+    "tableRow": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cells", "evidence"],
+      "properties": {
+        "cells": {"type": "array", "minItems": 2, "maxItems": 7, "items": {"$ref": "#/$defs/inlineContent"}},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sectionEvidence"}}
+      }
+    },
+    "sectionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "revision"],
+      "properties": {
+        "path": {"allOf": [{"$ref": "#/$defs/evidenceAtom"}, {"pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}]},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "revision": {"$ref": "#/$defs/evidenceAtom"}
+      }
+    },
+    "patchInput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["patch_id", "proposal_fingerprint", "bundle_fingerprint", "operation_ids"],
+      "properties": {
+        "patch_id": {"$ref": "#/$defs/nonEmptyString"},
+        "proposal_fingerprint": {"$ref": "#/$defs/sha256"},
+        "bundle_fingerprint": {"$ref": "#/$defs/sha256"},
+        "operation_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmptyString"}}
+      }
+    },
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["patch_id", "proposal_fingerprint", "bundle_fingerprint", "operation_id", "action", "fact_type", "origin_kind", "origin_id", "claim_class", "status", "evidence", "proposal_reason", "policy_id", "authorized_by", "allowed_fact_types", "decision_id", "decided_by", "decision_reason"],
+      "properties": {
+        "patch_id": {"$ref": "#/$defs/nonEmptyString"},
+        "proposal_fingerprint": {"$ref": "#/$defs/sha256"},
+        "bundle_fingerprint": {"$ref": "#/$defs/sha256"},
+        "operation_id": {"$ref": "#/$defs/nonEmptyString"},
+        "action": {"enum": ["add", "update", "delete"]},
+        "fact_type": {"$ref": "#/$defs/factType"},
+        "origin_kind": {"enum": ["model", "human-correction", "overlay"]},
+        "origin_id": {"$ref": "#/$defs/nonEmptyString"},
+        "claim_class": {"enum": ["implementation", "support", "planned", "correction"]},
+        "status": {"enum": ["accepted", "rejected"]},
+        "target_fact_id": {"type": "string", "pattern": "^fact:"},
+        "resulting_fact_id": {"type": "string", "pattern": "^fact:"},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
+        "proposal_reason": {"$ref": "#/$defs/nonEmptyString"},
+        "policy_id": {"$ref": "#/$defs/nonEmptyString"},
+        "authorized_by": {"$ref": "#/$defs/nonEmptyString"},
+        "allowed_fact_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/factType"}},
+        "decision_id": {"$ref": "#/$defs/nonEmptyString"},
+        "decided_by": {"$ref": "#/$defs/nonEmptyString"},
+        "decision_reason": {"$ref": "#/$defs/nonEmptyString"}
+      },
+      "allOf": [
+        {"if": {"properties": {"status": {"const": "accepted"}}, "required": ["status"]}, "then": {"properties": {"evidence": {"minItems": 1}}}},
+        {"if": {"properties": {"action": {"const": "add"}}, "required": ["action"]}, "then": {"not": {"required": ["target_fact_id"]}}},
+        {"if": {"properties": {"action": {"enum": ["update", "delete"]}}, "required": ["action"]}, "then": {"required": ["target_fact_id"]}},
+        {"if": {"properties": {"status": {"const": "accepted"}, "action": {"enum": ["add", "update"]}}, "required": ["status", "action"]}, "then": {"required": ["resulting_fact_id"]}},
+        {"if": {"properties": {"status": {"const": "rejected"}}, "required": ["status"]}, "then": {"not": {"required": ["resulting_fact_id"]}}},
+        {"if": {"properties": {"action": {"const": "delete"}}, "required": ["action"]}, "then": {"not": {"required": ["resulting_fact_id"]}}}
+      ]
+    },
+    "uncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "status", "detail"],
+      "properties": {
+        "scope": {"$ref": "#/$defs/nonEmptyString"},
+        "status": {"enum": ["current", "planned", "not-integrated", "unknown"]},
+        "detail": {"$ref": "#/$defs/nonEmptyString"}
+      }
+    },
+    "reuseRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "prior_snapshot_id", "prior_platform", "target_platform", "prior_document_hash", "original_synthesis_hash", "response_identity", "target_exact_input", "target_semantic_input", "comparison_hash", "reason", "revalidation_checks"],
+      "properties": {
+        "schema_version": {"const": "1.0.0"},
+        "prior_snapshot_id": {"$ref": "#/$defs/nonEmptyString"},
+        "prior_platform": {"$ref": "#/$defs/nonEmptyString"},
+        "target_platform": {"$ref": "#/$defs/nonEmptyString"},
+        "prior_document_hash": {"$ref": "#/$defs/sha256"},
+        "original_synthesis_hash": {"$ref": "#/$defs/sha256"},
+        "response_identity": {"$ref": "#/$defs/nonEmptyString"},
+        "target_exact_input": {"$ref": "#/$defs/sha256"},
+        "target_semantic_input": {"$ref": "#/$defs/sha256"},
+        "comparison_hash": {"$ref": "#/$defs/sha256"},
+        "reason": {"$ref": "#/$defs/nonEmptyString"},
+        "revalidation_checks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmptyString"}}
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "snapshot_id", "analyzer", "synthesis", "accepted_inputs", "markdown", "diagram"],
+      "properties": {
+        "contract": {"const": "structured-component-publication/v1"},
+        "snapshot_id": {"$ref": "#/$defs/sha256"},
+        "analyzer": {
+          "type": "object", "additionalProperties": false,
+          "required": ["content_hash", "bundle_fingerprint", "schema_version", "source_component", "repository", "source_revision", "analyzer_version", "producer_build_identity"],
+          "properties": {
+            "content_hash": {"$ref": "#/$defs/sha256"}, "bundle_fingerprint": {"$ref": "#/$defs/sha256"},
+            "schema_version": {"const": "1"}, "source_component": {"$ref": "#/$defs/nonEmptyString"},
+            "repository": {"type": "string"}, "source_revision": {"type": "string"},
+            "analyzer_version": {"type": "string"}, "producer_build_identity": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "synthesis": {
+          "type": "object", "additionalProperties": false,
+          "required": ["content_hash", "state", "input_bundle_identity", "current_evidence_bundle_identity", "original_evidence_bundle_identity", "producing_model_eligible"],
+          "properties": {
+            "content_hash": {"$ref": "#/$defs/sha256"},
+            "state": {"enum": ["synthesized", "deterministic-only", "historical-response-missing"]},
+            "input_bundle_identity": {"$ref": "#/$defs/sha256"},
+            "current_evidence_bundle_identity": {"$ref": "#/$defs/sha256"},
+            "original_evidence_bundle_identity": {"$ref": "#/$defs/sha256"},
+            "accepted_response_identity": {"$ref": "#/$defs/nonEmptyString"},
+            "producing_model_eligible": {"type": "boolean"}
+          }
+        },
+        "accepted_inputs": {
+          "type": "object", "additionalProperties": false,
+          "required": ["run_record", "current_evidence_bundle", "original_evidence_bundle"],
+          "properties": {"run_record": {"type": "object"}, "current_evidence_bundle": {"type": "object"}, "original_evidence_bundle": {"type": "object"}}
+        },
+        "markdown": {
+          "type": "object", "additionalProperties": false, "required": ["path", "renderer_version"],
+          "properties": {"path": {"$ref": "#/$defs/nonEmptyString"}, "renderer_version": {"const": "arch-analyzer-markdown/v1"}}
+        },
+        "diagram": {
+          "type": "object", "additionalProperties": false, "required": ["state"],
+          "properties": {"state": {"enum": ["unavailable", "available", "failed"]}, "generator_identity": {"type": "string"}}
+        }
+      }
+    },
+    "renderingView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "metadata", "repo_lineage", "purpose", "architecture_components", "crds", "serving_runtimes", "http_endpoints", "grpc_services", "external_dependencies", "internal_dependencies", "services", "ingress", "egress", "cluster_roles", "role_bindings", "secrets", "authentication", "security_evidence", "behavioral_evidence", "webhooks", "integration_points", "recent_changes", "sources", "data_coverage", "category_coverage", "cross_references", "coverage_findings", "synthesis_evidence", "cross_cutting_evidence"],
+      "properties": {
+        "component": {"$ref": "#/$defs/nonEmptyString"},
+        "metadata": {"$ref": "#/$defs/renderMetadata"},
+        "repo_lineage": {"type": ["array", "null"], "items": {"$ref": "#/$defs/repoLineage"}},
+        "purpose": {"type": "string"},
+        "architecture_components": {"$ref": "#/$defs/objectArray"},
+        "crds": {"$ref": "#/$defs/objectArray"},
+        "serving_runtimes": {"$ref": "#/$defs/objectArray"},
+        "http_endpoints": {"$ref": "#/$defs/objectArray"},
+        "grpc_services": {"$ref": "#/$defs/objectArray"},
+        "external_dependencies": {"$ref": "#/$defs/objectArray"},
+        "internal_dependencies": {"$ref": "#/$defs/objectArray"},
+        "services": {"$ref": "#/$defs/objectArray"},
+        "ingress": {"$ref": "#/$defs/objectArray"},
+        "egress": {"$ref": "#/$defs/objectArray"},
+        "cluster_roles": {"type": "array", "items": {"$ref": "#/$defs/renderRole"}},
+        "role_bindings": {"$ref": "#/$defs/objectArray"},
+        "secrets": {"$ref": "#/$defs/objectArray"},
+        "authentication": {"$ref": "#/$defs/objectArray"},
+        "security_evidence": {"$ref": "#/$defs/objectArray"},
+        "behavioral_evidence": {"$ref": "#/$defs/objectArray"},
+        "webhooks": {"$ref": "#/$defs/objectArray"},
+        "integration_points": {"$ref": "#/$defs/objectArray"},
+        "recent_changes": {"$ref": "#/$defs/objectArray"},
+        "sources": {"$ref": "#/$defs/objectArray"},
+        "data_coverage": {"type": ["object", "null"], "additionalProperties": {"type": "string"}},
+        "category_coverage": {"type": ["object", "null"], "additionalProperties": {"type": "object"}},
+        "cross_references": {"$ref": "#/$defs/objectArray"},
+        "coverage_findings": {"$ref": "#/$defs/objectArray"},
+        "synthesis_evidence": {"type": ["object", "null"], "additionalProperties": {"type": "array", "items": {"type": "object"}}},
+        "cross_cutting_evidence": {"type": ["object", "null"], "additionalProperties": {"type": "array", "items": {"type": "object"}}},
+        "context_contract": {"type": "object"}
+      }
+    },
+    "objectArray": {"type": ["array", "null"], "items": {"type": "object"}},
+    "renderMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "version", "distribution", "languages", "deployment_type", "generated_by"],
+      "properties": {
+        "repository": {"type": "string"}, "version": {"type": "string"},
+        "distribution": {"type": "string"}, "languages": {"type": "string"},
+        "deployment_type": {"type": "string"}, "generated_by": {"type": "string"}
+      }
+    },
+    "renderRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "api_group", "resources", "non_resource_urls", "verbs"],
+      "properties": {
+        "name": {"type": "string"}, "api_group": {"type": "string"},
+        "resources": {"type": "string"}, "non_resource_urls": {"type": "string"},
+        "verbs": {"type": "string"}
+      }
+    },
+    "repoLineage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "repository", "sync_mechanism", "sync_branch", "sync_workflows", "detection_method"],
+      "properties": {
+        "role": {"type": "string"}, "repository": {"type": "string"},
+        "sync_mechanism": {"type": "string"}, "sync_branch": {"type": "string"},
+        "sync_workflows": {"type": "string"}, "detection_method": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+graph LR
+    KVCache["llm-d-kv-cache"]
+
+    %% Internal Platform Dependencies
+    KVCache -->|"ZMQ events<br/>5557/TCP<br/>store/delete/clear"| vLLM["vLLM Engines<br/>(event source)"]
+
+    %% Infrastructure Dependencies
+    KVCache -->|"KV block index<br/>TCP (redis/rediss)"| Redis["Redis/Valkey"]
+    KVCache -->|"Pod watches<br/>6443/TCP HTTPS"| K8sAPI["Kubernetes API<br/>v0.33.11"]
+    KVCache -->|"trace export<br/>OTLP/gRPC"| OTel["OpenTelemetry<br/>Collector"]
+
+    %% Runtime Framework Dependencies
+    KVCache -->|"operator framework"| ControllerRuntime["controller-runtime<br/>v0.21.0"]
+    KVCache -->|"gRPC transport"| gRPC["google.golang.org/grpc<br/>v1.81.1"]
+    KVCache -->|"event messaging"| ZMQ["go-zeromq/zmq4<br/>v0.17.0"]
+    KVCache -->|"KV client"| GoRedis["go-redis/v9<br/>v9.20.0"]
+
+    %% Python Framework Dependencies
+    KVCache -->|"tokenizer service"| Transformers["transformers<br/>v4.57.6"]
+    KVCache -->|"gRPC (Python)"| grpcio["grpcio<br/>v1.80.0"]
+    KVCache -->|"inference engine"| vLLMPkg["vllm<br/>v0.18.0+rhaiv.4"]
+
+    %% Observability Dependencies
+    KVCache -->|"metrics"| Prometheus["prometheus/client_golang<br/>v1.23.2"]
+    KVCache -->|"tracing"| OTelSDK["opentelemetry<br/>v1.44.0"]
+    KVCache -->|"logging"| Zap["uber/zap<br/>v1.28.0"]
+
+    %% Consumers (arrows point TO kv-cache)
+    EPP["llm-d EPP<br/>(Routing Layer)"] -->|"HTTP scoring API<br/>8080/TCP"| KVCache
+    ColocSvc["Co-located Services"] -->|"gRPC tokenization<br/>UDS"| KVCache
+
+    %% External Services
+    KVCache -->|"tokenizer download<br/>HTTPS"| HFHub["HuggingFace Hub"]
+
+    %% Styling
+    style KVCache fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style vLLM fill:#e1d5e7,stroke:#9673a6
+    style Redis fill:#f5a623,stroke:#333
+    style K8sAPI fill:#999,stroke:#333,color:#fff
+    style OTel fill:#999,stroke:#333,color:#fff
+    style ControllerRuntime fill:#dae8fc,stroke:#6c8ebf
+    style gRPC fill:#dae8fc,stroke:#6c8ebf
+    style ZMQ fill:#dae8fc,stroke:#6c8ebf
+    style GoRedis fill:#dae8fc,stroke:#6c8ebf
+    style Transformers fill:#d5e8d4,stroke:#82b366
+    style grpcio fill:#d5e8d4,stroke:#82b366
+    style vLLMPkg fill:#d5e8d4,stroke:#82b366
+    style Prometheus fill:#fff2cc,stroke:#d6b656
+    style OTelSDK fill:#fff2cc,stroke:#d6b656
+    style Zap fill:#fff2cc,stroke:#d6b656
+    style EPP fill:#f8cecc,stroke:#b85450
+    style ColocSvc fill:#f8cecc,stroke:#b85450
+    style HFHub fill:#999,stroke:#333,color:#fff

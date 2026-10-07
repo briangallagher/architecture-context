@@ -1,0 +1,12 @@
+# Architecture Changes
+
+| Action | Category | Row Key | Column | Analyzer Value | Candidate Value | Reason | Evidence |
+|--------|----------|---------|--------|----------------|-----------------|--------|----------|
+| delete | authentication | HTTP API :: All | * | <empty> | <empty> | Analyzer detected authentication from CI test file, not actual application code; row key does not reflect the actual serving surface | ci/cached-builds/make_test.py:183 |
+| add | authentication | JupyterLab Server API :: All | * | <empty> | <empty> | JupyterLab server explicitly disables token/password auth via NOTEBOOK_ARGS; authentication is delegated to platform oauth-proxy sidecar injected by odh-notebook-controller | jupyter/minimal/ubi9-python-3.12/kustomize/base/statefulset.yaml:26-29, tests/containers/workbenches/culling_api_test.py:32-33 |
+| add | internal_dependencies | odh-notebook-controller | * | <empty> | <empty> | Workbench StatefulSet template uses opendatahub.io annotations and env vars (NOTEBOOK_ARGS, NB_PREFIX) that are injected by notebook-controller; confirmed by test helper docstring | jupyter/minimal/ubi9-python-3.12/kustomize/base/statefulset.yaml:7-8, tests/containers/workbenches/culling_api_test.py:33 |
+| add | internal_dependencies | Kubeflow Pipelines | * | <empty> | <empty> | kfp SDK (v2.17.0) bundled in notebook image dependencies for pipeline authoring | codeserver/ubi9-python-3.12/requirements.cpu.txt:256 |
+| add | internal_dependencies | CodeFlare | * | <empty> | <empty> | codeflare-sdk (v0.38.2) bundled in notebook image dependencies for distributed training | codeserver/ubi9-python-3.12/requirements.cpu.txt:149 |
+| add | integration_points | odh-notebook-controller :: Env var injection | * | <empty> | <empty> | Controller injects NOTEBOOK_ARGS and NB_PREFIX environment variables for workbench routing and ServerApp configuration | jupyter/minimal/ubi9-python-3.12/start-notebook.sh:38-44, jupyter/minimal/ubi9-python-3.12/kustomize/base/statefulset.yaml:24-29 |
+| add | integration_points | Kubernetes API :: REST client | * | <empty> | <empty> | kubernetes Python client (v36.0.3) bundled as SDK dependency for user-authored automation | codeserver/ubi9-python-3.12/requirements.cpu.txt:266 |
+| add | integration_points | S3-compatible storage :: REST client | * | <empty> | <empty> | boto3 (v1.43.63) bundled as SDK dependency for object storage access from notebooks | codeserver/ubi9-python-3.12/requirements.cpu.txt:139 |

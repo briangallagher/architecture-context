@@ -1,0 +1,55 @@
+graph TD
+    subgraph "Service Account"
+        SA["planner-backend<br/>Namespace: planner"]
+    end
+
+    subgraph "ClusterRole Binding"
+        CRB["planner-gpu-reader<br/>(ClusterRoleBinding)<br/>Namespace: planner"]
+    end
+
+    subgraph "ClusterRole"
+        CR["planner-gpu-reader<br/>(ClusterRole)"]
+    end
+
+    subgraph "API Resources"
+        Nodes["core (v1)<br/>nodes"]
+    end
+
+    subgraph "Permitted Verbs"
+        List["list"]
+    end
+
+    subgraph "Application-Level Auth"
+        DBAdmin["DB Admin Operations<br/>/api/v1/db/reset<br/>/api/v1/db/upload-benchmarks<br/>/api/v1/db/verify-admin"]
+        DBAdminPwd["DB_ADMIN_PASSWORD<br/>(env var from planner-secrets)"]
+    end
+
+    subgraph "No Auth Endpoints (30+ routes)"
+        NoAuth["/api/v1/recommend<br/>/api/v1/calculate<br/>/api/v1/estimate<br/>/api/v1/gpu-types<br/>/api/v1/models<br/>/api/v1/deploy<br/>... and 24+ more"]
+    end
+
+    subgraph "CORS Configuration"
+        CORS["CORSMiddleware<br/>allow_origins=[*]<br/>(fully open)"]
+    end
+
+    %% RBAC chain
+    SA -->|"bound via"| CRB
+    CRB -->|"grants"| CR
+    CR -->|"list"| Nodes
+
+    %% App-level auth
+    DBAdminPwd -->|"password verification"| DBAdmin
+
+    %% No auth
+    CORS -->|"allows all origins"| NoAuth
+
+    %% Styling
+    style SA fill:#4a90e2,stroke:#333,color:#fff
+    style CRB fill:#9b59b6,stroke:#333,color:#fff
+    style CR fill:#f5a623,stroke:#333,color:#fff
+    style Nodes fill:#7ed321,stroke:#333
+    style List fill:#7ed321,stroke:#333
+    style DBAdmin fill:#e74c3c,stroke:#333,color:#fff
+    style DBAdminPwd fill:#f8cecc,stroke:#b85450
+    style NoAuth fill:#fee,stroke:#c33,stroke-width:2px
+    style CORS fill:#fee,stroke:#c33,stroke-width:2px

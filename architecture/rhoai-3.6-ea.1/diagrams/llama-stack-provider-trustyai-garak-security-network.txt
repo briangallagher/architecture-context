@@ -1,0 +1,134 @@
+================================================================================
+  SECURITY NETWORK DIAGRAM: llama-stack-provider-trustyai-garak
+  Generated: 2026-08-13
+  Type: Batch Job (Kubernetes Job) - No inbound services
+================================================================================
+
+NOTE: This component runs as a Kubernetes Job, NOT a persistent service.
+It does NOT expose any HTTP endpoints, gRPC services, Kubernetes Services,
+or Ingress resources. All network activity is OUTBOUND only.
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  KUBERNETES CLUSTER (Internal)                                          │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │  Job Pod: llama-stack-provider-trustyai-garak                      │  │
+│  │  Namespace: {user-namespace}                                       │  │
+│  │  ServiceAccount: {job-service-account}                             │  │
+│  │                                                                    │  │
+│  │  Mounted Volumes:                                                  │  │
+│  │  - /etc/eval-job/spec.json (ConfigMap - job specification)         │  │
+│  │                                                                    │  │
+│  │  Environment Variables (Secrets):                                  │  │
+│  │  - API_KEY (model endpoint auth)                                   │  │
+│  │  - OPENAICOMPATIBLE_API_KEY (fallback model auth)                  │  │
+│  │  - KFP_AUTH_TOKEN (Kubeflow Pipelines auth)                        │  │
+│  │  - AWS_SECRET_ACCESS_KEY (S3 storage auth, via envFrom)            │  │
+│  │                                                                    │  │
+│  │  Credential Resolution Order:                                      │  │
+│  │  1. Model-specific env var                                         │  │
+│  │  2. Mounted secret file                                            │  │
+│  │  3. eval-hub secret storage                                        │  │
+│  │  4. Generic API_KEY / OPENAICOMPATIBLE_API_KEY env var              │  │
+│  │                                                                    │  │
+│  │  Security: API keys redacted before S3 persistence                 │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│         │              │               │                                 │
+│         │              │               │                                 │
+│  ┌──────┘    ┌─────────┘     ┌─────────┘                                │
+│  │           │               │                                           │
+│  │    ┌──────────────────────────────────────────────────────────────┐   │
+│  │    │  SIMPLE MODE: Garak runs as subprocess in same pod           │   │
+│  │    │  - No additional network connections required                 │   │
+│  │    │  - Garak probes target model directly from Job pod           │   │
+│  │    └──────────────────────────────────────────────────────────────┘   │
+│  │                                                                       │
+│  │    ┌──────────────────────────────────────────────────────────────┐   │
+│  │    │  KFP MODE: Pipeline pods (separate from Job pod)             │   │
+│  │    │  Namespace: {pipeline-namespace}                              │   │
+│  │    │                                                               │   │
+│  │    │  Credentials: injected via kubernetes.use_secret_as_env       │   │
+│  │    │  - AWS_ACCESS_KEY_ID (from Data Connection secret)            │   │
+│  │    │  - AWS_SECRET_ACCESS_KEY (from Data Connection secret)        │   │
+│  │    │  - API_KEY (for model endpoint access)                        │   │
+│  │    │                                                               │   │
+│  │    │  Steps:                                                       │   │
+│  │    │  1. Validation                                                │   │
+│  │    │  2. Taxonomy Resolution                                       │   │
+│  │    │  3. SDG Prompt Generation                                     │   │
+│  │    │  4. Prompt Preparation                                        │   │
+│  │    │  5. Garak Scan ──→ Target Model (outbound)                   │   │
+│  │    │  6. KFP Output Writing ──→ S3 (outbound)                     │   │
+│  │    └──────────────────────────────────────────────────────────────┘   │
+│  │           │               │                                           │
+├──┼───────────┼───────────────┼───────────────────────────────────────────┤
+│  │           │               │                                           │
+│  │  OUTBOUND CONNECTIONS (Egress)                                        │
+│  │           │               │                                           │
+│  ▼           ▼               ▼                                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INTERNAL PLATFORM SERVICES                                              │
+│                                                                          │
+│  [Kubeflow Pipelines Server]       (KFP mode only)                      │
+│  - Protocol: HTTPS                                                       │
+│  - Auth: KFP_AUTH_TOKEN (Bearer token)                                  │
+│  - Purpose: Pipeline submission and status monitoring                    │
+│                                                                          │
+│  [eval-hub Sidecar]                                                      │
+│  - Protocol: HTTP (localhost callback)                                   │
+│  - Auth: None (pod-local)                                               │
+│  - Purpose: Report scan results back to eval-hub                         │
+│                                                                          │
+│  [Kubernetes API Server]           (KFP mode only)                      │
+│  - Protocol: HTTPS                                                       │
+│  - Auth: In-cluster ServiceAccount token / KFP_AUTH_TOKEN               │
+│  - Purpose: Read Data Connection secrets for S3 credentials             │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                       │
+│                                                                          │
+│  [Target Model Endpoint]                                                 │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS (system OpenSSL)                                      │
+│  - Auth: API_KEY / OPENAICOMPATIBLE_API_KEY (Bearer token)              │
+│  - Purpose: AI model inference target for Garak red-team scanning       │
+│                                                                          │
+│  [S3-Compatible Storage]                                                 │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS (via boto3 defaults)                                  │
+│  - Auth: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY                      │
+│  - Purpose: Artifact transfer (configs, prompts, scan results)          │
+│  - Note: Credentials from OpenShift AI Data Connection secrets          │
+│                                                                          │
+│  [OCI Registry]                                                          │
+│  - Protocol: HTTPS                                                       │
+│  - Encryption: TLS                                                       │
+│  - Auth: Registry credentials                                            │
+│  - Purpose: Persist scan result artifacts                                │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- No ClusterRoles or ClusterRoleBindings defined by this component
+- Relies on namespace-scoped permissions granted to the Job's ServiceAccount
+- KFP mode requires additional permissions to read Secrets (Data Connections)
+
+Secrets Summary:
+- API_KEY (env var) - Model endpoint authentication key
+- OPENAICOMPATIBLE_API_KEY (env var) - Fallback model endpoint auth key
+- KFP_AUTH_TOKEN (env var) - Kubeflow Pipelines bearer token
+- AWS_SECRET_ACCESS_KEY (env var, via envFrom) - S3 storage credentials
+- Data Connection secrets (K8s Secrets) - Injected into KFP pipeline pods
+  via kubernetes.use_secret_as_env
+
+Security Controls:
+- API keys redacted before persisting configurations to S3
+- Cascading credential resolution (model-specific → mounted file →
+  eval-hub storage → generic env var)
+- No direct TLS operations; relies on boto3, requests, httpx default
+  TLS settings (system OpenSSL)
+
+FIPS Compliance:
+- Not verified at application level
+- Depends on container base image and runtime environment
+- cryptography (v49.0.0) and pyjwt (v2.13.0) are transitive dependencies

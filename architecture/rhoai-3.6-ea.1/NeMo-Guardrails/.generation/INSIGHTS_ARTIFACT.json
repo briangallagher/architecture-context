@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "component": "NeMo-Guardrails",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "nemo-guardrails-auth-delegation-001",
+      "claim": "NeMo-Guardrails server exposes all HTTP endpoints without built-in authentication, relying entirely on infrastructure-level auth (Kubernetes ingress/proxy).",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "nemoguardrails/server/api.py:69-83"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "nemoguardrails/header_forwarding.py:16-25"
+        }
+      ],
+      "reasoning": "The FastAPI application has no Depends() auth middleware, no API key validation, and no token checks on any endpoint. The header_forwarding module explicitly documents that inbound Authorization (K8s/proxy auth) is never forwarded to LLM backends. This means if the service is exposed without an authenticating proxy, all guardrail endpoints are publicly accessible.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "nemo-guardrails-header-forwarding-002",
+      "claim": "The header_forwarding module implements a credential isolation pattern that separates infrastructure auth from LLM provider auth, preventing accidental credential leakage.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "nemoguardrails/header_forwarding.py:62-88"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "nemoguardrails/header_forwarding.py:102-126"
+        }
+      ],
+      "reasoning": "The module explicitly excludes the inbound Authorization header from LLM-bound requests and maps X-Authorization separately. This is a deliberate Red Hat fork-specific addition (documented as 'fork-specific' in the module docstring) that enables runtime auth injection without leaking K8s service account tokens to external LLM providers.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "nemo-guardrails-fips-inherited-003",
+      "claim": "FIPS compliance is inherited from the AIPCC base image with no explicit application-level FIPS opt-in; the cryptography library uses OpenSSL as its backend.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:1"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "requirements.txt:112-118"
+        }
+      ],
+      "reasoning": "The cryptography==46.0.7 package is sourced from the RHAI PyPI index and uses OpenSSL. FIPS mode depends on the base image's OpenSSL provider configuration. The application does not explicitly enable or validate FIPS mode, which means FIPS compliance is only as strong as the base image configuration.",
+      "applicability": "component",
+      "confidence": "medium"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+sequenceDiagram
+    participant Admin as Platform Admin
+    participant K8sAPI as Kubernetes API Server<br/>6443/TCP HTTPS TLS 1.2+
+    participant Webhook as Webhook Server<br/>9443/TCP TLS (service-ca)
+    participant DSCCtrl as DataScienceCluster<br/>Controller
+    participant CompCtrl as Component Controllers<br/>(DSP, Kueue, Ray, etc.)
+    participant GWCtrl as Gateway Service<br/>Controller
+    participant AuthCtrl as Auth Service<br/>Controller
+    participant MonCtrl as Monitoring Service<br/>Controller
+    participant Istio as Istio Service Mesh
+    participant Prom as Prometheus Proxies<br/>8443/TCP TLS
+
+    Note over Admin,Prom: Flow 1: Admission & Webhook
+    Admin->>K8sAPI: Create/Update DataScienceCluster CR
+    K8sAPI->>Webhook: POST /mutate-datasciencecluster-v2<br/>TLS (service-ca cert)
+    Webhook-->>K8sAPI: Mutated CR (defaults applied)
+    K8sAPI->>Webhook: POST /validate-datasciencecluster-v2<br/>TLS (service-ca cert)
+    Webhook-->>K8sAPI: Validation result<br/>(fail-closed policy)
+    K8sAPI-->>Admin: CR accepted/rejected
+
+    Note over Admin,Prom: Flow 2: Component Reconciliation
+    K8sAPI->>DSCCtrl: Watch event: DSC CR changed
+    DSCCtrl->>DSCCtrl: Read desired component states
+    DSCCtrl->>CompCtrl: Trigger per-component reconciliation
+    CompCtrl->>CompCtrl: Render manifests via<br/>kustomize/template actions
+    CompCtrl->>K8sAPI: Create/Update Deployments,<br/>Services, RBAC, Monitoring<br/>HTTPS/6443, ServiceAccount auth
+    K8sAPI-->>CompCtrl: Resource status
+
+    Note over Admin,Prom: Flow 3: Gateway Ingress Chain
+    K8sAPI->>GWCtrl: Watch event: GatewayConfig CR
+    GWCtrl->>K8sAPI: Create GatewayClass + Gateway
+    GWCtrl->>K8sAPI: Create HTTPRoutes
+    GWCtrl->>K8sAPI: Create OpenShift Routes<br/>(TLS-terminated)
+    GWCtrl->>K8sAPI: Deploy kube-auth-proxy<br/>(OIDC for dashboard)
+    GWCtrl->>K8sAPI: Read APIServer TLS profile
+    opt Istio CRDs detected
+        GWCtrl->>Istio: Create EnvoyFilter +<br/>DestinationRule
+    end
+    opt OpenShift OAuth (non-ROSA)
+        GWCtrl->>K8sAPI: Create OAuthClient
+    end
+
+    Note over Admin,Prom: Flow 4: Auth RBAC Management
+    K8sAPI->>AuthCtrl: Watch event: Auth CR / Namespace
+    AuthCtrl->>AuthCtrl: Evaluate admin-group &<br/>allowed-group policies
+    AuthCtrl->>K8sAPI: Create/Update ClusterRoles<br/>& ClusterRoleBindings
+    Note right of AuthCtrl: Watches models-as-a-service<br/>and kuadrant-system namespaces
+
+    Note over Admin,Prom: Flow 5: Monitoring Data Flow
+    K8sAPI->>MonCtrl: Watch event: Monitoring CR
+    MonCtrl->>K8sAPI: Deploy Prometheus cluster-proxy<br/>(kube-rbac-proxy sidecar)
+    MonCtrl->>K8sAPI: Deploy Prometheus namespace-proxy<br/>(kube-rbac-proxy + prom-label-proxy)
+    MonCtrl->>K8sAPI: Deploy collector<br/>(MLflow trace export)
+    MonCtrl->>K8sAPI: Create monitoring Routes<br/>(TLS-terminated)
+    Prom->>K8sAPI: Scrape metrics<br/>Kubernetes auth/authz

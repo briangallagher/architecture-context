@@ -1,0 +1,9 @@
+# Architecture Changes: mcp-lifecycle-module-operator
+
+| Action | Category | Row Key | Column | Analyzer Value | Candidate Value | Reason | Evidence |
+|--------|----------|---------|--------|----------------|-----------------|--------|----------|
+| add | authentication | :8443/metrics :: GET | * | <empty> | <empty> | Metrics endpoint uses controller-runtime built-in RBAC authentication via TokenReview/SubjectAccessReview; metrics-auth-role grants validation permissions and metrics-reader controls scrape access | internal/controller/resources/mcp-lifecycle-operator.yaml:1958-1984, internal/controller/resources/mcp-lifecycle-operator.yaml:2076 |
+| update | integration_points | prometheus-operator :: CRD CRUD | Role | unknown | metrics-provider | RBAC grants ServiceMonitor CRUD permissions in monitoring.coreos.com API group, establishing the operator as a metrics provider that creates ServiceMonitor resources for Prometheus scraping | internal/controller/resources/mcp-lifecycle-operator.yaml:2032-2049, config/rbac/role.yaml:2 |
+| update | integration_points | prometheus-operator :: CRD CRUD | Purpose | Manage Prometheus monitoring resources | Create and manage ServiceMonitor resources for Prometheus metrics collection | Refined purpose based on RBAC evidence showing ServiceMonitor-specific monitoring.coreos.com permissions | config/rbac/role.yaml:2 |
+| update | internal_dependencies | prometheus-operator | Role | unknown | metrics-provider | Same RBAC evidence establishes the operator's role as a metrics-provider that manages ServiceMonitor CRs | config/rbac/role.yaml:2 |
+| update | internal_dependencies | prometheus-operator | Purpose | Manage Prometheus monitoring resources | Create and manage ServiceMonitor resources for Prometheus metrics collection | Refined purpose consistent with integration_points update | config/rbac/role.yaml:2 |

@@ -1,0 +1,70 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Admin["Administrator<br/>(helm install / kubectl)"]
+        InferenceClient["Inference Client"]
+        MaaSClient["MaaS API Client"]
+    end
+
+    subgraph Ingress["INGRESS (Gateway API Layer)"]
+        InferenceGW["inference-gateway<br/>GatewayClass: openshift-ai-inference<br/>443/TCP HTTPS + 80/TCP HTTP<br/>TLS Terminate (cert-manager)<br/>Auth: None (configurable)"]
+        MaaSGW["maas-default-gateway<br/>GatewayClass: maas-gateway-class<br/>443/TCP HTTPS<br/>TLS Terminate (cert-manager)<br/>Auth: Authorino (Kuadrant)"]
+    end
+
+    subgraph ClusterServices["CLUSTER SERVICES (Internal)"]
+        direction TB
+
+        subgraph NS_Operator["Namespace: redhat-ods-operator"]
+            Operator["RHAI Operator Controller Manager<br/>SA: rhai-operator-controller-manager<br/>Image: opendatahub-operator:latest"]
+            MetricsSvc["metrics-service (ClusterIP)<br/>8443/TCP → 8080<br/>HTTP / No encryption"]
+            WebhookSvc["webhook-service (ClusterIP)<br/>443/TCP → 9443<br/>HTTPS / TLS (cert-manager)"]
+            PostInstallHook["Post-Install Hook Jobs<br/>SA: rhai-post-install-hook<br/>non-root uid:65534<br/>readOnlyRootFilesystem"]
+            PreDeleteHook["Pre-Delete Hook Job<br/>SA: rhai-pre-delete-hook<br/>non-root uid:65534"]
+        end
+
+        subgraph NS_Apps["Namespace: redhat-ods-applications"]
+            AppResources["Application Resources<br/>(managed by operator)"]
+        end
+
+        K8sAPI["Kubernetes API Server<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>ServiceAccount Token"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        OLMCatalog["OLM CatalogSources<br/>(redhat-operators, community,<br/>certified-operators)<br/>443/TCP HTTPS TLS 1.2+"]
+        Registries["Container Registries<br/>(quay.io, registry.redhat.io)<br/>443/TCP HTTPS TLS 1.2+<br/>Auth: Pull Secret"]
+        GitHubRhods["GitHub: rhods-operator<br/>443/TCP HTTPS TLS 1.2+<br/>Auth: GitHub App Token"]
+        GitHubBuildCfg["GitHub: RHOAI-Build-Config<br/>443/TCP HTTPS TLS 1.2+<br/>Auth: GitHub App Token"]
+        GitHubODHBuild["GitHub: ODH-Build-Config<br/>443/TCP HTTPS TLS 1.2+<br/>Auth: None (public)"]
+    end
+
+    %% External → Ingress flows
+    Admin -->|"HTTPS/443<br/>TLS 1.2+<br/>kubeconfig"| K8sAPI
+    InferenceClient -->|"HTTPS/443<br/>TLS (cert-manager)<br/>No auth (configurable)"| InferenceGW
+    MaaSClient -->|"HTTPS/443<br/>TLS (cert-manager)<br/>Authorino AuthPolicy"| MaaSGW
+
+    %% Internal flows
+    Operator -->|"HTTPS/443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+    PostInstallHook -->|"HTTPS/443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+    PreDeleteHook -->|"HTTPS/443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+    Operator --- MetricsSvc
+    Operator --- WebhookSvc
+    K8sAPI -->|"HTTPS/443<br/>TLS client cert"| WebhookSvc
+
+    %% Egress flows
+    K8sAPI -->|"HTTPS/443<br/>TLS 1.2+"| OLMCatalog
+    K8sAPI -->|"HTTPS/443<br/>TLS 1.2+<br/>Pull Secret"| Registries
+    K8sAPI -.->|"CI/CD workflows"| GitHubRhods
+    K8sAPI -.->|"CI/CD workflows"| GitHubBuildCfg
+    K8sAPI -.->|"CI/CD workflows"| GitHubODHBuild
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef internal fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef k8sapi fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+
+    class Admin,InferenceClient,MaaSClient external
+    class InferenceGW,MaaSGW ingress
+    class Operator,MetricsSvc,WebhookSvc,PostInstallHook,PreDeleteHook,AppResources internal
+    class K8sAPI k8sapi
+    class OLMCatalog,Registries,GitHubRhods,GitHubBuildCfg,GitHubODHBuild externalservice

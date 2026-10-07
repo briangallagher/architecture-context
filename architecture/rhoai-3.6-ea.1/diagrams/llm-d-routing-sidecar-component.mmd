@@ -1,0 +1,72 @@
+graph TB
+    subgraph External["External Clients"]
+        Client[Inference Client<br/>OpenAI-compatible]
+    end
+
+    subgraph Ingress["OpenShift Ingress"]
+        Route["OpenShift Route<br/>HTTPS/TLS"]
+        Service["K8s Service<br/>ClusterIP 8080/TCP"]
+    end
+
+    subgraph SidecarPod["Pod: Inference Pod"]
+        direction TB
+
+        subgraph Sidecar["llm-d-routing-sidecar"]
+            Listener["HTTP/TLS Listener<br/>Port 8000"]
+            ConnectorHandler["Connector Handler<br/>nixlv2 / nixl / lmcache"]
+            DefaultProxy["Default Reverse Proxy<br/>Catch-all /"]
+            LRUCache["Prefiller Proxy LRU Cache<br/>Capacity: 16"]
+            TLSConfig["TLS Config<br/>TLS 1.2+ / Self-signed or Cert"]
+            AllowlistValidator["AllowlistValidator<br/>SSRF Protection (optional)"]
+        end
+
+        subgraph LocalEngine["Co-located Inference Engine"]
+            vLLM["vLLM Decoder<br/>localhost:8001"]
+        end
+    end
+
+    subgraph RemotePods["Remote Prefiller Pods"]
+        Prefiller1["Prefiller Pod 1"]
+        Prefiller2["Prefiller Pod N"]
+    end
+
+    subgraph K8sControlPlane["Kubernetes Control Plane"]
+        APIServer["Kubernetes API<br/>6443/HTTPS"]
+        InferencePool["InferencePool CR<br/>inference.networking.x-k8s.io/v1alpha2"]
+    end
+
+    %% Flows
+    Client -->|HTTPS| Route
+    Route -->|TCP 8080| Service
+    Service -->|TCP 8000| Listener
+
+    Listener --> ConnectorHandler
+    Listener --> DefaultProxy
+
+    ConnectorHandler -->|"x-prefiller-url header<br/>detected"| LRUCache
+    LRUCache -->|"HTTP/HTTPS<br/>Optional TLS"| Prefiller1
+    LRUCache -->|"HTTP/HTTPS<br/>Optional TLS"| Prefiller2
+
+    DefaultProxy -->|"HTTP/HTTPS<br/>localhost:8001"| vLLM
+
+    AllowlistValidator -->|"Watch InferencePool<br/>+ backing Pods"| APIServer
+    APIServer --- InferencePool
+    ConnectorHandler -.->|validate target| AllowlistValidator
+
+    TLSConfig -.->|configures| Listener
+
+    %% Styles
+    style Listener fill:#4a90e2,stroke:#333,color:#fff
+    style ConnectorHandler fill:#4a90e2,stroke:#333,color:#fff
+    style DefaultProxy fill:#4a90e2,stroke:#333,color:#fff
+    style LRUCache fill:#4a90e2,stroke:#333,color:#fff
+    style TLSConfig fill:#4a90e2,stroke:#333,color:#fff
+    style AllowlistValidator fill:#e8a838,stroke:#333,color:#fff
+    style vLLM fill:#7ed321,stroke:#333,color:#fff
+    style Prefiller1 fill:#7ed321,stroke:#333,color:#fff
+    style Prefiller2 fill:#7ed321,stroke:#333,color:#fff
+    style Route fill:#f5a623,stroke:#333
+    style Service fill:#f5a623,stroke:#333
+    style APIServer fill:#999,stroke:#333,color:#fff
+    style InferencePool fill:#f5a623,stroke:#333
+    style Client fill:#f9f9f9,stroke:#999,stroke-width:2px

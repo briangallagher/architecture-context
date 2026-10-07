@@ -1,95 +1,101 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA["kueue-controller-manager<br/>(namespace: opendatahub)"]
+        SA["kueue-controller-manager<br/>(opendatahub namespace)"]
     end
 
-    subgraph Bindings["Role Bindings"]
-        CRB["kueue-manager-rolebinding<br/>(ClusterRoleBinding)"]
-        RB["kueue-leader-election-rolebinding<br/>(RoleBinding, ns: opendatahub)"]
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        CRB["kueue-manager-rolebinding<br/>(cluster-wide)"]
     end
 
-    subgraph ClusterRoles["Cluster Roles"]
-        CR["kueue-manager-role<br/>(ClusterRole)"]
-        LER["kueue-leader-election-role<br/>(Role, ns: opendatahub)"]
+    subgraph RoleBindings["Role Bindings"]
+        RB["kueue-leader-election-rolebinding<br/>(opendatahub namespace)"]
     end
 
-    subgraph KueueResources["Kueue CRDs (kueue.x-k8s.io)"]
-        KueueCRDs["ClusterQueues, LocalQueues,<br/>Workloads, AdmissionChecks,<br/>Cohorts, ResourceFlavors,<br/>Topologies, WorkloadPriorityClasses,<br/>MultiKueueClusters, MultiKueueConfigs,<br/>ProvisioningRequestConfigs"]
+    subgraph ClusterRoles["ClusterRole: kueue-manager-role"]
+        CR["kueue-manager-role"]
     end
 
-    subgraph BatchResources["Batch & ML Frameworks"]
-        Jobs["batch/v1 Jobs<br/>get, list, patch, update, watch"]
-        JobSets["jobset.x-k8s.io JobSets<br/>get, list, patch, update, watch"]
-        Kubeflow["kubeflow.org<br/>PyTorchJob, TFJob, MPIJob,<br/>XGBoostJob, PaddleJob<br/>get, list, patch, update, watch"]
-        Ray["ray.io<br/>RayJobs, RayClusters<br/>get, list, patch, update, watch"]
-        CodeFlare["workload.codeflare.dev<br/>AppWrappers<br/>get, list, patch, update, watch"]
-        LWS["leaderworkerset.x-k8s.io<br/>LeaderWorkerSets<br/>get, list, watch"]
+    subgraph NamespaceRoles["Role: kueue-leader-election-role"]
+        LER["kueue-leader-election-role<br/>(opendatahub)"]
     end
 
-    subgraph CoreResources["Core Kubernetes Resources"]
-        Pods["Pods<br/>delete, get, list, patch, update, watch"]
-        PodsFinalizers["Pods/finalizers<br/>get, update"]
-        PodsStatus["Pods/status<br/>get, patch"]
-        PodTemplates["PodTemplates<br/>create, delete, get, list, update, watch"]
-        Secrets["Secrets<br/>get, list, update, watch"]
-        Events["Events<br/>create, patch, update, watch"]
-        ReadOnly["Namespaces, Nodes, LimitRanges<br/>get, list, watch"]
+    SA -->|"bound via"| CRB
+    SA -->|"bound via"| RB
+    CRB -->|"grants"| CR
+    RB -->|"grants"| LER
+
+    subgraph CoreAPI["Core API Resources"]
+        Events["events<br/>create, patch, update, watch"]
+        LimitRanges["limitranges, namespaces, nodes<br/>get, list, watch"]
+        Pods["pods<br/>delete, get, list, patch, update, watch"]
+        PodsFinalizers["pods/finalizers<br/>get, update"]
+        PodsStatus["pods/status<br/>get, patch"]
+        PodTemplates["podtemplates<br/>create, delete, get, list, update, watch"]
+        Secrets["secrets<br/>get, list, update, watch"]
     end
 
-    subgraph InfraResources["Infrastructure Resources"]
-        Webhooks["admissionregistration.k8s.io<br/>MutatingWebhookConfigs,<br/>ValidatingWebhookConfigs<br/>get, list, update, watch"]
-        AppsReadOnly["apps/v1<br/>Deployments, ReplicaSets,<br/>StatefulSets<br/>get, list, watch"]
-        Provisioning["autoscaling.x-k8s.io<br/>ProvisioningRequests<br/>create, delete, get, list,<br/>patch, update, watch"]
-        FlowControl["flowcontrol.apiserver.k8s.io<br/>FlowSchemas,<br/>PriorityLevelConfigs<br/>list, watch, patch (status)"]
-        Scheduling["scheduling.k8s.io<br/>PriorityClasses<br/>get, list, watch"]
-        RuntimeClasses["node.k8s.io<br/>RuntimeClasses<br/>get, list, watch"]
+    subgraph KueueAPI["kueue.x-k8s.io Resources"]
+        KueueFull["admissionchecks, clusterqueues,<br/>cohorts, localqueues, workloads<br/>create, delete, get, list, patch, update, watch"]
+        KueueRead["multikueueclusters, multikueueconfigs,<br/>provisioningrequestconfigs,<br/>workloadpriorityclasses<br/>get, list, watch"]
+        ResourceFlavors["resourceflavors<br/>delete, get, list, update, watch"]
+        Topologies["topologies<br/>get, list, update, watch"]
     end
 
-    subgraph LeaderElection["Leader Election Resources"]
-        Leases["coordination.k8s.io<br/>Leases<br/>create, get, update"]
-        ConfigMaps["ConfigMaps<br/>get, list, watch,<br/>create, update, patch, delete"]
+    subgraph JobAPIs["Job Framework API Resources"]
+        BatchJobs["batch: jobs<br/>get, list, patch, update, watch"]
+        BatchJobsSub["batch: jobs/finalizers, jobs/status<br/>get, patch, update"]
+        KubeflowJobs["kubeflow.org: mpijobs, paddlejobs,<br/>pytorchjobs, tfjobs, xgboostjobs<br/>get, list, patch, update, watch"]
+        RayResources["ray.io: rayclusters, rayjobs<br/>get, list, patch, update, watch"]
+        JobSets["jobset.x-k8s.io: jobsets<br/>get, list, patch, update, watch"]
+        AppWrappers["workload.codeflare.dev: appwrappers<br/>get, list, patch, update, watch"]
+        LWS["leaderworkerset.x-k8s.io: leaderworkersets<br/>get, list, watch"]
     end
 
-    %% Bindings
-    SA -->|bound via| CRB
-    SA -->|bound via| RB
-    CRB -->|grants| CR
-    RB -->|grants| LER
+    subgraph OtherAPIs["Other API Resources"]
+        Apps["apps: deployments, replicasets, statefulsets<br/>get, list, watch"]
+        AdmissionReg["admissionregistration.k8s.io:<br/>mutating/validatingwebhookconfigurations<br/>get, list, update, watch"]
+        Scheduling["scheduling.k8s.io: priorityclasses<br/>get, list, watch"]
+        RuntimeClasses["node.k8s.io: runtimeclasses<br/>get, list, watch"]
+        FlowControl["flowcontrol.apiserver.k8s.io:<br/>flowschemas, prioritylevelconfigurations<br/>list, watch"]
+        ProvReqs["autoscaling.x-k8s.io: provisioningrequests<br/>create, delete, get, list, patch, update, watch"]
+    end
 
-    %% ClusterRole permissions
-    CR -->|"full CRUD +<br/>finalizers, status"| KueueCRDs
-    CR -->|manages| BatchResources
-    CR -->|manages| CoreResources
-    CR -->|manages| InfraResources
-
-    %% Leader election permissions
-    LER -->|manages| LeaderElection
+    CR -->|"grants access"| CoreAPI
+    CR -->|"grants access"| KueueAPI
+    CR -->|"grants access"| JobAPIs
+    CR -->|"grants access"| OtherAPIs
 
     %% Styling
     style SA fill:#4a90e2,stroke:#333,color:#fff
-    style CRB fill:#e67e22,stroke:#333,color:#fff
-    style RB fill:#e67e22,stroke:#333,color:#fff
     style CR fill:#f5a623,stroke:#333
     style LER fill:#f5a623,stroke:#333
-    style KueueCRDs fill:#7ed321,stroke:#333
-    style Jobs fill:#27ae60,stroke:#333,color:#fff
-    style JobSets fill:#27ae60,stroke:#333,color:#fff
-    style Kubeflow fill:#27ae60,stroke:#333,color:#fff
-    style Ray fill:#27ae60,stroke:#333,color:#fff
-    style CodeFlare fill:#27ae60,stroke:#333,color:#fff
-    style LWS fill:#27ae60,stroke:#333,color:#fff
-    style Pods fill:#3498db,stroke:#333,color:#fff
-    style PodsFinalizers fill:#3498db,stroke:#333,color:#fff
-    style PodsStatus fill:#3498db,stroke:#333,color:#fff
-    style PodTemplates fill:#3498db,stroke:#333,color:#fff
-    style Secrets fill:#e74c3c,stroke:#333,color:#fff
-    style Events fill:#3498db,stroke:#333,color:#fff
-    style ReadOnly fill:#3498db,stroke:#333,color:#fff
-    style Webhooks fill:#9b59b6,stroke:#333,color:#fff
-    style AppsReadOnly fill:#9b59b6,stroke:#333,color:#fff
-    style Provisioning fill:#9b59b6,stroke:#333,color:#fff
-    style FlowControl fill:#9b59b6,stroke:#333,color:#fff
-    style Scheduling fill:#9b59b6,stroke:#333,color:#fff
-    style RuntimeClasses fill:#9b59b6,stroke:#333,color:#fff
-    style Leases fill:#95a5a6,stroke:#333,color:#fff
-    style ConfigMaps fill:#95a5a6,stroke:#333,color:#fff
+    style CRB fill:#dae8fc,stroke:#6c8ebf
+    style RB fill:#dae8fc,stroke:#6c8ebf
+
+    style Events fill:#d5e8d4,stroke:#82b366
+    style LimitRanges fill:#d5e8d4,stroke:#82b366
+    style Pods fill:#d5e8d4,stroke:#82b366
+    style PodsFinalizers fill:#d5e8d4,stroke:#82b366
+    style PodsStatus fill:#d5e8d4,stroke:#82b366
+    style PodTemplates fill:#d5e8d4,stroke:#82b366
+    style Secrets fill:#d5e8d4,stroke:#82b366
+
+    style KueueFull fill:#7ed321,stroke:#333
+    style KueueRead fill:#7ed321,stroke:#333
+    style ResourceFlavors fill:#7ed321,stroke:#333
+    style Topologies fill:#7ed321,stroke:#333
+
+    style BatchJobs fill:#e1d5e7,stroke:#9673a6
+    style BatchJobsSub fill:#e1d5e7,stroke:#9673a6
+    style KubeflowJobs fill:#e1d5e7,stroke:#9673a6
+    style RayResources fill:#e1d5e7,stroke:#9673a6
+    style JobSets fill:#e1d5e7,stroke:#9673a6
+    style AppWrappers fill:#e1d5e7,stroke:#9673a6
+    style LWS fill:#e1d5e7,stroke:#9673a6
+
+    style Apps fill:#fff2cc,stroke:#d6b656
+    style AdmissionReg fill:#fff2cc,stroke:#d6b656
+    style Scheduling fill:#fff2cc,stroke:#d6b656
+    style RuntimeClasses fill:#fff2cc,stroke:#d6b656
+    style FlowControl fill:#fff2cc,stroke:#d6b656
+    style ProvReqs fill:#fff2cc,stroke:#d6b656

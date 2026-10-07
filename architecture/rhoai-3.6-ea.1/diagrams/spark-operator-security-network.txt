@@ -1,0 +1,160 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [User / CI]                                                             │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: User token (kubectl)                                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  KUBERNETES CONTROL PLANE                                               │
+│                                                                          │
+│  [kube-apiserver]                                                        │
+│  - Port: 6443/TCP (external and internal)                               │
+│  - TLS Termination: TLS 1.2+                                            │
+│  - AuthN: Bearer tokens, ServiceAccount tokens                          │
+│  - AuthZ: RBAC                                                          │
+│         │                                                                │
+│         │ Port: 443/TCP                                                  │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS (self-signed or cert-manager)                  │
+│         │ Auth: Kubernetes admission (API server identity)               │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  SPARK OPERATOR NAMESPACE                                               │
+│                                                                          │
+│  [spark-operator-webhook]                                                │
+│  - Deployment                                                            │
+│  - ServiceAccount: spark-operator-webhook                                │
+│  - Service: spark-operator-webhook-svc (ClusterIP 443/TCP)              │
+│  - Certificate: spark-operator-webhook-certs (Secret)                    │
+│  - Endpoints:                                                            │
+│    - /mutate--v1-pod (Mutating, Fail policy)                            │
+│    - /mutate-sparkapplication (Mutating, Fail policy)                   │
+│    - /mutate-scheduledsparkapplication (Mutating, Fail policy)          │
+│    - /mutate-sparkconnect (Mutating, Fail policy)                       │
+│    - /validate-sparkapplication (Validating, Fail policy)               │
+│    - /validate-scheduledsparkapplication (Validating, Fail policy)      │
+│    - /validate-sparkconnect (Validating, Fail policy)                   │
+│    - /convert (Conversion webhook)                                       │
+│  - Health probes: :8081/healthz, :8081/readyz (HTTP, unauthenticated)   │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token                                     │
+│         │                                                                │
+│  [spark-operator-controller]                                             │
+│  - Deployment                                                            │
+│  - ServiceAccount: spark-operator-controller                             │
+│  - Reconciles: SparkApplication, ScheduledSparkApplication,             │
+│    SparkConnect, MutatingWebhookConfiguration,                          │
+│    ValidatingWebhookConfiguration                                        │
+│  - Creates: Driver Pods, Executor Pods, Services, ConfigMaps, PDBs     │
+│  - Health probes: :8081/healthz, :8081/readyz (HTTP, unauthenticated)   │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS/WSS                                            │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token                                     │
+│         │                                                                │
+│  [spark-operator-module]                                                 │
+│  - Deployment (RHOAI platform layer)                                     │
+│  - ServiceAccount: spark-operator-module-controller-manager              │
+│  - Reconciles: SparkOperator CR (components.platform.opendatahub.io)    │
+│  - Manages: Deployments, CRDs, RBAC, Services, Webhooks,               │
+│    NetworkPolicies, cert-manager CRs, PodMonitors                       │
+│         │                                                                │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token                                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  INTERNAL PLATFORM SERVICES                                             │
+│                                                                          │
+│  [cert-manager]                                                          │
+│  - Purpose: TLS certificate lifecycle for webhook certs                  │
+│  - Interaction: CRD CRUD (Certificate, Issuer)                          │
+│  - Protocol: Kubernetes API                                              │
+│  - Encryption: TLS 1.2+                                                  │
+│                                                                          │
+│  [prometheus-operator]                                                   │
+│  - Purpose: Monitoring via PodMonitor CRDs                               │
+│  - Interaction: CRD CRUD (PodMonitor)                                   │
+│  - Protocol: Kubernetes API                                              │
+│  - Encryption: TLS 1.2+                                                  │
+│                                                                          │
+│  [ODH Operator]                                                          │
+│  - Purpose: Creates SparkOperator CR                                     │
+│  - Protocol: Kubernetes API                                              │
+│  - Encryption: TLS 1.2+                                                  │
+│  - Auth: ServiceAccount token                                            │
+│                                                                          │
+│  [OpenShift APIServer]                                                   │
+│  - Purpose: TLS profile configuration (config.openshift.io/v1)          │
+│  - Read at startup for cluster-aligned cipher suites                     │
+│  - Default: TLS 1.2, Intermediate ciphers (ECDHE+AES-GCM,              │
+│    ECDHE+CHACHA20-POLY1305)                                              │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+
+  ClusterRole: spark-operator-controller
+  - API Groups: sparkoperator.k8s.io
+    Resources: sparkapplications, scheduledsparkapplications, sparkconnects
+    Verbs: get, list, watch, create, delete, update
+  - API Groups: (core)
+    Resources: pods, services, configmaps, events
+    Verbs: create, delete, get, list, patch, update, watch
+  - API Groups: policy
+    Resources: poddisruptionbudgets
+    Verbs: create, delete, get, list, watch
+  - API Groups: coordination.k8s.io
+    Resources: leases
+    Verbs: create, get, update
+
+  ClusterRole: spark-operator-webhook
+  - API Groups: (core)
+    Resources: resourcequotas, pods, events, secrets
+    Verbs: list, watch, create, get, update, patch
+  - API Groups: admissionregistration.k8s.io
+    Resources: mutatingwebhookconfigurations, validatingwebhookconfigurations
+    Verbs: get, list, watch, update
+  - API Groups: sparkoperator.k8s.io
+    Resources: sparkapplications, scheduledsparkapplications
+    Verbs: get, list, watch
+
+  ClusterRole: spark-operator-module-manager-role
+  - API Groups: components.platform.opendatahub.io
+    Resources: sparkoperators, sparkoperators/status, sparkoperators/finalizers
+    Verbs: get, list, watch, patch, update
+  - API Groups: apps, (core), admissionregistration.k8s.io, apiextensions.k8s.io,
+    rbac.authorization.k8s.io, cert-manager.io, monitoring.coreos.com,
+    networking.k8s.io, coordination.k8s.io
+    Resources: deployments, services, configmaps, serviceaccounts, webhooks,
+    CRDs, roles, clusterroles, bindings, certificates, issuers,
+    podmonitors, networkpolicies, leases
+    Verbs: create, delete, get, list, patch, update, watch
+
+TLS Configuration:
+  - Source: OpenShift APIServer TLS profile (config.openshift.io/v1)
+  - Default: TLS 1.2, Intermediate cipher suite
+  - Ciphers: ECDHE+AES-GCM, ECDHE+CHACHA20-POLY1305
+  - Profiles supported: Intermediate (default), Modern, Old, Custom
+  - FIPS: GOEXPERIMENT=strictfipsruntime, CGO_ENABLED=1, dynamic linking
+
+Secrets:
+  - spark-operator-webhook-certs: TLS cert for webhook; provisioned by
+    internal pkg/certificate provider (self-signed) or cert-manager;
+    scoped RBAC access (resourceNames restriction)
+  - Leader election locks:
+    - spark-operator-webhook-lock (webhook leader election)
+    - Leases in coordination.k8s.io (controller/module leader election)
+
+Network Policies:
+  - Managed by spark-operator-module for spark-operator namespace
+  - Created/deleted as part of platform component reconciliation

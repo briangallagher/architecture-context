@@ -1,81 +1,104 @@
 graph TB
-    subgraph Pod["ODH Dashboard Pod"]
+    subgraph External["External Access"]
+        Browser[Browser / Client]
+    end
+
+    subgraph GatewayLayer["Gateway Layer"]
+        Gateway["data-science-gateway<br/>HTTPRoute<br/>443/TCP HTTPS"]
+    end
+
+    subgraph DashboardPod["ODH Dashboard Pod (Sidecar Mode)"]
         direction TB
 
-        subgraph MainContainers["Core Containers"]
-            KRBP["kube-rbac-proxy<br/>8443/TCP<br/>Auth Sidecar"]
-            Backend["odh-dashboard Backend<br/>Node.js Fastify<br/>8080/TCP"]
-            Frontend["odh-dashboard Frontend<br/>React 18 SPA<br/>Module Federation Host"]
+        subgraph AuthLayer["Auth Layer"]
+            KubeRBAC["kube-rbac-proxy<br/>8443/TCP HTTPS<br/>TLS termination + RBAC"]
         end
 
-        subgraph BFFSidecars["BFF Sidecar Containers"]
-            GenAI["gen-ai BFF<br/>Go HTTP<br/>8143/TCP"]
-            MaaS["maas BFF<br/>Go HTTP<br/>8243/TCP"]
-            ModelReg["model-registry BFF<br/>Go HTTP<br/>8043/TCP"]
-            AutoML["automl BFF<br/>Go HTTP<br/>8643/TCP"]
-            AutoRAG["autorag BFF<br/>Go HTTP<br/>8743/TCP"]
-            EvalHub["eval-hub BFF<br/>Go HTTP<br/>8543/TCP"]
-            MLflow["mlflow BFF<br/>Go HTTP<br/>8343/TCP"]
+        subgraph CoreServices["Core Services"]
+            Dashboard["odh-dashboard<br/>(Node.js Express BFF)<br/>8080/TCP"]
+            CoreBFF["core-bff<br/>(Go BFF - next gen)<br/>8080/TCP"]
         end
 
-        subgraph SharedPackages["Shared Packages"]
-            PluginCore["plugin-core<br/>Extension Points"]
-            AppConfig["app-config<br/>Module Federation Config"]
+        subgraph ModuleBFFs["Module Federation BFFs"]
+            direction LR
+            ModelReg["model-registry<br/>8043/TCP"]
+            GenAI["gen-ai<br/>8143/TCP"]
+            MaaS["maas<br/>8243/TCP"]
+            MLflow["mlflow<br/>8343/TCP"]
+            EvalHub["eval-hub<br/>8543/TCP"]
+            AutoML["automl<br/>8643/TCP"]
+            AutoRAG["autorag<br/>8743/TCP"]
+            AgentOps["agent-ops<br/>8843/TCP"]
         end
     end
 
-    %% External User
-    User[User Browser] -->|HTTPS/443| Gateway["Platform Gateway<br/>(Envoy)"]
-    Gateway -->|HTTPS/8443| KRBP
-    KRBP -->|HTTP/8080<br/>Identity Headers| Backend
+    subgraph Operator["Dashboard Operator"]
+        DashOp["dashboard-operator<br/>Go controller-runtime<br/>Reconciles Dashboard CR"]
+    end
 
-    %% Frontend loading
-    Backend -->|serves| Frontend
-    Frontend -->|"/_mf/* (remoteEntry.js)"| GenAI
-    Frontend -->|"/_mf/*"| MaaS
-    Frontend -->|"/_mf/*"| ModelReg
-    Frontend -->|"/_mf/*"| AutoML
-    Frontend -->|"/_mf/*"| AutoRAG
-    Frontend -->|"/_mf/*"| EvalHub
-    Frontend -->|"/_mf/*"| MLflow
+    subgraph CRDs["Custom Resource Definitions"]
+        DashboardCR["Dashboard CR<br/>components.platform.opendatahub.io/v1alpha1"]
+        OdhConfig["OdhDashboardConfig<br/>opendatahub.io/v1alpha"]
+        OdhApp["OdhApplication<br/>dashboard.opendatahub.io/v1"]
+        OdhDoc["OdhDocument<br/>dashboard.opendatahub.io/v1"]
+        OdhQS["OdhQuickStart<br/>console.openshift.io/v1"]
+    end
 
-    %% Backend proxying to BFFs
-    Backend -->|HTTPS/8143| GenAI
-    Backend -->|HTTPS/8243| MaaS
-    Backend -->|HTTPS/8043| ModelReg
-    Backend -->|HTTPS/8643| AutoML
-    Backend -->|HTTPS/8743| AutoRAG
-    Backend -->|HTTPS/8543| EvalHub
-    Backend -->|HTTPS/8343| MLflow
+    subgraph K8sAPI["Kubernetes"]
+        APIServer["K8s API Server<br/>6443/TCP HTTPS"]
+    end
 
-    %% Inter-BFF
-    GenAI -->|"HTTPS/8243<br/>Token Delegation"| MaaS
+    %% External flows
+    Browser -->|HTTPS/443| Gateway
+    Gateway -->|HTTPS/8443| KubeRBAC
+    KubeRBAC -->|HTTP/8080<br/>auth headers| Dashboard
+    KubeRBAC -->|HTTP/8080<br/>auth headers| CoreBFF
 
-    %% CRDs watched
-    Backend -->|watches| DashCfgCR["OdhDashboardConfig CR"]
-    Backend -->|watches| AppCR["OdhApplication CR"]
-    Backend -->|watches| ISVCR["InferenceService CR"]
+    %% Module proxying
+    Dashboard -->|HTTPS/8143| GenAI
+    Dashboard -->|HTTPS/8043| ModelReg
+    Dashboard -->|HTTPS/8243| MaaS
+    Dashboard -->|HTTPS/8343| MLflow
+    Dashboard -->|HTTPS/8543| EvalHub
+    Dashboard -->|HTTPS/8643| AutoML
+    Dashboard -->|HTTPS/8743| AutoRAG
+    Dashboard -->|HTTPS/8843| AgentOps
 
-    %% External dependencies
-    Backend -->|HTTPS/443| K8sAPI["Kubernetes API Server"]
-    Backend -->|WSS/443| K8sAPI
-    Backend -->|HTTPS/443| Prometheus["Prometheus / Thanos"]
+    %% K8s API access
+    Dashboard -->|HTTPS/6443<br/>user token| APIServer
+    CoreBFF -->|HTTPS/6443<br/>user token| APIServer
+    GenAI -->|HTTPS/6443<br/>impersonation| APIServer
+    ModelReg -->|HTTPS/6443<br/>impersonation| APIServer
+    MaaS -->|HTTPS/6443<br/>impersonation| APIServer
+    AgentOps -->|HTTPS/6443<br/>impersonation| APIServer
 
-    %% Shared packages usage
-    Frontend -.->|uses| PluginCore
-    Frontend -.->|uses| AppConfig
+    %% Operator
+    DashOp -->|watches| DashboardCR
+    DashOp -->|manages| DashboardPod
+    Dashboard -->|reads| OdhConfig
+    Dashboard -->|reads| OdhApp
+
+    %% Inter-module
+    GenAI -.->|HTTPS/8243<br/>token passthrough| MaaS
+    GenAI -.->|HTTPS/8343<br/>token passthrough| MLflow
 
     %% Styling
-    classDef core fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
-    classDef bff fill:#7ed321,stroke:#333,stroke-width:2px,color:#fff
-    classDef external fill:#e8e8e8,stroke:#666,stroke-width:1px
-    classDef cr fill:#f5a623,stroke:#333,stroke-width:2px,color:#fff
-    classDef gateway fill:#9b59b6,stroke:#333,stroke-width:2px,color:#fff
-    classDef shared fill:#3498db,stroke:#333,stroke-width:1px,color:#fff
-
-    class KRBP,Backend,Frontend core
-    class GenAI,MaaS,ModelReg,AutoML,AutoRAG,EvalHub,MLflow bff
-    class K8sAPI,Prometheus,User external
-    class DashCfgCR,AppCR,ISVCR cr
-    class Gateway gateway
-    class PluginCore,AppConfig shared
+    style KubeRBAC fill:#e74c3c,color:#fff,stroke:#c0392b,stroke-width:2px
+    style Dashboard fill:#4a90e2,color:#fff,stroke:#357abd
+    style CoreBFF fill:#4a90e2,color:#fff,stroke:#357abd
+    style DashOp fill:#9b59b6,color:#fff,stroke:#8e44ad
+    style Gateway fill:#f39c12,color:#fff,stroke:#e67e22
+    style APIServer fill:#2c3e50,color:#fff,stroke:#1a252f
+    style GenAI fill:#27ae60,color:#fff,stroke:#1e8449
+    style ModelReg fill:#27ae60,color:#fff,stroke:#1e8449
+    style MaaS fill:#27ae60,color:#fff,stroke:#1e8449
+    style MLflow fill:#27ae60,color:#fff,stroke:#1e8449
+    style EvalHub fill:#27ae60,color:#fff,stroke:#1e8449
+    style AutoML fill:#27ae60,color:#fff,stroke:#1e8449
+    style AutoRAG fill:#27ae60,color:#fff,stroke:#1e8449
+    style AgentOps fill:#27ae60,color:#fff,stroke:#1e8449
+    style DashboardCR fill:#f5a623,stroke:#d4940e
+    style OdhConfig fill:#f5a623,stroke:#d4940e
+    style OdhApp fill:#f5a623,stroke:#d4940e
+    style OdhDoc fill:#f5a623,stroke:#d4940e
+    style OdhQS fill:#f5a623,stroke:#d4940e

@@ -1,0 +1,106 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  CONFIGURATION REPOSITORY (No Runtime Components)                       │
+│                                                                          │
+│  odh-gitops produces Kubernetes manifests only.                          │
+│  All runtime network behavior is delegated to deployed operators.        │
+│                                                                          │
+│  This diagram documents the security-relevant resources CONFIGURED       │
+│  by odh-gitops, not runtime network flows.                               │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  GATEWAY API CONFIGURATION (Configured by Helm Charts)                  │
+│                                                                          │
+│  [KServe Inference Gateway]                                              │
+│  - GatewayClass: openshift.io/gateway-controller/v1                     │
+│  - Port: 443/TCP (HTTPS)                                                │
+│  - Encryption: TLS                                                       │
+│  - Auth: Authorino TLS bootstrap                                         │
+│  - Annotation: security.opendatahub.io/authorino-tls-bootstrap          │
+│  - Purpose: Ingress for model inference endpoints                        │
+│                                                                          │
+│  [MaaS Gateway (Models-as-a-Service)]                                   │
+│  - GatewayClass: openshift.io/gateway-controller/v1                     │
+│  - Port: 443/TCP (HTTPS)                                                │
+│  - Encryption: TLS                                                       │
+│  - Auth: Authorino TLS bootstrap                                         │
+│  - Annotation: security.opendatahub.io/authorino-tls-bootstrap          │
+│  - Purpose: Ingress for MaaS endpoints                                   │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  TRUST BOUNDARY: Gateway → Service Mesh (Authorino enforced)            │
+│                                                                          │
+│  Both gateways delegate authentication to Authorino via TLS bootstrap.  │
+│  The security.opendatahub.io/authorino-tls-bootstrap annotation         │
+│  triggers automatic TLS certificate provisioning for Authorino          │
+│  integration at the gateway level.                                       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  API POLICY MANAGEMENT (Configured by Helm Charts)                      │
+│                                                                          │
+│  [Kuadrant CR]                                                           │
+│  - Namespace: kuadrant-system                                            │
+│  - Managed by: RHCL operator (Kuadrant)                                 │
+│  - Purpose: API policy management and rate limiting                      │
+│  - Scope: Platform-wide policy enforcement                               │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  OLM SUBSCRIPTION SOURCES (Configured by Kustomize)                     │
+│                                                                          │
+│  CatalogSource: redhat-operators (openshift-marketplace)                │
+│  CatalogSource: community-operators (openshift-marketplace)             │
+│                                                                          │
+│  Subscribed Operators:                                                   │
+│  - cert-manager-operator           (TLS certificate management)          │
+│  - kueue-operator                  (Job queuing / resource quotas)       │
+│  - job-set-operator                (JobSet for training workloads)       │
+│  - cluster-observability-operator  (Platform monitoring)                 │
+│  - opentelemetry-product           (Distributed tracing)                 │
+│  - tempo-product                   (Trace storage backend)               │
+│  - rhcl-operator                   (API policy / Kuadrant)               │
+│  - custom-metrics-autoscaler       (KServe autoscaling, optional)        │
+│                                                                          │
+│  Note: All OLM subscriptions rely on OpenShift Marketplace for           │
+│  operator catalog resolution. No direct egress to external registries    │
+│  from odh-gitops itself.                                                 │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  XKS HELM DEPENDENCIES (Non-OpenShift Clusters)                         │
+│                                                                          │
+│  Direct Helm sub-chart installations (no OLM):                          │
+│  - cert-manager         (TLS certificates)                               │
+│  - gateway-api          (Gateway API CRDs)                               │
+│  - sail-operator        (Istio service mesh)                             │
+│  - rhcl-operator        (Kuadrant API policy)                            │
+│  - lws-operator         (LeaderWorkerSet, optional)                      │
+│  - rhai-operator        (RHAI platform operator)                         │
+│                                                                          │
+│  Cloud-Specific Configurations:                                          │
+│  - AWS EKS:      Standard Kubernetes networking                          │
+│  - Azure AKS:    Azure-specific value overrides                          │
+│  - CoreWeave:    CoreWeave-specific value overrides                      │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+  No RBAC resources (ClusterRoles, RoleBindings) are defined directly
+  in odh-gitops. RBAC is managed by the individual operators deployed
+  via OLM Subscriptions or Helm sub-charts.
+
+Secrets:
+  No secrets are defined or managed directly by odh-gitops.
+  Secret management is delegated to individual operators
+  (e.g., cert-manager for TLS certificates, storage-config for S3).
+
+Authentication & Authorization:
+  - KServe Inference Gateway: Authorino TLS bootstrap via Gateway annotation
+  - MaaS Gateway: Authorino TLS bootstrap via Gateway annotation
+  - Enforcement: OpenShift Gateway API with Authorino integration
+  - Mechanism: security.opendatahub.io/authorino-tls-bootstrap annotation
+
+FIPS Compliance:
+  This repository contains only YAML configuration manifests.
+  It does not compile or build binaries. FIPS compliance is delegated
+  entirely to the operator images deployed by these manifests.

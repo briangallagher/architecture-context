@@ -1,0 +1,213 @@
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                       │
+│                                                                             │
+│  [Client / SDK]                                                             │
+│         │                                                                   │
+│         │ Port: 8443/TCP (gRPC+REST), 8887/TCP, 8888/TCP                   │
+│         │ Protocol: HTTP/HTTPS, gRPC (HTTP/2)                              │
+│         │ Encryption: TLS (webhook-cert backed)                            │
+│         │ Auth: Bearer Token → TokenReview (authentication/v1)             │
+│         ▼                                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  API LAYER (ml-pipeline namespace)                                          │
+│                                                                             │
+│  [ml-pipeline API Server]                                                   │
+│  - Ports: 8443/TCP (primary), 8887/TCP, 8888/TCP                          │
+│  - ServiceAccount: ml-pipeline                                              │
+│  - Image: kfp-api-server                                                    │
+│  - AuthN: TokenReview (authentication/v1)                                  │
+│  - AuthZ: SubjectAccessReview (authorization/v1)                           │
+│  - FIPS: Go native FIPS 140 (GOFIPS140=v1.0.0, -tags no_openssl)         │
+│  - TLS: crypto/tls with system cert pool + optional custom CA              │
+│         │                       │                    │                      │
+│         │ Port: 6443/TCP        │ Port: 3306/TCP     │ S3 API              │
+│         │ Protocol: HTTPS       │ Protocol: MySQL    │ Protocol: HTTP/HTTPS│
+│         │ Encryption: TLS 1.2+  │ Encryption: Unk.   │ Encryption: Config. │
+│         │ Auth: SA Token        │ Auth: mysql-secret  │ Auth: Static creds  │
+│         │                       │ (Opaque)           │ (mlpipeline-minio-  │
+│         │                       │                    │  artifact secret)    │
+│         ▼                       ▼                    ▼                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  DATA STORES                                                                │
+│                                                                             │
+│  [MySQL - mysql:8.4]                                                        │
+│  - Port: 3306/TCP                                                           │
+│  - Namespace: kubeflow                                                      │
+│  - Istio AuthorizationPolicy: app=mysql                                    │
+│  - Allowed Principals:                                                      │
+│    - cluster.local/ns/kubeflow/sa/ml-pipeline                              │
+│    - cluster.local/ns/kubeflow/sa/ml-pipeline-ui                           │
+│    - cluster.local/ns/kubeflow/sa/ml-pipeline-persistenceagent             │
+│    - cluster.local/ns/kubeflow/sa/ml-pipeline-scheduledworkflow            │
+│    - cluster.local/ns/kubeflow/sa/ml-pipeline-viewer-crd-service-account   │
+│    - cluster.local/ns/kubeflow/sa/kubeflow-pipelines-cache                 │
+│    - cluster.local/ns/kubeflow/sa/metadata-grpc-server                     │
+│  - Secret: mysql-secret (Opaque)                                            │
+│                                                                             │
+│  [S3-Compatible Storage (SeaweedFS)]                                        │
+│  - Ports: 8333/TCP (S3 API), 9333/TCP, 8888/TCP, others                   │
+│  - Namespace: kubeflow                                                      │
+│  - Auth: AWS-style credentials from mlpipeline-minio-artifact secret       │
+│  - Path-style addressing, configurable endpoint URL                         │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  METADATA LAYER                                                             │
+│                                                                             │
+│  [Metadata Envoy Proxy]                                                     │
+│  - Port: 9090/TCP                                                           │
+│  - Image: kfp-metadata-envoy                                               │
+│  - Purpose: Envoy proxy for metadata gRPC traffic                          │
+│         │                                                                   │
+│         │ Port: 8080/TCP                                                    │
+│         │ Protocol: gRPC                                                    │
+│         │ Encryption: Unknown                                               │
+│         ▼                                                                   │
+│  [Metadata gRPC Store]                                                      │
+│  - Port: 8080/TCP                                                           │
+│  - Image: ml_metadata_store_server:1.14.0                                  │
+│  - Purpose: ML metadata persistence                                        │
+│                                                                             │
+│  [Metadata Writer]                                                          │
+│  - SA: kubeflow-pipelines-metadata-writer                                  │
+│  - Watches: Argo Workflow resources                                         │
+│  - Writes to: Metadata gRPC Store via Envoy                                │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  CONTROLLERS                                                                │
+│                                                                             │
+│  [Persistence Agent]                                                        │
+│  - SA: ml-pipeline-persistenceagent                                         │
+│  - Watches: Argo Workflows, ScheduledWorkflows                             │
+│  - RBAC: get, list, watch on workflows + scheduledworkflows                │
+│         │                                                                   │
+│  [Scheduled Workflow Controller]                                            │
+│  - SA: ml-pipeline-scheduledworkflow                                        │
+│  - Watches: ScheduledWorkflow CRDs                                         │
+│  - Creates: Argo Workflow resources on cron schedules                      │
+│  - RBAC: full CRUD on workflows + scheduledworkflows                       │
+│         │                                                                   │
+│  [Viewer CRD Controller]                                                    │
+│  - SA: ml-pipeline-viewer-crd-service-account                              │
+│  - Watches: Viewer CRDs                                                     │
+│  - Creates: backing Deployments + Services                                 │
+│  - RBAC: full CRUD on deployments, services, viewers                       │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ADMISSION WEBHOOKS                                                         │
+│                                                                             │
+│  [Cache Server - Mutating Admission Webhook]                                │
+│  - Port: 443/TCP → webhook-api (internal)                                  │
+│  - Encryption: TLS (webhook-server-tls secret)                             │
+│  - Auth: Kubernetes admission                                               │
+│  - Purpose: Intercepts pod creation for execution caching                  │
+│  - SA: kubeflow-pipelines-cache                                            │
+│                                                                             │
+│  [API Server Webhooks]                                                      │
+│  - Port: 8443/TCP                                                           │
+│  - Validating: /webhooks/validate-pipelineversion (CREATE, UPDATE)         │
+│  - Mutating: /webhooks/mutate-pipelineversion (CREATE, UPDATE)             │
+│  - Failure Policy: Fail                                                     │
+│  - TLS: kfp-api-webhook-cert                                               │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  FRONTEND                                                                   │
+│                                                                             │
+│  [ml-pipeline-ui]                                                           │
+│  - Port: 80/TCP → 3000/TCP                                                │
+│  - SA: ml-pipeline-ui                                                       │
+│  - RBAC: get pods/logs, list events, get/list secrets+configmaps           │
+│                                                                             │
+│  [Visualization Server]                                                     │
+│  - Port: 8888/TCP                                                           │
+│  - Image: kfp-visualization-server (Python)                                │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  WORKFLOW ENGINE                                                            │
+│                                                                             │
+│  [Argo Workflow Controller]                                                 │
+│  - Image: quay.io/argoproj/workflow-controller:v3.7.14                     │
+│  - SA: pipeline-runner (for pipeline workloads)                            │
+│  - RBAC: broad permissions on pods, secrets, PVCs, workflows, jobs         │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  INGRESS                                                                    │
+│                                                                             │
+│  [metadata-grpc VirtualService]                                             │
+│  - Hosts: * (all)                                                           │
+│  - Protocol: HTTP                                                           │
+│  - Routes to: metadata-envoy-service:9090                                  │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  EXTERNAL SERVICES                                                          │
+│                                                                             │
+│  [Kubernetes API Server]                                                    │
+│  - Port: 6443/TCP                                                           │
+│  - Protocol: HTTPS/WSS                                                      │
+│  - Encryption: TLS 1.2+                                                     │
+│  - Auth: ServiceAccount tokens (in-cluster)                                │
+│  - Purpose: TokenReview, SubjectAccessReview, resource CRUD                │
+│                                                                             │
+│  [Prometheus]                                                               │
+│  - Port: 8888/TCP (scrape)                                                  │
+│  - Protocol: HTTP                                                           │
+│  - Purpose: Metrics collection via prometheus.io/scrape annotation          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- Role: ml-pipeline
+  - API Groups: pipelines.kubeflow.org, authorization.k8s.io, authentication.k8s.io, argoproj.io, kubeflow.org, mlflow.kubeflow.org
+  - Key Verbs: create tokenreviews, create subjectaccessreviews, full CRUD on workflows + scheduledworkflows + pipelines
+  - SA: ml-pipeline
+
+- Role: ml-pipeline-persistenceagent-role
+  - API Groups: argoproj.io, kubeflow.org, pipelines.kubeflow.org
+  - Resources: workflows, scheduledworkflows, runs
+  - Verbs: get, list, watch, report, readArtifact, reportMetrics
+  - SA: ml-pipeline-persistenceagent
+
+- Role: ml-pipeline-scheduledworkflow-role
+  - API Groups: argoproj.io, kubeflow.org, pipelines.kubeflow.org
+  - Resources: workflows, scheduledworkflows, runs, events
+  - Verbs: full CRUD + create events
+  - SA: ml-pipeline-scheduledworkflow
+
+- Role: ml-pipeline-ui
+  - API Groups: core, kubeflow.org, argoproj.io
+  - Resources: pods, pods/log, events, configmaps, secrets, viewers, workflows
+  - Verbs: get, list, watch, create, delete (viewers)
+  - SA: ml-pipeline-ui
+
+- Role: pipeline-runner
+  - API Groups: core, argoproj.io, apps, extensions, batch, kubeflow.org, machinelearning.seldon.io, snapshot.storage.k8s.io, mlflow.kubeflow.org
+  - Resources: pods, PVCs, PVs, services, workflows, deployments, replicasets, jobs, seldondeployments, volumesnapshots
+  - Verbs: * (broad permissions for pipeline workloads)
+  - SA: pipeline-runner
+
+- Role: kubeflow-pipelines-cache-role
+  - Resources: pods, configmaps, workflows
+  - Verbs: get, list, patch, update, watch, get (configmaps)
+  - SA: kubeflow-pipelines-cache
+
+Istio AuthorizationPolicy:
+- Target: app=mysql
+- Allowed Principals (service mesh identity):
+  - cluster.local/ns/kubeflow/sa/ml-pipeline
+  - cluster.local/ns/kubeflow/sa/ml-pipeline-ui
+  - cluster.local/ns/kubeflow/sa/ml-pipeline-persistenceagent
+  - cluster.local/ns/kubeflow/sa/ml-pipeline-scheduledworkflow
+  - cluster.local/ns/kubeflow/sa/ml-pipeline-viewer-crd-service-account
+  - cluster.local/ns/kubeflow/sa/kubeflow-pipelines-cache
+  - cluster.local/ns/kubeflow/sa/metadata-grpc-server
+
+Secrets:
+- kfp-api-webhook-cert (referenced) - TLS cert for API server webhooks
+- mlpipeline-minio-artifact (Opaque) - S3 credentials for artifact storage
+- mysql-secret (Opaque) - MySQL credentials for API server, cache, metadata
+- webhook-server-tls (referenced) - TLS cert for cache server webhook
+
+FIPS Compliance:
+- Build: GOFIPS140=v1.0.0 with CGO_ENABLED=1, -tags no_openssl
+- Crypto: Go native FIPS 140 module (not OpenSSL-backed)
+- TLS: stdlib crypto/tls with system cert pool, no hardcoded cipher suites
+- Linking: Dynamic (CGO) for FIPS module compatibility

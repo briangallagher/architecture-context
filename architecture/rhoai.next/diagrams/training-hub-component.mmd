@@ -1,107 +1,87 @@
 graph TB
-    subgraph TrainingHub["training-hub Python SDK"]
+    subgraph TrainingHub["Training Hub Library"]
         direction TB
 
-        subgraph CoreFramework["Algorithm-Backend Framework"]
-            AlgorithmABC["Algorithm ABC<br/><i>train(), get_required_params(),<br/>get_optional_params()</i>"]
-            BackendABC["Backend ABC<br/><i>execute_training()</i>"]
-            Registry["AlgorithmRegistry<br/><i>register_algorithm(),<br/>register_backend(),<br/>create_algorithm()</i>"]
-            PEFTExtender["PEFTExtender ABC<br/><i>LoRAPEFTExtender</i><br/>LoRA/QLoRA/DoRA params"]
-
-            Registry -->|instantiates| AlgorithmABC
-            Registry -->|wires| BackendABC
-            PEFTExtender -.->|composes with| AlgorithmABC
+        subgraph Core["Core Framework"]
+            Registry["AlgorithmRegistry<br/>(Factory + Registration)"]
+            AlgorithmABC["Algorithm ABC"]
+            BackendABC["Backend ABC"]
+            AlgorithmABC -->|"delegates to"| BackendABC
+            Registry -->|"creates"| AlgorithmABC
         end
 
         subgraph Algorithms["Training Algorithms"]
-            SFT["SFT Algorithm<br/><i>sft()</i>"]
-            OSFT["OSFT Algorithm<br/><i>osft()</i><br/>SVD weight decomposition"]
-            LoRASFT["LoRA+SFT Algorithm<br/><i>lora_sft()</i><br/>QLoRA/DoRA/RSLoRA"]
-            LoRAGRPO["LoRA+GRPO Algorithm<br/><i>lora_grpo()</i><br/>RL from verifiable rewards"]
-            GRPO["GRPO Algorithm<br/><i>grpo()</i><br/>Full fine-tuning (lora_r=0)"]
+            SFT["SFT<br/>(Supervised Fine-Tuning)"]
+            OSFT["OSFT<br/>(Orthogonal Subspace FT)"]
+            LoRASFT["LoRA + SFT<br/>(Parameter-Efficient FT)"]
+            LoRAGRPO["LoRA + GRPO<br/>(RL Fine-Tuning)"]
+            GRPO["GRPO<br/>(Full-Parameter RL)"]
+            GEPA["GEPA<br/>(Prompt Optimization)"]
         end
 
-        subgraph Backends["Execution Backends"]
-            ILabBackend["instructlab-training<br/>Backend"]
-            MiniTrainerBackend["mini-trainer<br/>Backend"]
+        subgraph Backends["Pluggable Backends"]
+            ILabBackend["InstructLab Training<br/>Backend"]
+            MiniTrainerBackend["Mini-Trainer<br/>Backend"]
             UnslothBackend["Unsloth<br/>Backend"]
-            ARTBackend["OpenPipe ART<br/>Backend<br/><i>(single-GPU)</i>"]
-            VeRLBackend["verl<br/>Backend<br/><i>(multi-GPU FSDP)</i>"]
-        end
-
-        subgraph Profiling["Profiling & Visualization"]
-            MemEstimator["Memory Estimator<br/><i>BasicEstimator, OSFTEstimator,<br/>LoRAEstimator, QLoRAEstimator</i>"]
-            TimingEstimator["Timing Estimator<br/><i>Subset training extrapolation</i>"]
-            Visualization["Visualization<br/><i>plot_loss() with EMA</i>"]
+            ARTBackend["OpenPipe ART<br/>Backend (Single-GPU)"]
+            VeRLBackend["verl<br/>Backend (Multi-GPU)"]
+            GEPABackend["GEPA<br/>Backend"]
+            MLflowBackend["MLflow Prompt<br/>Registry Backend"]
         end
 
         subgraph Utilities["Utilities"]
-            TorchrunUtils["torchrun Utilities<br/><i>get_torchrun_params()</i>"]
-            RewardFunctions["Reward Functions<br/><i>tool_call_reward,<br/>binary_reward</i>"]
-            VeRLAgentLoop["verl Tool Agent Loop<br/><i>SingleTurnToolAgentLoop</i>"]
+            MemoryEstimator["Memory Estimator<br/>(GPU Profiling)"]
+            Visualization["Visualization<br/>(Loss Curves)"]
+            RewardFunctions["Reward Functions<br/>(Tool-Call Verification)"]
+            ITSRollout["ITS Rollout Adapter<br/>(BestOfN, BeamSearch)"]
+            ModelValidation["Model Validation<br/>(15+ Architectures)"]
         end
-
-        %% Algorithm-Backend Wiring
-        SFT -->|delegates to| ILabBackend
-        OSFT -->|delegates to| MiniTrainerBackend
-        LoRASFT -->|delegates to| UnslothBackend
-        LoRAGRPO -->|delegates to| ARTBackend
-        LoRAGRPO -->|delegates to| VeRLBackend
-        GRPO -->|delegates to| VeRLBackend
-
-        %% Utility connections
-        LoRAGRPO -.->|uses| RewardFunctions
-        GRPO -.->|uses| RewardFunctions
-        VeRLBackend -.->|uses| VeRLAgentLoop
-        ILabBackend -.->|uses| TorchrunUtils
     end
 
-    %% External Interactions
-    UserScript["User Script / Notebook"]
-    UserScript -->|"from training_hub import sft, lora_grpo"| Registry
+    %% Algorithm-to-Backend mappings
+    SFT -->|"uses"| ILabBackend
+    OSFT -->|"uses"| MiniTrainerBackend
+    LoRASFT -->|"uses"| UnslothBackend
+    LoRAGRPO -->|"uses"| ARTBackend
+    LoRAGRPO -->|"uses"| VeRLBackend
+    GRPO -->|"wraps (lora_r=0)"| LoRAGRPO
+    GEPA -->|"uses"| GEPABackend
+    GEPA -->|"uses"| MLflowBackend
 
-    HFHub["HuggingFace Hub<br/><i>Model & tokenizer downloads</i>"]
-    WandB["WandB<br/><i>Experiment tracking</i>"]
-    MLflow["MLflow<br/><i>Experiment tracking</i>"]
-    GPUCluster["GPU Cluster<br/><i>NCCL / DDP / FSDP</i>"]
-    Filesystem["Filesystem<br/><i>Checkpoints, metrics,<br/>training logs</i>"]
+    %% External consumers
+    UserCode["User Code / Pipeline"] -->|"training_hub.sft()<br/>training_hub.lora_grpo()<br/>training_hub.gepa()"| Registry
+    CodingAgent["AI Coding Agent<br/>(Claude Code / Codex)"] -->|"plugin invocation"| Registry
 
-    ILabBackend -->|downloads models| HFHub
-    UnslothBackend -->|downloads models| HFHub
-    ILabBackend -->|distributed training| GPUCluster
-    VeRLBackend -->|distributed training| GPUCluster
-    Algorithms -->|optional metrics| WandB
-    Algorithms -->|optional metrics| MLflow
-    Algorithms -->|writes| Filesystem
+    %% Backend external dependencies
+    ILabBackend -->|"torchrun"| PyTorch["PyTorch<br/>Distributed"]
+    MiniTrainerBackend -->|"torchrun"| PyTorch
+    UnslothBackend -->|"DDP"| PyTorch
+    ARTBackend -->|"subprocess + vLLM"| vLLM["vLLM Engine"]
+    VeRLBackend -->|"subprocess + Ray"| Ray["Ray Cluster"]
+    VeRLBackend -->|"FSDP"| PyTorch
+    GEPABackend -->|"LLM API calls"| LLMAPI["LLM API<br/>(via litellm)"]
+    MLflowBackend -->|"REST API"| MLflow["MLflow Server"]
 
     %% Styling
     style TrainingHub fill:#e8f4fd,stroke:#4a90e2,stroke-width:3px
-    style CoreFramework fill:#fff3e0,stroke:#f5a623,stroke-width:2px
-    style Algorithms fill:#e8f5e9,stroke:#7ed321,stroke-width:2px
-    style Backends fill:#fce4ec,stroke:#e57373,stroke-width:2px
-    style Profiling fill:#f3e5f5,stroke:#ab47bc,stroke-width:2px
-    style Utilities fill:#e0f2f1,stroke:#26a69a,stroke-width:2px
+    style Core fill:#fff3e0,stroke:#f5a623,stroke-width:2px
+    style Algorithms fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
+    style Backends fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+    style Utilities fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
 
-    style AlgorithmABC fill:#fff3e0,stroke:#f5a623
-    style BackendABC fill:#fff3e0,stroke:#f5a623
-    style Registry fill:#fff3e0,stroke:#f5a623
-    style PEFTExtender fill:#fff3e0,stroke:#f5a623
-
-    style SFT fill:#e8f5e9,stroke:#7ed321
-    style OSFT fill:#e8f5e9,stroke:#7ed321
-    style LoRASFT fill:#e8f5e9,stroke:#7ed321
-    style LoRAGRPO fill:#e8f5e9,stroke:#7ed321
-    style GRPO fill:#e8f5e9,stroke:#7ed321
-
-    style ILabBackend fill:#fce4ec,stroke:#e57373
-    style MiniTrainerBackend fill:#fce4ec,stroke:#e57373
-    style UnslothBackend fill:#fce4ec,stroke:#e57373
-    style ARTBackend fill:#fce4ec,stroke:#e57373
-    style VeRLBackend fill:#fce4ec,stroke:#e57373
-
-    style UserScript fill:#f9f9f9,stroke:#999
-    style HFHub fill:#fff2cc,stroke:#d6b656
-    style WandB fill:#fff2cc,stroke:#d6b656
-    style MLflow fill:#fff2cc,stroke:#d6b656
-    style GPUCluster fill:#fff2cc,stroke:#d6b656
-    style Filesystem fill:#fff2cc,stroke:#d6b656
+    style Registry fill:#f5a623
+    style AlgorithmABC fill:#f5a623
+    style BackendABC fill:#f5a623
+    style SFT fill:#4caf50,color:#fff
+    style OSFT fill:#4caf50,color:#fff
+    style LoRASFT fill:#4caf50,color:#fff
+    style LoRAGRPO fill:#4caf50,color:#fff
+    style GRPO fill:#4caf50,color:#fff
+    style GEPA fill:#4caf50,color:#fff
+    style UserCode fill:#e8e8e8,stroke:#333
+    style CodingAgent fill:#e8e8e8,stroke:#333
+    style PyTorch fill:#999,stroke:#333
+    style vLLM fill:#999,stroke:#333
+    style Ray fill:#999,stroke:#333
+    style LLMAPI fill:#999,stroke:#333
+    style MLflow fill:#999,stroke:#333

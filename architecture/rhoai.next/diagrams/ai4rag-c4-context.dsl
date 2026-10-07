@@ -1,87 +1,72 @@
 workspace {
     model {
-        datascientist = person "Data Scientist" "Defines RAG templates, search spaces, and runs optimization experiments"
-        mlEngineer = person "ML Engineer" "Integrates ai4rag into Kubeflow Pipelines for automated RAG optimization"
+        datascientist = person "Data Scientist" "Configures RAG search space and runs optimization experiments"
+        pipelineRunner = person "KFP Pipeline" "Automated pipeline orchestrating document discovery, indexing, and optimization"
 
-        ai4rag = softwareSystem "ai4rag" "Provider-agnostic RAG hyperparameter optimization engine (Python library)" {
-            experiment = container "AI4RAGExperiment" "Orchestrates the full optimization loop: random exploration then GAM-guided search" "Python"
-            mps = container "ModelsPreSelector" "Pre-selects top-N foundation model / embedding model pairs before main optimization" "Python"
-            gamOptimizer = container "GAMOptimizer" "Bayesian-style optimization using Generalized Additive Models (pygam)" "Python"
-            searchSpace = container "AI4RAGSearchSpace" "Constraint-based hyperparameter space definition and pruning" "Python"
-            ragTemplate = container "SimpleRAGTemplate" "End-to-end RAG pipeline: chunk, embed, store, retrieve, generate" "Python"
-            evaluator = container "UnitxtEvaluator" "Evaluates RAG quality: answer correctness, faithfulness, context correctness" "Python"
-            eventHandler = container "EventHandler" "Emits experiment events (KFPEventHandler for pipelines, LocalEventHandler for dev)" "Python"
+        ai4rag = softwareSystem "ai4rag" "Python library for HPO-driven RAG pipeline optimization" {
+            experimentEngine = container "Experiment Engine" "Orchestrates end-to-end RAG experiments with HPO" "Python (ai4rag.core.experiment)"
+            hpoOptimizer = container "HPO Optimizer" "GAM-based and random search strategies for hyperparameter optimization" "Python (ai4rag.core.hpo)"
+            ragPipeline = container "RAG Pipeline" "Chunking, embedding, retrieval, generation building blocks" "Python (ai4rag.rag)"
+            evaluator = container "Evaluator" "Unitxt metrics and LLM-as-a-Judge for RAG evaluation" "Python (ai4rag.evaluator)"
+            searchSpace = container "Search Space" "Search space definition, constraint validation, OGX model discovery" "Python (ai4rag.search_space)"
+            kfpComponents = container "KFP Components" "Pipeline components for document discovery, indexing, optimization" "Python (ai4rag.components)"
         }
 
-        ogxServer = softwareSystem "OGX Server" "Unified API for embeddings, vector stores, and foundation model inference (formerly Llama Stack)" "External"
-        chromadb = softwareSystem "ChromaDB" "In-memory vector store for local development and MPS pre-selection" "In-Process"
-        kfp = softwareSystem "Kubeflow Pipelines" "Pipeline orchestration platform for ML workflows" "Internal RHOAI"
-        unitxt = softwareSystem "Unitxt" "IBM evaluation framework for NLP metrics with confidence intervals" "External Library"
-        pygam = softwareSystem "pygam" "Generalized Additive Models library for optimization" "External Library"
-        langchain = softwareSystem "LangChain" "Document handling and text splitting framework" "External Library"
+        ogxServer = softwareSystem "OGX Server" "Foundation model inference, embeddings, and vector store platform" "External"
+        s3Storage = softwareSystem "S3-Compatible Storage" "Document and benchmark data storage" "External"
+        chromaDB = softwareSystem "ChromaDB" "In-memory vector store for local model pre-selection" "In-Process"
 
-        # Relationships - Users
-        datascientist -> ai4rag "Defines RAG templates and runs search() via Python API"
-        mlEngineer -> ai4rag "Integrates into Kubeflow Pipeline steps"
+        # User relationships
+        datascientist -> ai4rag "Configures search space and runs experiments" "Python API"
+        pipelineRunner -> ai4rag "Triggers document discovery, indexing, and optimization" "KFP Component API"
 
-        # Relationships - Internal
-        experiment -> mps "Pre-selects models before main loop"
-        experiment -> gamOptimizer "Requests next configuration, updates with observations"
-        experiment -> searchSpace "Generates valid parameter combinations"
-        experiment -> ragTemplate "Instantiates and evaluates RAG patterns"
-        experiment -> evaluator "Scores predictions against references"
-        experiment -> eventHandler "Emits pattern results and status events"
+        # Internal container relationships
+        experimentEngine -> hpoOptimizer "Requests next configuration, reports scores"
+        experimentEngine -> ragPipeline "Chunks, embeds, retrieves, generates"
+        experimentEngine -> evaluator "Evaluates RAG output quality"
+        experimentEngine -> searchSpace "Explores validated search space"
+        kfpComponents -> experimentEngine "Runs full optimization"
+        kfpComponents -> ragPipeline "Indexes documents"
 
-        # Relationships - External
-        ai4rag -> ogxServer "Embeddings, vector store CRUD, chat completions" "HTTPS/TLS 1.2+, API Key (Bearer)"
-        ai4rag -> chromadb "In-memory vector storage for dev and MPS" "In-process Python API"
-        ai4rag -> kfp "Streams experiment status via KFPEventHandler" "In-process Python API"
-        ai4rag -> unitxt "RAG evaluation metrics" "In-process Python API"
-        ai4rag -> pygam "GAM model training and prediction" "In-process Python API"
-        ai4rag -> langchain "Document handling and text splitting" "In-process Python API"
+        # External system relationships
+        ragPipeline -> ogxServer "Embedding generation, vector store CRUD, chat completions" "HTTPS/443 API Key"
+        searchSpace -> ogxServer "Model and provider discovery" "HTTPS/443 API Key"
+        evaluator -> ogxServer "LLM-as-a-Judge evaluation" "HTTPS/443 API Key"
+        kfpComponents -> s3Storage "Document discovery and download" "HTTPS/443 AWS IAM"
+        ragPipeline -> chromaDB "Local vector store for pre-selection" "In-memory"
     }
 
     views {
         systemContext ai4rag "SystemContext" {
             include *
             autoLayout
-            description "ai4rag in the context of the RHOAI platform and external services"
         }
 
         container ai4rag "Containers" {
             include *
             autoLayout
-            description "Internal structure of the ai4rag optimization engine"
         }
 
         styles {
+            element "Person" {
+                shape Person
+                background #4a90e2
+                color #ffffff
+            }
             element "Software System" {
-                background #438DD5
+                background #4a90e2
                 color #ffffff
             }
             element "External" {
                 background #999999
                 color #ffffff
             }
-            element "External Library" {
-                background #bbbbbb
-                color #333333
-            }
             element "In-Process" {
-                background #bbbbbb
-                color #333333
-            }
-            element "Internal RHOAI" {
                 background #7ed321
                 color #ffffff
             }
-            element "Person" {
-                shape Person
-                background #08427B
-                color #ffffff
-            }
             element "Container" {
-                background #438DD5
+                background #438dd5
                 color #ffffff
             }
         }

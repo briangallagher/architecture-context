@@ -1,0 +1,51 @@
+graph TB
+    subgraph AIGatewayOperator["AI Gateway Operator"]
+        direction TB
+        Controller["AIGateway Controller<br/>(controller-runtime)"]
+        ActionChain["Reconciliation Actions<br/>initialize → RBAC migration →<br/>upgrade → kustomize render →<br/>deploy → status → GC"]
+        Config["Config Loader<br/>(Viper / ConfigMap / ENV)"]
+        Controller --> ActionChain
+        Config --> Controller
+    end
+
+    %% Primary CR
+    User["Platform Admin"] -->|creates/updates| AIGatewayCR["AIGateway CR<br/>(components.platform.opendatahub.io/v1alpha1)<br/>Cluster-scoped"]
+    AIGatewayCR -->|watched by| Controller
+
+    %% Watched CRs (read-only)
+    DSCInit["DSCInitialization CR"] -.->|watched| Controller
+    InferenceService["KServe InferenceService /<br/>LLMInferenceService"] -.->|watched| Controller
+
+    %% Owned child resources
+    Controller -->|creates/manages| HTTPRoutes["HTTPRoutes<br/>(Gateway API)"]
+    Controller -->|creates/manages| AuthPolicies["AuthPolicies /<br/>TokenRateLimitPolicies<br/>(Kuadrant)"]
+    Controller -->|creates/manages| IstioResources["DestinationRules /<br/>EnvoyFilters /<br/>ServiceEntries<br/>(Istio)"]
+    Controller -->|creates/manages| Certs["Certificates<br/>(cert-manager)"]
+    Controller -->|creates/manages| BatchGW["LLMBatchGateway<br/>(llm-d)"]
+    Controller -->|creates/manages| Observability["ServiceMonitors /<br/>OTel Collectors /<br/>Perses Dashboards"]
+    Controller -->|creates/manages| RBAC["ClusterRoles /<br/>RoleBindings"]
+    Controller -->|creates/manages| Workloads["Deployments /<br/>Services /<br/>ConfigMaps"]
+    Controller -->|creates/manages| NetworkPolicies["NetworkPolicies"]
+
+    %% Health & metrics
+    HealthProbe["Health Probes<br/>:8081 /healthz /readyz"] --- Controller
+    Metrics["Metrics<br/>:8443 /metrics"] --- Controller
+
+    %% Styling
+    style Controller fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    style ActionChain fill:#5ba3f5,stroke:#333,color:#fff
+    style Config fill:#5ba3f5,stroke:#333,color:#fff
+    style AIGatewayCR fill:#f5a623,stroke:#333,stroke-width:2px
+    style DSCInit fill:#e8e8e8,stroke:#999
+    style InferenceService fill:#e8e8e8,stroke:#999
+    style HTTPRoutes fill:#7ed321,stroke:#333
+    style AuthPolicies fill:#7ed321,stroke:#333
+    style IstioResources fill:#7ed321,stroke:#333
+    style Certs fill:#7ed321,stroke:#333
+    style BatchGW fill:#7ed321,stroke:#333
+    style Observability fill:#7ed321,stroke:#333
+    style RBAC fill:#7ed321,stroke:#333
+    style Workloads fill:#7ed321,stroke:#333
+    style NetworkPolicies fill:#7ed321,stroke:#333
+    style HealthProbe fill:#ddd,stroke:#999
+    style Metrics fill:#ddd,stroke:#999

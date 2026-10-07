@@ -1,0 +1,111 @@
+graph TD
+    subgraph ServiceAccounts["Service Accounts"]
+        SA_Op["llm-d-batch-gateway-operator<br/>SA"]
+    end
+
+    subgraph ClusterRoleBindings["ClusterRole Bindings"]
+        CRB_Op["llm-d-batch-gateway-operator<br/>(ClusterRoleBinding)"]
+    end
+
+    subgraph RoleBindings["Role Bindings (namespaced)"]
+        RB_LE["llm-d-batch-gateway-<br/>leader-election-rolebinding"]
+    end
+
+    subgraph ClusterRoles["ClusterRoles"]
+        CR_Op["llm-d-batch-gateway-operator<br/>(ClusterRole)"]
+        CR_Admin["llm-d-batch-gateway-admin<br/>(aggregate ClusterRole)"]
+        CR_View["llm-d-batch-gateway-view<br/>(aggregate ClusterRole)"]
+    end
+
+    subgraph Roles["Roles (namespaced)"]
+        R_LE["llm-d-batch-gateway-<br/>leader-election-role"]
+    end
+
+    subgraph CoreResources["Core API Resources"]
+        ConfigMaps["core<br/>ConfigMaps"]
+        Services["core<br/>Services"]
+        SvcAccounts["core<br/>ServiceAccounts"]
+        Secrets["core<br/>Secrets"]
+        Events["core<br/>Events"]
+    end
+
+    subgraph AppsResources["Apps API Resources"]
+        Deployments["apps<br/>Deployments"]
+    end
+
+    subgraph BatchResources["batch.llm-d.ai Resources"]
+        LBG["batch.llm-d.ai<br/>LLMBatchGateway"]
+        LBG_Fin["batch.llm-d.ai<br/>LLMBatchGateway/finalizers"]
+        LBG_Status["batch.llm-d.ai<br/>LLMBatchGateway/status"]
+    end
+
+    subgraph CertManagerResources["cert-manager.io Resources"]
+        Certificates["cert-manager.io<br/>Certificates"]
+    end
+
+    subgraph GatewayResources["gateway.networking.k8s.io Resources"]
+        HTTPRoutes["gateway.networking.k8s.io<br/>HTTPRoutes"]
+        RefGrants["gateway.networking.k8s.io<br/>ReferenceGrants"]
+    end
+
+    subgraph MonitoringResources["monitoring.coreos.com Resources"]
+        SvcMonitors["monitoring.coreos.com<br/>ServiceMonitors"]
+        PodMonitors["monitoring.coreos.com<br/>PodMonitors"]
+        PromRules["monitoring.coreos.com<br/>PrometheusRules"]
+    end
+
+    subgraph AuthResources["Auth Resources"]
+        TokenReviews["authentication.k8s.io<br/>TokenReviews"]
+        SAR["authorization.k8s.io<br/>SubjectAccessReviews"]
+    end
+
+    subgraph LeaderElection["Leader Election Resources"]
+        Leases["coordination.k8s.io<br/>Leases"]
+    end
+
+    %% Bindings
+    SA_Op -->|"bound via"| CRB_Op
+    SA_Op -->|"bound via"| RB_LE
+    CRB_Op -->|"grants"| CR_Op
+    RB_LE -->|"grants"| R_LE
+
+    %% ClusterRole permissions
+    CR_Op -->|"create,delete,get,list,<br/>patch,update,watch"| ConfigMaps
+    CR_Op -->|"create,delete,get,list,<br/>patch,update,watch"| Services
+    CR_Op -->|"create,delete,get,list,<br/>patch,update,watch"| SvcAccounts
+    CR_Op -->|"create,get,list,<br/>patch,watch"| Secrets
+    CR_Op -->|"create,patch"| Events
+    CR_Op -->|"create,delete,get,list,<br/>patch,update,watch"| Deployments
+    CR_Op -->|"get,list,patch,<br/>update,watch"| LBG
+    CR_Op -->|"update"| LBG_Fin
+    CR_Op -->|"get,patch,update"| LBG_Status
+    CR_Op -->|"create,delete,get,list,<br/>patch,update,watch"| Certificates
+    CR_Op -->|"create,delete,get,list,<br/>patch,update,watch"| HTTPRoutes
+    CR_Op -->|"get,list,watch"| RefGrants
+    CR_Op -->|"create,delete,get,list,<br/>patch,update,watch"| SvcMonitors
+    CR_Op -->|"create,delete,get,list,<br/>patch,update,watch"| PodMonitors
+    CR_Op -->|"create,delete,get,list,<br/>patch,update,watch"| PromRules
+    CR_Op -->|"create"| TokenReviews
+    CR_Op -->|"create"| SAR
+
+    %% Aggregate roles
+    CR_Admin -->|"full CRUD"| LBG
+    CR_Admin -->|"get"| LBG_Status
+    CR_View -->|"get,list,watch"| LBG
+    CR_View -->|"get"| LBG_Status
+
+    %% Leader election role
+    R_LE -->|"full CRUD"| Leases
+    R_LE -->|"create,patch"| Events
+
+    %% Styling
+    style SA_Op fill:#4a90e2,stroke:#333,color:#fff
+    style CR_Op fill:#f5a623,stroke:#333
+    style CR_Admin fill:#f5a623,stroke:#333
+    style CR_View fill:#f5a623,stroke:#333
+    style R_LE fill:#e17055,stroke:#333,color:#fff
+    style LBG fill:#7ed321,stroke:#333
+    style LBG_Fin fill:#7ed321,stroke:#333
+    style LBG_Status fill:#7ed321,stroke:#333
+    style TokenReviews fill:#e74c3c,stroke:#333,color:#fff
+    style SAR fill:#e74c3c,stroke:#333,color:#fff

@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "component": "kubeflow-sdk",
+  "reads": [
+    {
+      "path": "kubeflow/common/types.py",
+      "line_range": "1-28",
+      "gap_category": ["internal_dependencies", "authentication"],
+      "question": "What is the Kubernetes API interaction boundary and how is authentication configured?",
+      "expected_signal": "import, client call, configuration, auth setup",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "kubeflow/pipelines/__init__.py",
+      "line_range": "1-96",
+      "gap_category": ["internal_dependencies"],
+      "question": "How does the SDK interact with Kubeflow Pipelines and what is the dependency boundary?",
+      "expected_signal": "import, client construction, module re-export",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "pyproject.toml",
+      "line_range": "1-176",
+      "gap_category": ["internal_dependencies", "fips_compliance", "authentication"],
+      "question": "What are the direct and optional internal platform dependencies, and is there any FIPS or crypto configuration?",
+      "expected_signal": "dependency declarations, optional extras, crypto configuration",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Data Flows", "Security"],
+      "scope_reason": "pyproject.toml is the authoritative dependency and project metadata file; all sections are relevant to dependency, authentication delegation, and FIPS compliance assessment"
+    },
+    {
+      "path": "kubeflow/pipelines/api/pipelines_client.py",
+      "line_range": "1-19",
+      "gap_category": ["authentication", "internal_dependencies"],
+      "question": "Does PipelinesClient implement its own authentication or delegate to kfp?",
+      "expected_signal": "auth middleware, token handling, or re-export delegation",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "kubeflow/trainer/rhai/instrumentation/__init__.py",
+      "line_range": "1-26",
+      "gap_category": ["authentication"],
+      "question": "Does the RHAI instrumentation module implement any authentication or network services?",
+      "expected_signal": "HTTP server, middleware, auth handler",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis"]
+    },
+    {
+      "path": "kubeflow/trainer/rhai/transformers.py",
+      "line_range": "1-49",
+      "gap_category": ["authentication"],
+      "question": "Does the TransformersTrainer expose HTTP endpoints or implement auth?",
+      "expected_signal": "route registration, handler binding, middleware, auth token",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis"]
+    },
+    {
+      "path": "requirements.txt",
+      "line_range": "414-421",
+      "gap_category": ["fips_compliance"],
+      "question": "Is cryptography a direct or transitive dependency, and is any FIPS mode configured?",
+      "expected_signal": "cryptography version pin, FIPS backend selection, crypto provider",
+      "outcome": "resolved",
+      "sections": ["Security"]
+    }
+  ]
+}

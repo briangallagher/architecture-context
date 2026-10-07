@@ -1,200 +1,197 @@
 graph TB
-    subgraph CorePlatform["Core Platform Services"]
-        direction TB
-        RhodsOp[rhods-operator<br/>RHOAI Platform Operator<br/>OLM-managed root operator]
-        KRBACProxy[kube-rbac-proxy<br/>Auth Sidecar<br/>TokenReview + SAR]
+    subgraph PlatformControlPlane["Platform Control Plane"]
+        RhodsOp["rhods-operator<br/>(Meta-Operator)<br/>DAG Provisioning: RL20→RL31→RL32→RL33"]
     end
 
-    subgraph ModelServing["Model Serving"]
-        direction TB
-        KServe[KServe<br/>Model Serving Control Plane<br/>InferenceService + LLMInferenceService]
-        ModelMeshCtrl[ModelMesh Serving Controller<br/>Multi-model serving]
-        ModelMesh[ModelMesh<br/>Distributed model cache]
-        OdhModelCtrl[odh-model-controller<br/>Route/NetworkPolicy/ServiceMonitor]
-        VLLM[vLLM CUDA<br/>LLM inference engine]
-        LlmD[llm-d<br/>Disaggregated P/D serving]
-        LlmDScheduler[llm-d-inference-scheduler<br/>KV-cache-aware routing]
-        GatewayAPIExt[Gateway API Inference Extension<br/>Envoy ext-proc routing]
-        MaaS[Models as a Service<br/>Multi-tenant model serving]
+    subgraph ServingStack["AI/ML Serving Stack"]
+        KServe["KServe<br/>InferenceService &<br/>LLMInferenceService"]
+        ODHModelCtrl["odh-model-controller<br/>Platform Bridge"]
+        LLMD["llm-d Router (EPP)<br/>Inference-Aware Routing"]
+        VLLM["vLLM CUDA<br/>LLM Runtime"]
+        ModelMesh["ModelMesh Serving<br/>Multi-Model"]
+        MaaS["Models-as-a-Service<br/>External Providers"]
     end
 
-    subgraph MLLifecycle["ML Lifecycle"]
-        direction TB
-        Dashboard[ODH Dashboard<br/>Platform UI + BFF sidecars]
-        DSP[Data Science Pipelines<br/>KFP API Server]
-        DSPO[DS Pipelines Operator<br/>DSPA lifecycle]
-        ModelRegistry[Model Registry<br/>REST/gRPC metadata store]
-        ModelRegistryOp[Model Registry Operator<br/>CR lifecycle]
-        MLflowOp[MLflow Operator<br/>Helm-based deployment]
-        MLflow[MLflow<br/>Experiment tracking]
-        TrustyAIOp[TrustyAI Service Operator<br/>5 CRD controllers]
-        TrustyAI[TrustyAI Explainability<br/>Bias/drift monitoring]
-        EvalHub[Eval Hub<br/>Model evaluation]
+    subgraph AIGatewayStack["AI Gateway"]
+        AIGateway["ai-gateway-operator<br/>Module Operator"]
+        BatchGW["Batch Gateway<br/>Async LLM"]
     end
 
-    subgraph TrainingBatch["Training & Batch Scheduling"]
-        direction TB
-        Kueue[Kueue<br/>Quota-aware batch scheduling]
-        CodeFlareOp[CodeFlare Operator<br/>AppWrapper lifecycle]
-        KubeRay[KubeRay Operator<br/>RayCluster management]
-        TrainingOp[Training Operator<br/>PyTorchJob/XGBoostJob]
-        Trainer[Kubeflow Trainer<br/>TrainJob/TrainingRuntime]
-        SparkOp[Spark Operator<br/>SparkApplication lifecycle]
+    subgraph DataScience["Data Science Workflows"]
+        DSPO["DS Pipelines Operator"]
+        DSPipelines["Data Science Pipelines<br/>Argo Workflows"]
+        MLMD["ML Metadata"]
+        MLflowOp["MLflow Operator"]
+        MLflow["MLflow<br/>Experiment Tracking"]
     end
 
-    subgraph AISafety["AI Safety & Guardrails"]
-        direction TB
-        FMSOrch[FMS Guardrails Orchestrator<br/>Content safety pipeline]
-        NeMo[NeMo Guardrails<br/>Content moderation]
-        GuardrailsDet[Guardrails Detectors<br/>HF + LLM Judge classifiers]
+    subgraph ModelMgmt["Model Management"]
+        ModelRegOp["Model Registry Operator"]
+        ModelReg["Model Registry<br/>MLMD Schema"]
     end
 
-    subgraph FeatureData["Feature Engineering & Notebooks"]
-        direction TB
-        Feast[Feast<br/>Feature Store]
-        Notebooks[Kubeflow Notebook Controllers<br/>Workbench lifecycle]
-        NotebookImages[Notebook Images<br/>JupyterLab + runtimes]
+    subgraph WorkbenchStack["Workbenches"]
+        WorkbenchesOp["workbenches-operator<br/>Module Operator"]
+        KubeflowCtrl["Kubeflow Notebook<br/>Controller"]
+        Notebooks["Notebooks<br/>Jupyter / VS Code / RStudio"]
     end
 
-    subgraph ExternalDeps["External Dependencies"]
-        direction TB
-        Istio[Istio<br/>Service Mesh]
-        Knative[Knative Serving<br/>Serverless]
-        CertManager[cert-manager<br/>Certificate Management]
-        ArgoWF[Argo Workflows<br/>Pipeline execution]
-        S3[Object Storage<br/>S3/MinIO]
-        K8sAPI[Kubernetes API]
+    subgraph TrainingStack["Distributed Training"]
+        TrainingOp["Training Operator"]
+        KubeflowTrainer["Kubeflow Trainer<br/>TrainingRuntime"]
+        KubeRay["KubeRay Operator<br/>RayCluster"]
+        CodeFlare["CodeFlare Operator"]
+        Kueue["Kueue<br/>Queue Management"]
     end
 
-    %% rhods-operator deploys components
-    RhodsOp -->|deploys| KServe
-    RhodsOp -->|deploys| DSPO
-    RhodsOp -->|deploys| Dashboard
-    RhodsOp -->|deploys| Notebooks
-    RhodsOp -->|deploys| Feast
-    RhodsOp -->|deploys| ModelRegistryOp
-    RhodsOp -->|deploys| MLflowOp
-    RhodsOp -->|deploys| TrustyAIOp
-    RhodsOp -->|deploys| CodeFlareOp
-    RhodsOp -->|deploys| Kueue
-    RhodsOp -->|deploys| ModelMeshCtrl
-    RhodsOp -->|deploys| Trainer
-    RhodsOp -->|deploys| SparkOp
-    RhodsOp -->|deploys| KRBACProxy
+    subgraph TrustSafety["Trust & Safety"]
+        TrustyAI["TrustyAI Operator<br/>Explainability & Fairness"]
+        NemoGuard["NeMo Guardrails"]
+        Feast["Feast<br/>Feature Store"]
+        FeastModOp["feast-module-operator"]
+    end
 
-    %% KServe serving dependencies
-    KServe -->|traffic mgmt| Istio
-    KServe -->|serverless autoscaling| Knative
-    KServe -->|deploys| VLLM
-    KServe -->|disaggregated topology| LlmD
-    LlmD -->|ext-proc scheduling| LlmDScheduler
-    LlmD -->|ext-proc routing| GatewayAPIExt
-    KServe -->|model metadata| ModelRegistry
-    OdhModelCtrl -->|route/netpol creation| KServe
+    subgraph AgentInfra["Agent Infrastructure"]
+        AgentsOp["agents-operator<br/>Kagenti / A2A Protocol"]
+        MCPLifecycle["MCP Lifecycle Operator"]
+        MCPServer["RHOAI MCP Server"]
+        OGX["OGX (Llama Stack)"]
+    end
 
-    %% ModelMesh
-    ModelMeshCtrl -->|deploys| ModelMesh
-    ModelMeshCtrl -->|deploys| RhodsOp
+    subgraph PlatformUI["Platform UI"]
+        Dashboard["odh-dashboard<br/>Web UI + Go BFF Modules"]
+    end
 
-    %% Dashboard integrations (forward deps)
-    Dashboard -->|pipeline management| DSP
-    Dashboard -->|model registration| ModelRegistry
-    Dashboard -->|model serving| KServe
-    Dashboard -->|experiment tracking| MLflowOp
-    Dashboard -->|feature store mgmt| Feast
-    Dashboard -->|model explainability| TrustyAIOp
-    Dashboard -->|content moderation| NeMo
-    Dashboard -->|model evaluation| EvalHub
-    Dashboard -->|LLM inference + RAG| MaaS
+    subgraph PlatformSvc["Platform Services"]
+        KubeRBACProxy["kube-rbac-proxy<br/>Auth Sidecar (15+ components)"]
+        KubeAuthProxy["kube-auth-proxy<br/>OAuth2/OIDC Gateway"]
+        SparkOp["Spark Operator"]
+    end
 
-    %% DS Pipelines chain
-    DSPO -->|deploys| DSP
-    DSP -->|compiles to| ArgoWF
-    DSP -->|stores models| ModelRegistry
-    DSP -->|model artifacts| S3
+    subgraph ExternalInfra["External Infrastructure"]
+        GatewayAPI["Gateway API<br/>Envoy + HTTPRoutes"]
+        Istio["Istio<br/>Service Mesh"]
+        Knative["KNative Serving<br/>Serverless"]
+        MonStack["Monitoring Stack<br/>Prometheus / Tempo / Perses"]
+    end
 
-    %% Training & Batch
-    CodeFlareOp -->|manages| KubeRay
-    CodeFlareOp -->|quota admission| Kueue
-    KubeRay -->|batch scheduling| Kueue
-    TrainingOp -->|batch scheduling| Kueue
-    TrustyAIOp -->|LMEval job scheduling| Kueue
-    EvalHub -->|evaluation scheduling| Kueue
+    %% ─── rhods-operator deploys all module operators (RL20-RL33) ───
+    RhodsOp -->|"RL20: deploys"| KServe
+    RhodsOp -->|"RL20: deploys"| DSPO
+    RhodsOp -->|"RL20: deploys"| Dashboard
+    RhodsOp -->|"RL20: deploys"| KubeflowCtrl
+    RhodsOp -->|"RL31: deploys"| AIGateway
+    RhodsOp -->|"RL32: deploys"| ModelRegOp
+    RhodsOp -->|"RL32: deploys"| WorkbenchesOp
+    RhodsOp -->|"RL32: deploys"| TrustyAI
+    RhodsOp -->|"RL32: deploys"| KubeRay
+    RhodsOp -->|"RL32: deploys"| Kueue
+    RhodsOp -->|"RL32: deploys"| TrainingOp
+    RhodsOp -->|"RL32: deploys"| KubeflowTrainer
+    RhodsOp -->|"RL32: deploys"| MLflowOp
+    RhodsOp -->|"RL32: deploys"| FeastModOp
+    RhodsOp -->|"RL32: deploys"| SparkOp
+    RhodsOp -->|"RL32: deploys"| CodeFlare
 
-    %% Guardrails pipeline
-    TrustyAIOp -->|auto-configures| FMSOrch
-    FMSOrch -->|content detection| GuardrailsDet
-    FMSOrch -->|safe requests| VLLM
+    %% ─── AI Gateway relationships ───
+    AIGateway -->|"manages"| BatchGW
+    AIGateway -->|"MaaS integration"| KServe
+    AIGateway -->|"manages"| MaaS
+    BatchGW -->|"async processing"| LLMD
 
-    %% Model lifecycle
-    ModelRegistryOp -->|deploys| ModelRegistry
-    MLflowOp -->|deploys| MLflow
-    TrustyAI -->|payload monitoring| KServe
-    TrustyAIOp -->|deploys| TrustyAI
-    EvalHub -->|result tracking| MLflow
+    %% ─── Serving stack ───
+    KServe -->|"deploys runtime"| VLLM
+    KServe -->|"serverless autoscaling"| Knative
+    KServe -->|"traffic management"| Istio
+    KServe -->|"model-registry:// URI"| ModelReg
+    ODHModelCtrl -->|"watches InferenceService CRs"| KServe
+    ODHModelCtrl -->|"creates HTTPRoutes"| GatewayAPI
+    ODHModelCtrl -->|"registers models (optional)"| ModelReg
+    LLMD -->|"selects optimal pod (EPP)"| VLLM
 
-    %% Notebooks
-    Notebooks -->|workbench images| NotebookImages
-    NotebookImages -->|pipeline credentials| DSP
+    %% ─── Data Science ───
+    DSPO -->|"deploys"| DSPipelines
+    DSPO -->|"discovers endpoint"| MLflowOp
+    DSPipelines -->|"execution tracking"| MLMD
+    MLflowOp -->|"deploys"| MLflow
 
-    %% kube-rbac-proxy usage
-    KRBACProxy -.->|auth sidecar| TrustyAIOp
-    KRBACProxy -.->|auth sidecar| ModelRegistryOp
-    KRBACProxy -.->|auth sidecar| Notebooks
-    KRBACProxy -.->|auth sidecar| Dashboard
-    KRBACProxy -.->|auth sidecar| KServe
+    %% ─── Model Management ───
+    ModelRegOp -->|"deploys"| ModelReg
+    ModelReg -->|"syncs InferenceService state"| KServe
 
-    %% KubeRay mTLS
-    KubeRay -->|mTLS certs| CertManager
+    %% ─── Workbenches ───
+    WorkbenchesOp -->|"deploys"| KubeflowCtrl
+    KubeflowCtrl -->|"creates StatefulSets"| Notebooks
+    KubeflowCtrl -->|"ambient: injects pipeline config"| DSPipelines
+    KubeflowCtrl -->|"ambient: injects MLflow"| MLflow
+    KubeflowCtrl -->|"ambient: injects Feast"| Feast
 
-    %% External service deps
-    KServe -->|model artifacts| S3
-    ModelRegistry -->|artifact storage| S3
-    MLflow -->|artifact storage| S3
+    %% ─── Training ───
+    Kueue -->|"admits workloads"| TrainingOp
+    Kueue -->|"admits workloads"| KubeRay
+    CodeFlare -->|"injects OAuth + mTLS"| KubeRay
 
-    %% Styling
-    style RhodsOp fill:#1a1a2e,stroke:#e94560,stroke-width:4px,color:#fff
-    style KServe fill:#16213e,stroke:#0f3460,stroke-width:4px,color:#fff
-    style Dashboard fill:#0f3460,stroke:#533483,stroke-width:3px,color:#fff
-    style Kueue fill:#16213e,stroke:#0f3460,stroke-width:3px,color:#fff
-    style KRBACProxy fill:#533483,stroke:#333,stroke-width:2px,color:#fff
+    %% ─── Trust & Safety ───
+    TrustyAI -->|"patches InferenceService"| KServe
+    TrustyAI -->|"LMES evaluation jobs"| Kueue
+    FeastModOp -->|"deploys"| Feast
 
-    style ModelMeshCtrl fill:#2a6041,stroke:#333,color:#fff
-    style ModelMesh fill:#2a6041,stroke:#333,color:#fff
-    style OdhModelCtrl fill:#2a6041,stroke:#333,color:#fff
-    style VLLM fill:#2a6041,stroke:#333,color:#fff
-    style LlmD fill:#2a6041,stroke:#333,color:#fff
-    style LlmDScheduler fill:#2a6041,stroke:#333,color:#fff
-    style GatewayAPIExt fill:#2a6041,stroke:#333,color:#fff
-    style MaaS fill:#2a6041,stroke:#333,color:#fff
+    %% ─── Dashboard integrations ───
+    Dashboard -->|"serving management"| KServe
+    Dashboard -->|"workbench management"| KubeflowCtrl
+    Dashboard -->|"model registry UI"| ModelRegOp
+    Dashboard -->|"pipeline runs UI"| DSPipelines
+    Dashboard -->|"experiment tracking"| MLflowOp
+    Dashboard -->|"feature store discovery"| Feast
+    Dashboard -->|"evaluation hub"| TrustyAI
+    Dashboard -->|"Spark management"| SparkOp
 
-    style DSP fill:#4a6fa5,stroke:#333,color:#fff
-    style DSPO fill:#4a6fa5,stroke:#333,color:#fff
-    style ModelRegistry fill:#4a6fa5,stroke:#333,color:#fff
-    style ModelRegistryOp fill:#4a6fa5,stroke:#333,color:#fff
-    style MLflowOp fill:#4a6fa5,stroke:#333,color:#fff
-    style MLflow fill:#4a6fa5,stroke:#333,color:#fff
-    style TrustyAIOp fill:#4a6fa5,stroke:#333,color:#fff
-    style TrustyAI fill:#4a6fa5,stroke:#333,color:#fff
-    style EvalHub fill:#4a6fa5,stroke:#333,color:#fff
+    %% ─── Agent / MCP ───
+    MCPLifecycle -->|"manages lifecycle"| MCPServer
+    MCPServer -->|"discovers"| KServe
+    MCPServer -->|"discovers"| ModelReg
+    MCPServer -->|"discovers"| DSPO
+    MCPServer -->|"discovers"| KubeflowCtrl
+    TrustyAI -->|"MCP gateway"| MCPServer
 
-    style CodeFlareOp fill:#7c5295,stroke:#333,color:#fff
-    style KubeRay fill:#7c5295,stroke:#333,color:#fff
-    style TrainingOp fill:#7c5295,stroke:#333,color:#fff
-    style Trainer fill:#7c5295,stroke:#333,color:#fff
-    style SparkOp fill:#7c5295,stroke:#333,color:#fff
+    %% ─── Cross-cutting: auth sidecar ───
+    KubeRBACProxy -.->|"sidecar: 15+ components"| KServe
+    KubeRBACProxy -.->|"sidecar"| ModelRegOp
+    KubeRBACProxy -.->|"sidecar"| TrustyAI
+    KubeRBACProxy -.->|"sidecar"| KubeRay
+    KubeRBACProxy -.->|"sidecar"| Dashboard
+    KubeRBACProxy -.->|"sidecar"| KubeflowCtrl
+    KubeRBACProxy -.->|"sidecar"| DSPO
+    KubeAuthProxy -.->|"OAuth2/OIDC ingress"| GatewayAPI
 
-    style FMSOrch fill:#c9485b,stroke:#333,color:#fff
-    style NeMo fill:#c9485b,stroke:#333,color:#fff
-    style GuardrailsDet fill:#c9485b,stroke:#333,color:#fff
-
-    style Feast fill:#e8a87c,stroke:#333,color:#333
-    style Notebooks fill:#e8a87c,stroke:#333,color:#333
-    style NotebookImages fill:#e8a87c,stroke:#333,color:#333
-
-    style Istio fill:#636363,stroke:#333,color:#fff
-    style Knative fill:#636363,stroke:#333,color:#fff
-    style CertManager fill:#636363,stroke:#333,color:#fff
-    style ArgoWF fill:#636363,stroke:#333,color:#fff
-    style S3 fill:#f5a623,stroke:#333,color:#333
-    style K8sAPI fill:#636363,stroke:#333,color:#fff
+    %% ─── Styling ───
+    style RhodsOp fill:#e74c3c,stroke:#333,stroke-width:3px,color:#fff
+    style KServe fill:#2980b9,stroke:#333,stroke-width:3px,color:#fff
+    style Dashboard fill:#27ae60,stroke:#333,stroke-width:2px,color:#fff
+    style KubeflowCtrl fill:#27ae60,stroke:#333,stroke-width:2px,color:#fff
+    style ODHModelCtrl fill:#2980b9,stroke:#333,stroke-width:2px,color:#fff
+    style LLMD fill:#2980b9,stroke:#333,stroke-width:2px,color:#fff
+    style VLLM fill:#8e44ad,stroke:#333,stroke-width:2px,color:#fff
+    style ModelMesh fill:#2980b9,stroke:#333,stroke-width:2px,color:#fff
+    style AIGateway fill:#d35400,stroke:#333,stroke-width:2px,color:#fff
+    style BatchGW fill:#d35400,stroke:#333,stroke-width:2px,color:#fff
+    style MaaS fill:#d35400,stroke:#333,stroke-width:2px,color:#fff
+    style AgentsOp fill:#16a085,stroke:#333,stroke-width:2px,color:#fff
+    style MCPLifecycle fill:#16a085,stroke:#333,stroke-width:2px,color:#fff
+    style MCPServer fill:#16a085,stroke:#333,stroke-width:2px,color:#fff
+    style OGX fill:#16a085,stroke:#333,stroke-width:2px,color:#fff
+    style GatewayAPI fill:#7f8c8d,stroke:#333,stroke-width:2px,color:#fff
+    style Istio fill:#7f8c8d,stroke:#333,stroke-width:2px,color:#fff
+    style Knative fill:#7f8c8d,stroke:#333,stroke-width:2px,color:#fff
+    style MonStack fill:#7f8c8d,stroke:#333,stroke-width:2px,color:#fff
+    style KubeRBACProxy fill:#e67e22,stroke:#333,stroke-width:2px,color:#fff
+    style KubeAuthProxy fill:#e67e22,stroke:#333,stroke-width:2px,color:#fff
+    style TrustyAI fill:#c0392b,stroke:#333,stroke-width:2px,color:#fff
+    style NemoGuard fill:#c0392b,stroke:#333,stroke-width:2px,color:#fff
+    style Feast fill:#c0392b,stroke:#333,stroke-width:2px,color:#fff
+    style FeastModOp fill:#c0392b,stroke:#333,stroke-width:2px,color:#fff
+    style Kueue fill:#2c3e50,stroke:#333,stroke-width:2px,color:#fff
+    style TrainingOp fill:#2c3e50,stroke:#333,stroke-width:2px,color:#fff
+    style KubeflowTrainer fill:#2c3e50,stroke:#333,stroke-width:2px,color:#fff
+    style KubeRay fill:#2c3e50,stroke:#333,stroke-width:2px,color:#fff
+    style CodeFlare fill:#2c3e50,stroke:#333,stroke-width:2px,color:#fff

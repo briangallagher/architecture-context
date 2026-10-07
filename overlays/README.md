@@ -36,6 +36,7 @@ provenance:                       # links to PRs, issues, decisions
   - https://github.com/org/repo/pull/123
 author: Your Name                 # who created this overlay
 superseded_by: null               # set when status changes to superseded
+integration_status: planned       # optional; see Integration Status below
 ---
 
 ## Fact
@@ -73,6 +74,19 @@ Consumers match overlays using the frontmatter fields:
 2. **Release**: Filter by target release version or `"all"`
 3. **Component**: Match `affects` list against the components relevant to the consumer's task
 4. Overlays with `affects: [platform]` apply to all components
+
+## Integration Status
+
+The optional `integration_status` frontmatter field can provide explicit,
+release-scoped input to a generated version `INDEX.md`. Its allowed values are
+`current`, `planned`, `not-integrated`, and `unknown`. It applies to every
+component named by `affects` when the overlay is active and matches the target
+release.
+
+The index reads this structured field and links the overlay as attribution. It
+does not interpret overlay prose as integration evidence. Omit the field when
+the overlay corrects architecture context without establishing an integration
+state.
 
 ## Lifecycle
 

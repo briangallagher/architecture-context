@@ -1,80 +1,94 @@
 graph TB
-    subgraph ai4rag["ai4rag Library"]
+    subgraph AI4RAG["ai4rag Library"]
         direction TB
 
-        subgraph Core["Core Layer"]
-            Experiment["AI4RAGExperiment<br/><i>Orchestrates optimization loop</i>"]
-            MPS["ModelsPreSelector<br/><i>Pre-selects top-N models</i>"]
-            Results["ExperimentResults<br/><i>Aggregates pattern results</i>"]
+        subgraph Core["ai4rag.core"]
+            Experiment["Experiment Engine<br/>(AI4RAGExperiment)"]
+            Results["Results Collector"]
+            subgraph HPO["ai4rag.core.hpo"]
+                GAMOpt["GAM Optimizer<br/>(LinearGAM)"]
+                RandomOpt["Random Optimizer"]
+            end
+            Experiment -->|selects configs via| GAMOpt
+            Experiment -->|fallback| RandomOpt
+            Experiment -->|collects| Results
         end
 
-        subgraph HPO["Hyperparameter Optimization"]
-            GAMOpt["GAMOptimizer<br/><i>Bayesian-style GAM optimization</i>"]
-            RandomOpt["RandomOptimizer<br/><i>Random baseline fallback</i>"]
-            BaseOpt["BaseOptimizer<br/><i>Abstract optimizer interface</i>"]
-            GAMOpt -.->|extends| BaseOpt
-            RandomOpt -.->|extends| BaseOpt
+        subgraph RAG["ai4rag.rag"]
+            subgraph Chunking["Chunking"]
+                LangChainChunker["LangChain<br/>RecursiveCharacterTextSplitter"]
+                DoclingChunker["Docling<br/>HybridChunker"]
+            end
+            subgraph Embedding["Embedding"]
+                OGXEmbed["OGX Embedding Model"]
+            end
+            subgraph VectorStore["Vector Stores"]
+                OGXVectorStore["OGX Vector Store<br/>(Milvus/Qdrant)"]
+                ChromaVS["ChromaDB<br/>(in-memory)"]
+            end
+            subgraph FM["Foundation Models"]
+                OGXFM["OGX Foundation Model"]
+            end
+            subgraph Templates["RAG Templates"]
+                SimpleRAG["SimpleRAGTemplate"]
+            end
+            Retriever["Retriever"]
         end
 
-        subgraph RAG["RAG Pipeline"]
-            Template["SimpleRAGTemplate<br/><i>End-to-end RAG pattern</i>"]
-            Chunker["LangChainChunker<br/><i>Recursive text splitting</i>"]
-            Retriever["Retriever<br/><i>Similarity search</i>"]
-            EmbModel["EmbeddingModel<br/><i>Text embeddings (OGX)</i>"]
-            FMModel["FoundationModel<br/><i>Text generation (OGX)</i>"]
-            VectorStore["VectorStore<br/><i>OGX / ChromaDB</i>"]
+        subgraph Evaluator["ai4rag.evaluator"]
+            UnitxtEval["Unitxt Evaluator<br/>(correctness, faithfulness)"]
+            LLMaJEval["LLM-as-a-Judge<br/>(answer relevance)"]
+            JudgeSelect["Judge Model Selector"]
+            LLMaJEval -->|selects judge via| JudgeSelect
         end
 
-        subgraph Evaluation["Evaluation"]
-            Evaluator["UnitxtEvaluator<br/><i>Answer correctness, faithfulness</i>"]
+        subgraph SearchSpace["ai4rag.search_space"]
+            SSDefinition["Search Space Definition"]
+            SSPrepare["Search Space Preparation<br/>(OGX model discovery)"]
+            Constraints["Constraint Validation"]
+            SSPrepare -->|validates| Constraints
         end
 
-        subgraph SearchSpace["Search Space"]
-            SS["AI4RAGSearchSpace<br/><i>Constraint-based param pruning</i>"]
-            Params["Parameters<br/><i>Categorical + numeric ranges</i>"]
-            SS --> Params
+        subgraph Components["ai4rag.components (KFP)"]
+            DocDiscovery["Document Discovery<br/>(S3 listing)"]
+            TextExtract["Text Extraction<br/>(Docling)"]
+            DocIndexing["Document Indexing"]
+            RAGOptComp["RAG Optimization"]
+            AssetGen["Asset Generation<br/>(pattern JSON, notebooks)"]
         end
 
-        subgraph EventHandlers["Event Handlers"]
-            KFPHandler["KFPEventHandler<br/><i>Kubeflow Pipelines integration</i>"]
-            LocalHandler["LocalEventHandler<br/><i>Local JSON output</i>"]
-        end
+        %% Core orchestration flows
+        Experiment -->|chunks docs via| Chunking
+        Experiment -->|embeds via| Embedding
+        Experiment -->|stores in| VectorStore
+        Experiment -->|retrieves via| Retriever
+        Experiment -->|generates via| FM
+        Experiment -->|applies| SimpleRAG
+        Experiment -->|evaluates via| UnitxtEval
+        Experiment -->|evaluates via| LLMaJEval
+        Experiment -->|explores| SSDefinition
     end
 
-    %% Internal flows
-    Experiment -->|uses| GAMOpt
-    Experiment -->|uses| SS
-    Experiment -->|instantiates| Template
-    Experiment -->|calls| Evaluator
-    Experiment -->|emits events| KFPHandler
-    Experiment -->|emits events| LocalHandler
-    MPS -->|pre-filters models| Experiment
-    Template -->|uses| Chunker
-    Template -->|uses| Retriever
-    Template -->|uses| EmbModel
-    Template -->|uses| FMModel
-    Retriever -->|queries| VectorStore
+    %% External systems
+    User["User / KFP Pipeline"] -->|configures & runs| Experiment
+    User -->|triggers| Components
 
-    %% External dependencies
-    OGX["OGX Server<br/><i>Embeddings, Vector Stores,<br/>Chat Completions</i>"]
-    ChromaDB["ChromaDB<br/><i>In-memory vector store</i>"]
-    KFP["Kubeflow Pipelines<br/><i>Pipeline orchestration</i>"]
+    OGXEmbed -->|HTTPS/443| OGXServer["OGX Server"]
+    OGXVectorStore -->|HTTPS/443| OGXServer
+    OGXFM -->|HTTPS/443| OGXServer
+    SSPrepare -->|discovers models via| OGXServer
+    JudgeSelect -->|evaluates judges via| OGXServer
 
-    EmbModel -->|HTTPS / API Key| OGX
-    FMModel -->|HTTPS / API Key| OGX
-    VectorStore -->|HTTPS / API Key| OGX
-    VectorStore -->|In-process| ChromaDB
-    KFPHandler -->|Python API| KFP
+    DocDiscovery -->|HTTPS/443| S3["S3 Storage"]
 
     %% Styling
-    style ai4rag fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style AI4RAG fill:#e8f0fe,stroke:#4a90e2,stroke-width:2px
     style Core fill:#d5e8d4,stroke:#82b366
-    style HPO fill:#fff2cc,stroke:#d6b656
-    style RAG fill:#dae8fc,stroke:#6c8ebf
-    style Evaluation fill:#f8cecc,stroke:#b85450
+    style RAG fill:#fff2cc,stroke:#d6b656
+    style Evaluator fill:#f8cecc,stroke:#b85450
     style SearchSpace fill:#e1d5e7,stroke:#9673a6
-    style EventHandlers fill:#ffe6cc,stroke:#d79b00
-
-    style OGX fill:#999,stroke:#333,stroke-width:2px
-    style ChromaDB fill:#999,stroke:#333
-    style KFP fill:#7ed321,stroke:#333
+    style Components fill:#dae8fc,stroke:#6c8ebf
+    style OGXServer fill:#999,stroke:#333,stroke-width:2px
+    style S3 fill:#999,stroke:#333,stroke-width:2px
+    style User fill:#f5f5f5,stroke:#666
+    style Experiment fill:#4a90e2,color:#fff

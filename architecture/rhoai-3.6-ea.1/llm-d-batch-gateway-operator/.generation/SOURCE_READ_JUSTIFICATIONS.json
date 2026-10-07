@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "component": "llm-d-batch-gateway-operator",
+  "reads": [
+    {
+      "path": "config/manager/manager.yaml",
+      "line_range": "1-82",
+      "gap_category": ["services", "authentication", "integration_points"],
+      "question": "What Kubernetes Services, container ports, and deployment configuration does the operator define?",
+      "expected_signal": "Service definitions, container ports, probe configuration, environment variables",
+      "outcome": "resolved",
+      "sections": ["Services", "Authentication & Authorization", "Data Flows", "Architectural Analysis"]
+    },
+    {
+      "path": "internal/tls/profile.go",
+      "line_range": "1-152",
+      "gap_category": ["fips_compliance", "authentication"],
+      "question": "How is TLS configured and what crypto provider does the operator use?",
+      "expected_signal": "TLS profile resolution, cipher suite selection, crypto/tls usage, FIPS signals",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance", "Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "cmd/main.go",
+      "line_range": "80-199",
+      "gap_category": ["authentication", "services", "integration_points"],
+      "question": "How is the metrics server configured and what authentication is enforced?",
+      "expected_signal": "SecureServing, FilterProvider, TLS options, metrics bind address",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization", "Services", "Data Flows", "Architectural Analysis"]
+    },
+    {
+      "path": "internal/monitoring/controller.go",
+      "line_range": "1-243",
+      "gap_category": ["services", "integration_points", "internal_dependencies"],
+      "question": "What Kubernetes Service and monitoring resources does the MetricsController create?",
+      "expected_signal": "Service creation, ServiceMonitor, PrometheusRule, port configuration, TLS cert annotation",
+      "outcome": "resolved",
+      "sections": ["Services", "Integration Points", "Internal Platform Dependencies", "Data Flows"],
+      "scope_reason": "Full file read needed because MetricsController defines service creation, service monitor, and prometheus rule across the entire file with interdependent constants and methods"
+    },
+    {
+      "path": "internal/controller/llmbatchgateway_controller.go",
+      "line_range": "540-584",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "What resources does the controller watch and own, and which are conditional?",
+      "expected_signal": "Owns, Watches, For registrations, CRD availability checks",
+      "outcome": "resolved",
+      "sections": ["Integration Points", "Internal Platform Dependencies", "Architectural Analysis"]
+    },
+    {
+      "path": "Dockerfile.konflux",
+      "line_range": "1-51",
+      "gap_category": ["fips_compliance"],
+      "question": "What build flags and FIPS-related configuration are used in the Konflux build?",
+      "expected_signal": "CGO_ENABLED, GOEXPERIMENT, build tags, base image, linking mode",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    }
+  ]
+}

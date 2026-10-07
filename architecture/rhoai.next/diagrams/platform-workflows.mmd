@@ -1,175 +1,120 @@
 sequenceDiagram
-    participant User as Data Scientist
-    participant Dashboard as ODH Dashboard
-    participant ModelReg as Model Registry
-    participant KServe as KServe Controller
-    participant OdhMC as odh-model-controller
-    participant S3 as Object Storage (S3)
-    participant Gateway as data-science-gateway
-    participant KRBAC as kube-rbac-proxy
-    participant VLLM as vLLM Model Server
-    participant Client as External Client
+    participant User as User / Application
+    participant GW as Gateway API (Envoy)
+    participant AuthP as Kuadrant AuthPolicy
+    participant EPP as llm-d Router (EPP)
+    participant vLLM as vLLM Inference Pod
+    participant KServeCtrl as KServe Controller
+    participant ODHCtrl as odh-model-controller
+    participant Prom as Prometheus
 
-    Note over User,Client: Workflow 1: Model Serving (Single-Model Inference)
+    Note over User,Prom: Workflow 1: LLM Model Serving (Inference Request)
 
-    User->>Dashboard: Login via kube-rbac-proxy<br/>(TokenReview + SAR)
-    Dashboard-->>User: Show model registry & serving UI
+    User->>GW: POST inference request<br/>HTTPS/443, TLS 1.3
+    GW->>AuthP: Evaluate per-HTTPRoute AuthPolicy
+    AuthP-->>GW: Authorized (Kuadrant/Authorino)
+    GW->>EPP: Forward via ext_proc filter
+    Note over EPP: Scoring plugins evaluate:<br/>1. prefix-cache-affinity<br/>2. KV-cache-aware scoring<br/>3. load-balanced routing<br/>4. expert-parallelism-aware (EP)
+    EPP->>vLLM: Select optimal backend pod
+    Note over vLLM: Execute LLM inference<br/>on GPU (CUDA)
+    vLLM-->>EPP: Stream tokens (SSE)
+    EPP-->>GW: Forward stream
+    GW-->>User: JSON response<br/>HTTPS, TLS 1.3
 
-    %% Model registration
-    User->>Dashboard: Register model in Model Registry
-    Dashboard->>ModelReg: Create RegisteredModel +<br/>ModelVersion + ModelArtifact<br/>(REST 8080 or gRPC 9090)
-    ModelReg->>ModelReg: Store in MySQL/PostgreSQL
+    Note over KServeCtrl,Prom: Background: Platform Reconciliation (continuous)
 
-    %% Deploy model
-    User->>Dashboard: Deploy model as InferenceService
-    Dashboard->>KServe: Create InferenceService CR<br/>(K8s API)
-    KServe->>KServe: Create Deployment with<br/>vLLM container + storage initializer
-    KServe->>S3: Download model artifacts<br/>(HTTPS, AWS IAM)
-    KServe->>Gateway: Create HTTPRoute +<br/>optional AuthPolicy
-    OdhMC->>OdhMC: Watch InferenceService
-    OdhMC->>OdhMC: Create Route, NetworkPolicy,<br/>ServiceMonitor
-    OdhMC->>ModelReg: Sync deployment status<br/>(optional)
+    KServeCtrl->>KServeCtrl: Manage Deployment or LeaderWorkerSet<br/>HPA/WVA autoscaling<br/>InferencePool lifecycle
+    ODHCtrl->>KServeCtrl: Watch InferenceService CRs
+    ODHCtrl->>GW: Create HTTPRoutes + AuthPolicies
+    ODHCtrl->>Prom: Create ServiceMonitors + MetricsDashboards
 
-    %% Inference
-    Client->>Gateway: POST /v2/models/my-model/infer<br/>(HTTPS/443, TLS 1.2+)
-    Gateway->>KRBAC: Forward to kube-rbac-proxy<br/>(8443)
-    KRBAC->>KRBAC: TokenReview + SAR validation<br/>(FIPS 140-2 TLS)
-    KRBAC->>VLLM: Proxy to model server<br/>(8000)
-    VLLM-->>KRBAC: Prediction result
-    KRBAC-->>Gateway: Response
-    Gateway-->>Client: JSON response<br/>(HTTPS)
+---
 
 sequenceDiagram
-    participant User as Data Scientist
-    participant Notebook as Jupyter Notebook
-    participant Dashboard as ODH Dashboard
-    participant DSP as DS Pipelines API
-    participant DSPO as DS Pipelines Operator
-    participant Argo as Argo Workflows
-    participant S3 as Object Storage
-    participant MLMD as ML Metadata
-    participant KServe as KServe
+    participant DS as Data Scientist
+    participant Dash as odh-dashboard
+    participant DashWH as Dashboard Webhooks
+    participant KFCtrl as Kubeflow Notebook Controller
+    participant ODHCtrl2 as ODH Notebook Controller
+    participant KRBP as kube-rbac-proxy Sidecar
+    participant GW2 as Gateway API
+    participant DSPO as DSPO
+    participant MLflow as MLflow
+    participant Feast as Feast
+    participant NB as Notebook Pod
 
-    Note over User,KServe: Workflow 2: ML Pipeline Execution
+    Note over DS,NB: Workflow 2: Notebook Workbench Lifecycle
 
-    User->>Dashboard: Create pipeline via UI
-    Dashboard->>DSP: Submit pipeline definition<br/>(REST 8888)
+    DS->>Dash: Create Notebook via UI
+    Dash->>DashWH: Submit Notebook CR
+    DashWH->>DashWH: Validate HardwareProfile<br/>Inject Connections (envFrom secrets)<br/>Validate RBAC on referenced secrets
+    DashWH-->>Dash: Validated
 
-    alt From Notebook
-        User->>Notebook: Import KFP SDK
-        Notebook->>DSP: Submit pipeline via SDK<br/>(REST 8888)
-    end
+    KFCtrl->>KFCtrl: Watch Notebook CRs
+    KFCtrl->>NB: Create StatefulSet + Service
 
-    DSP->>DSP: Compile pipeline IR<br/>(Argo Workflow spec)
-    DSP->>Argo: Create Workflow CR
+    ODHCtrl2->>NB: Inject kube-rbac-proxy sidecar
+    ODHCtrl2->>GW2: Create HTTPRoute + ReferenceGrant<br/>in controller namespace
+    ODHCtrl2->>ODHCtrl2: Configure idle culler
 
-    loop Each Pipeline Step
-        Argo->>Argo: Create pod for step<br/>(argoexec sidecar)
-        Note over Argo: Driver: resolve inputs,<br/>check execution cache
-        Argo->>S3: Download input artifacts<br/>(HTTPS)
-        Note over Argo: Launcher: execute user code
-        Argo->>S3: Upload output artifacts<br/>(HTTPS)
-    end
+    Note over ODHCtrl2,Feast: Ambient Configuration (automatic discovery)
+    ODHCtrl2->>DSPO: Discover DSPA CRs
+    ODHCtrl2->>NB: Inject pipeline connection config
+    ODHCtrl2->>MLflow: Discover MLflow ClusterRoles
+    ODHCtrl2->>NB: Inject experiment tracking config
+    ODHCtrl2->>Feast: Discover FeatureStore CRs
+    ODHCtrl2->>NB: Inject feature store config
 
-    Argo->>DSP: Persistence Agent watches<br/>Workflow status
-    DSP->>MLMD: Persist run state +<br/>artifact metadata<br/>(gRPC 8080)
-    DSP->>S3: Store pipeline artifacts
+    DS->>GW2: Access notebook via HTTPS URL
+    GW2->>KRBP: Forward to kube-rbac-proxy
+    KRBP->>KRBP: SubjectAccessReview<br/>on Notebook CR
+    KRBP-->>NB: Proxy to notebook pod 8888/TCP
+    NB-->>DS: Jupyter/VS Code session
 
-    %% Optional model deployment
-    Note over DSP,KServe: Optional: auto-deploy trained model
-    DSP->>KServe: Create InferenceService CR
-
-sequenceDiagram
-    participant User as ML Engineer
-    participant SDK as CodeFlare SDK
-    participant CF as CodeFlare Operator
-    participant Kueue as Kueue Controller
-    participant KubeRay as KubeRay Operator
-    participant RayHead as Ray Head Pod
-    participant RayWorker as Ray Worker Pods
-    participant CertMgr as cert-manager
-    participant OAuth as OAuth Proxy
-
-    Note over User,OAuth: Workflow 3: Distributed Training with Batch Scheduling
-
-    User->>SDK: Define training job<br/>(resource requirements, GPU count)
-    SDK->>CF: Submit RayCluster wrapped<br/>in AppWrapper CR
-
-    CF->>Kueue: Create Workload for<br/>quota admission
-    Kueue->>Kueue: Evaluate ClusterQueue/<br/>Cohort hierarchy
-    alt Resources Available
-        Kueue-->>CF: Admit Workload
-    else Resources Unavailable
-        Kueue-->>CF: Queue Workload<br/>(wait for quota)
-        Note over Kueue: Preemption or borrowing<br/>from Cohort if configured
-        Kueue-->>CF: Admit Workload (later)
-    end
-
-    CF->>KubeRay: Create RayCluster CR
-    KubeRay->>CertMgr: Request CA certificate<br/>(per-RayCluster CA hierarchy)
-    CertMgr-->>KubeRay: Issue CA + node certs
-    KubeRay->>RayHead: Create head pod<br/>(GCS 6379, Dashboard 8265,<br/>Client 10001)
-    KubeRay->>RayWorker: Create worker pods<br/>(GPU-enabled)
-
-    CF->>RayHead: Inject OAuth proxy sidecar<br/>(8443, OpenShift OAuth)
-    CF->>RayHead: Inject mTLS init container<br/>(openssl self-signed or cert-manager)
-
-    Note over RayHead,RayWorker: mTLS between all Ray nodes
-
-    CF->>CF: Create NetworkPolicy<br/>(deny-all + allow head-worker)
-    CF->>CF: Create Route for<br/>Ray Dashboard access
-
-    User->>OAuth: Access Ray Dashboard<br/>(HTTPS/443)
-    OAuth->>OAuth: OpenShift OAuth +<br/>SAR (pods:get)
-    OAuth->>RayHead: Proxy to Dashboard<br/>(8265)
-
-    User->>RayHead: Submit training job<br/>(Ray Client 10001)
-    RayHead->>RayWorker: Distribute tasks<br/>(mTLS, NCCL)
-    RayWorker-->>RayHead: Training results
+---
 
 sequenceDiagram
-    participant User as Platform User
-    participant Dashboard as ODH Dashboard
-    participant KServe as KServe Controller
-    participant VLLM_P as vLLM Prefill Pods
-    participant VLLM_D as vLLM Decode Pods
-    participant Scheduler as llm-d-inference-scheduler
-    participant KVCache as llm-d-kv-cache
-    participant TrustyAI as TrustyAI Service Operator
-    participant Orchestrator as FMS Guardrails Orchestrator
-    participant Detectors as Guardrails Detectors
-    participant Client as API Client
+    participant DS2 as Data Scientist
+    participant MReg as Model Registry
+    participant MRSVC as MR API Server
+    participant DB as PostgreSQL/MySQL
+    participant KServe2 as KServe Controller
+    participant CSI as KServe Storage Initializer
+    participant ModelStore as Model Storage (S3/PVC)
+    participant MRCtrl as MR Controller
+    participant TrustyAI as TrustyAI Operator
+    participant Dash2 as odh-dashboard
+    participant Prom2 as Prometheus
 
-    Note over User,Client: Workflow 4: LLM Serving with Guardrails (Disaggregated P/D)
+    Note over DS2,Prom2: Workflow 3: Model Registration and Deployment
 
-    User->>Dashboard: Create LLMInferenceService<br/>(guardrails label, P/D topology)
-    Dashboard->>KServe: Create LLMInferenceService CR
+    %% Registration phase
+    DS2->>MRSVC: Register model via UI or REST API
+    MRSVC->>DB: Store RegisteredModel +<br/>ModelVersion + ModelArtifact<br/>(MLMD schema)
+    DB-->>MRSVC: Persisted
+    MRSVC-->>DS2: Model registered
 
-    KServe->>VLLM_P: Create prefill Deployment<br/>(or LeaderWorkerSet for multi-node)
-    KServe->>VLLM_D: Create decode Deployment
-    KServe->>Scheduler: Configure llm-d-inference-scheduler<br/>as Envoy ext-proc sidecar
-    KServe->>KVCache: Configure KV transfer<br/>between P/D (gRPC)
+    %% Deployment phase
+    DS2->>Dash2: Deploy model version
+    Dash2->>KServe2: Create InferenceService CR<br/>with model-registry:// URI
+    KServe2->>CSI: Resolve model-registry:// URI
+    CSI->>MRSVC: REST API: get artifact location
+    MRSVC-->>CSI: S3 path + credentials
+    CSI->>CSI: Validate against URI allowlist
+    CSI->>ModelStore: Download model artifacts<br/>HTTPS/443, AWS IAM
+    ModelStore-->>CSI: Model files
+    Note over KServe2: Create Deployment or LWS<br/>Configure autoscaling<br/>TLS + InferencePool
 
-    TrustyAI->>TrustyAI: Auto-detect guardrails label<br/>on InferenceService
-    TrustyAI->>Orchestrator: Generate orchestrator config<br/>(detector endpoints, TLS settings)
+    %% Sync phase
+    MRCtrl->>KServe2: Watch InferenceService status
+    MRCtrl->>MRSVC: Sync deployment state to Registry<br/>Create ServingEnvironment per namespace
 
-    Note over Orchestrator,Detectors: Guardrails pipeline ready
+    %% Trust phase
+    TrustyAI->>KServe2: Patch InferenceService<br/>with explainability payloads
+    TrustyAI->>Prom2: Deploy bias/fairness monitoring
 
-    Client->>Scheduler: POST inference request<br/>(HTTPS, Kuadrant AuthPolicy)
-    Scheduler->>Scheduler: Evaluate KV-cache utilization,<br/>prefix cache affinity,<br/>queue depth
-    Scheduler->>Orchestrator: Route to guardrails first
-
-    Orchestrator->>Detectors: Content safety check<br/>(HuggingFace classifiers,<br/>LLM Judge)
-    Detectors-->>Orchestrator: Detection results
-
-    alt Content Safe
-        Orchestrator->>VLLM_P: Forward to prefill<br/>(optimal backend)
-        VLLM_P->>KVCache: Transfer KV cache<br/>(gRPC)
-        KVCache->>VLLM_D: KV cache to decode pod
-        VLLM_D-->>Orchestrator: Generated response
-        Orchestrator->>Detectors: Output safety check
-        Detectors-->>Orchestrator: Output safe
-        Orchestrator-->>Client: Final response
-    else Content Blocked
-        Orchestrator-->>Client: Content blocked response
-    end
+    %% Dashboard monitoring
+    DS2->>Dash2: View model status
+    Dash2->>MRSVC: Get model metadata
+    Dash2->>KServe2: Get InferenceService status
+    Dash2-->>DS2: Model serving status + metrics

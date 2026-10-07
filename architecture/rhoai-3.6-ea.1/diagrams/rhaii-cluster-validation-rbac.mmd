@@ -1,0 +1,100 @@
+graph TD
+    subgraph "Authentication Contexts"
+        direction TB
+        AdminAuth["Administrator<br/>(kubeconfig credentials)"]
+        PodAuth["Agent Job Pods<br/>(ServiceAccount token)"]
+    end
+
+    subgraph "Controller Process (Admin kubeconfig)"
+        direction TB
+        ControllerOps["Controller Operations<br/>(full admin RBAC)"]
+    end
+
+    subgraph "Service Account"
+        SA["rhaii-validator<br/>Namespace: rhaii-validation"]
+    end
+
+    subgraph "ClusterRole Bindings"
+        CRB["rhaii-validator<br/>(ClusterRoleBinding)"]
+        SCCB["rhaii-validator-scc-{namespace}<br/>(SCC Binding)"]
+    end
+
+    subgraph "Roles"
+        CR["rhaii-validator<br/>(ClusterRole)<br/>API Groups: (none)<br/>Resources: (none)<br/>Verbs: (none)"]
+        SCCRole["system:openshift:scc:privileged<br/>(ClusterRole)"]
+    end
+
+    subgraph "Effective Permissions"
+        direction TB
+        NoAPIPerm["No Kubernetes API<br/>permissions"]
+        HostAccess["Host-level access<br/>via privileged SCC"]
+    end
+
+    subgraph "Resources Accessed by Agent Pods"
+        direction TB
+        Sysfs["/sys/class<br/>PCI topology"]
+        InfiniBand["/sys/class/infiniband<br/>RDMA devices"]
+        GPUDrivers["GPU driver interfaces"]
+        NetworkStack["TCP 12865 / iperf3<br/>Network testing"]
+    end
+
+    subgraph "Resources Created by Controller (admin kubeconfig)"
+        direction TB
+        Namespace["Namespace<br/>rhaii-validation"]
+        SARes["ServiceAccount<br/>rhaii-validator"]
+        CRRes["ClusterRole<br/>rhaii-validator"]
+        CRBRes["ClusterRoleBinding<br/>rhaii-validator"]
+        SCCRes["SCC Binding<br/>rhaii-validator-scc"]
+        JobRes["Jobs<br/>per-node agents"]
+        CMRes["ConfigMap<br/>validation results"]
+    end
+
+    %% Auth flows
+    AdminAuth -->|"kubeconfig"| ControllerOps
+    ControllerOps -->|"creates"| Namespace
+    ControllerOps -->|"creates"| SARes
+    ControllerOps -->|"creates"| CRRes
+    ControllerOps -->|"creates"| CRBRes
+    ControllerOps -->|"creates"| SCCRes
+    ControllerOps -->|"deploys"| JobRes
+    ControllerOps -->|"writes results"| CMRes
+
+    PodAuth -->|"mounts token"| SA
+
+    %% RBAC chain
+    SA -->|"bound via"| CRB
+    SA -->|"bound via"| SCCB
+    CRB -->|"grants"| CR
+    SCCB -->|"grants"| SCCRole
+
+    CR -->|"provides"| NoAPIPerm
+    SCCRole -->|"provides"| HostAccess
+
+    %% Hardware access
+    HostAccess -->|"enables read"| Sysfs
+    HostAccess -->|"enables read"| InfiniBand
+    HostAccess -->|"enables read"| GPUDrivers
+    HostAccess -->|"enables"| NetworkStack
+
+    %% Styling
+    style AdminAuth fill:#4a90e2,color:#fff
+    style PodAuth fill:#4a90e2,color:#fff
+    style SA fill:#4a90e2,color:#fff
+    style CR fill:#f5a623,color:#fff
+    style SCCRole fill:#f5a623,color:#fff
+    style CRB fill:#e8e8e8,stroke:#333
+    style SCCB fill:#e8e8e8,stroke:#333
+    style NoAPIPerm fill:#d5e8d4,stroke:#82b366
+    style HostAccess fill:#ffe6cc,stroke:#d79b00
+    style Sysfs fill:#7ed321,color:#fff
+    style InfiniBand fill:#7ed321,color:#fff
+    style GPUDrivers fill:#7ed321,color:#fff
+    style NetworkStack fill:#7ed321,color:#fff
+    style ControllerOps fill:#dae8fc,stroke:#6c8ebf
+    style Namespace fill:#e1d5e7,stroke:#9673a6
+    style SARes fill:#e1d5e7,stroke:#9673a6
+    style CRRes fill:#e1d5e7,stroke:#9673a6
+    style CRBRes fill:#e1d5e7,stroke:#9673a6
+    style SCCRes fill:#e1d5e7,stroke:#9673a6
+    style JobRes fill:#e1d5e7,stroke:#9673a6
+    style CMRes fill:#e1d5e7,stroke:#9673a6

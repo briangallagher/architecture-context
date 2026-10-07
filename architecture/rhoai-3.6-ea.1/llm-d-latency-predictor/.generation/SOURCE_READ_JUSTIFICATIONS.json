@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "component": "llm-d-latency-predictor",
+  "reads": [
+    {
+      "path": "prediction/prediction_server.py",
+      "line_range": "1-120",
+      "gap_category": ["authentication", "integration_points", "fips_compliance"],
+      "question": "Does the prediction server use any auth middleware, what external services does it connect to, and what crypto libraries does it import?",
+      "expected_signal": "middleware registration, HTTP client configuration, crypto imports",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Authentication & Authorization", "Integration Points", "FIPS Compliance", "Data Flows"]
+    },
+    {
+      "path": "Dockerfile.konflux.prediction",
+      "line_range": "1-27",
+      "gap_category": ["fips_compliance"],
+      "question": "What base image is used and are there any FIPS-related build flags or crypto library installations?",
+      "expected_signal": "base image reference, FIPS build flags, OpenSSL installation",
+      "outcome": "resolved",
+      "sections": ["FIPS Compliance"]
+    },
+    {
+      "path": "deploy/base/prediction/deployment.yaml",
+      "line_range": "1-65",
+      "gap_category": ["authentication", "integration_points", "internal_dependencies"],
+      "question": "What environment variables, volumes, and service references are configured for the prediction server deployment?",
+      "expected_signal": "configMapRef, env vars referencing other services, volume mounts",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Data Flows", "Integration Points"]
+    },
+    {
+      "path": "training/training_server.py",
+      "line_range": "1-120",
+      "gap_category": ["authentication", "integration_points", "internal_dependencies"],
+      "question": "Does the training server use auth middleware and what external integrations does it have?",
+      "expected_signal": "middleware, auth decorators, HTTP client calls, external service references",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Authentication & Authorization", "Integration Points"]
+    },
+    {
+      "path": "deploy/base/training/deployment.yaml",
+      "line_range": "1-63",
+      "gap_category": ["authentication", "integration_points", "internal_dependencies"],
+      "question": "What environment variables and service configuration does the training deployment use?",
+      "expected_signal": "configMapRef, env vars, volume mounts, service account",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Data Flows"]
+    },
+    {
+      "path": "deploy/base/prediction/configmap.yaml",
+      "line_range": "1-19",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "What is the configured TRAINING_SERVER_URL and other integration-relevant config values?",
+      "expected_signal": "TRAINING_SERVER_URL, service references, external endpoint URLs",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Integration Points", "Data Flows"]
+    }
+  ]
+}

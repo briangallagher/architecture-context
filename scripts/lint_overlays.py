@@ -14,6 +14,12 @@ FILENAME_RE = re.compile(r"^\d{4}-[a-z0-9.]+(?:-[a-z0-9.]+)*\.md$")
 ID_RE = re.compile(r"^\d{4}$")
 URL_RE = re.compile(r"^https?://")
 VALID_STATUSES = {"active", "superseded"}
+VALID_INTEGRATION_STATUSES = {
+    "current",
+    "planned",
+    "not-integrated",
+    "unknown",
+}
 REQUIRED_SECTIONS = ["Fact", "Impact on Strategies", "Context"]
 
 
@@ -94,6 +100,17 @@ def validate_overlay(path: Path) -> list[str]:
             f"status must be 'active' or 'superseded', "
             f"got '{status}'"
         )
+
+    integration_status = fm.get("integration_status")
+    if (
+        integration_status is not None
+        and (
+            not isinstance(integration_status, str)
+            or integration_status not in VALID_INTEGRATION_STATUSES
+        )
+    ):
+        expected = ", ".join(sorted(VALID_INTEGRATION_STATUSES))
+        errors.append(f"integration_status must be one of: {expected}")
 
     created = fm.get("created")
     if created is None:

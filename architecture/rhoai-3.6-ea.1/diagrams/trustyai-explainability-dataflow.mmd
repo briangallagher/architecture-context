@@ -1,0 +1,64 @@
+sequenceDiagram
+    participant Client as External Client
+    participant Route as OpenShift Route<br/>HTTP (no TLS)
+    participant Service as trustyai-service<br/>ClusterIP 80/TCP
+    participant TrustyAI as TrustyAI Quarkus App<br/>8080/TCP
+    participant PVC as PVC Storage<br/>/inputs
+    participant MariaDB as MariaDB/MySQL<br/>(optional)
+    participant ModelMesh as KServe/ModelMesh<br/>(same namespace)
+    participant Prometheus as Prometheus
+
+    Note over TrustyAI: Init Container creates<br/>model-serving-config ConfigMap<br/>to configure ModelMesh payload forwarding
+
+    rect rgb(230, 245, 255)
+        Note right of ModelMesh: Flow 1: Inference Payload Ingestion
+        ModelMesh->>TrustyAI: POST /consumer/kserve/v2<br/>HTTP/8080<br/>Inference input/output payloads
+        TrustyAI->>TrustyAI: ModelMeshInferencePayloadReconciler<br/>reconciles payloads
+        TrustyAI->>PVC: Store inference data<br/>at /inputs
+        alt Hibernate ORM enabled
+            TrustyAI->>MariaDB: Persist via JDBC<br/>(QUARKUS_HIBERNATE_ORM_ACTIVE=true)
+        end
+    end
+
+    rect rgb(255, 243, 224)
+        Note right of Client: Flow 2: Fairness Metrics Request
+        Client->>Route: POST /metrics/group/fairness/spd<br/>HTTP (no TLS)
+        Route->>Service: Forward port 80
+        Service->>TrustyAI: Forward to port 8080
+        TrustyAI->>PVC: Read stored inference data
+        PVC-->>TrustyAI: Inference records
+        TrustyAI->>TrustyAI: Compute SPD metric
+        TrustyAI-->>Service: SPD result (JSON)
+        Service-->>Route: Response
+        Route-->>Client: JSON Response
+    end
+
+    rect rgb(232, 245, 233)
+        Note right of Client: Flow 3: Drift Detection Request
+        Client->>Route: POST /metrics/drift<br/>HTTP
+        Route->>Service: Forward
+        Service->>TrustyAI: Forward to port 8080
+        TrustyAI->>PVC: Read stored data
+        PVC-->>TrustyAI: Data records
+        TrustyAI->>TrustyAI: Compute drift metric<br/>(Meanshift/KS Test/Fourier MMD)
+        TrustyAI-->>Service: Drift result (JSON)
+        Service-->>Route: Response
+        Route-->>Client: JSON Response
+    end
+
+    rect rgb(243, 229, 245)
+        Note right of Prometheus: Flow 4: Metrics Export
+        TrustyAI->>TrustyAI: PrometheusScheduler<br/>computes scheduled metrics
+        Prometheus->>TrustyAI: GET /q/metrics<br/>HTTP/8080<br/>(prometheus.io/scrape annotation)
+        TrustyAI-->>Prometheus: Prometheus metrics (text/plain)
+    end
+
+    rect rgb(255, 235, 238)
+        Note right of Client: Flow 5: Service Metadata
+        Client->>Route: GET /info<br/>HTTP
+        Route->>Service: Forward
+        Service->>TrustyAI: Forward to port 8080
+        TrustyAI-->>Service: Service metadata + model info
+        Service-->>Route: Response
+        Route-->>Client: JSON Response
+    end

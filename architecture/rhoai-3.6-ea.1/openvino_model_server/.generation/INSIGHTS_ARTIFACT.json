@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "component": "openvino_model_server",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "ovms-multi-protocol-001",
+      "claim": "OVMS implements three distinct REST API protocol versions (TFS V1, KServe V2, OpenAI V3) in a single server process, requiring careful API version management and handler dispatch routing.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "src/http_rest_api_handler.cpp:102-129"
+        }
+      ],
+      "reasoning": "The HttpRestApiHandler registers regex-based route handlers for /v1/, /v2/, and /v3/ prefixes, dispatching to separate processing paths. This multi-protocol pattern enables backward compatibility but increases the API surface area and testing requirements.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "ovms-auth-delegation-002",
+      "claim": "OVMS delegates transport security to external infrastructure (KServe, Istio, or an optional nginx-mtls sidecar) rather than enforcing authentication in the core server binary.",
+      "category": "trade-off",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "extras/nginx-mtls-auth/model_server.conf.template:27-35"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "src/http_rest_api_handler.hpp:250-251"
+        }
+      ],
+      "reasoning": "The core OVMS binary has an optional API key check (isAuthorized) but does not enforce TLS or client authentication. The nginx-mtls-auth sidecar is a separate optional component. This design follows the KServe pattern where platform-level service mesh or gateway handles auth, but means OVMS pods without the sidecar or platform auth are unauthenticated.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "ovms-language-classification-003",
+      "claim": "The analyzer classified OVMS as a Go project due to Go client library modules, but the primary server binary is C++ compiled against system OpenSSL, affecting FIPS compliance analysis.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/languages"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "Dockerfile.konflux:457"
+        }
+      ],
+      "reasoning": "The language misclassification means Go-specific FIPS validation checks (CGO_ENABLED, GOEXPERIMENT) are not applicable to the primary binary. FIPS compliance depends on the C++ binary's dynamic linking against UBI's FIPS-validated OpenSSL, which is a different validation surface than Go binaries.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

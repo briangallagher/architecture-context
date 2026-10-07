@@ -1,98 +1,85 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA_EPP["{release}<br/>(EPP ServiceAccount)"]
-        SA_BBR["{bbr-name}-{release}<br/>(BBR ServiceAccount)"]
+        SA_EPP["{release} ServiceAccount<br/>(EPP)"]
+        SA_BBR["{release} ServiceAccount<br/>(BBR)"]
     end
 
-    subgraph ClusterRoleBindings["ClusterRole Bindings (Conditional)"]
-        CRB_EPP["{release}-inference-extension<br/>ClusterRoleBinding"]
-        CRB_BBR["bbr-configmap-reader<br/>ClusterRoleBinding"]
+    subgraph RoleBindings["Role Bindings"]
+        RB_NS["{release}-sa RoleBinding<br/>Namespace: {release-namespace}"]
+        CRB_Metrics["ClusterRoleBinding<br/>(conditional: --metrics-endpoint-auth)"]
     end
 
-    subgraph ClusterRoles["ClusterRoles (Conditional)"]
-        CR_EPP["{release}-inference-extension<br/>ClusterRole"]
-        CR_BBR["bbr-configmap-reader<br/>ClusterRole"]
+    subgraph Roles["Namespace Roles"]
+        Role_SA["{release}-sa Role<br/>(namespace-scoped)"]
     end
 
-    subgraph RoleBindings["Namespace-scoped RoleBindings"]
-        RB_NonSA["{release}-non-sa<br/>RoleBinding"]
-        RB_SA["{release}-sa<br/>RoleBinding"]
-        RB_Leader["{release}-leader-election<br/>RoleBinding"]
-        RB_BBR_CM["{bbr-name}-{release}-configmap-reader<br/>RoleBinding"]
-    end
-
-    subgraph Roles["Namespace-scoped Roles"]
-        R_NonSA["CRD Read Role"]
-        R_SA["Pod Read Role"]
-        R_Leader["Leader Election Role"]
-        R_BBR_CM["ConfigMap Read Role"]
-    end
-
-    subgraph ClusterResources["Cluster-scoped API Resources"]
-        TokenReviews["authentication.k8s.io<br/>tokenreviews"]
-        SAR["authorization.k8s.io<br/>subjectaccessreviews"]
-        MetricsNonRes["/metrics<br/>(non-resource URL)"]
+    subgraph ClusterRoles["Cluster Roles (Conditional)"]
+        CR_TokenReview["EPP Metrics Auth<br/>ClusterRole"]
     end
 
     subgraph NamespacedResources["Namespaced API Resources"]
-        InferencePool["inference.networking.k8s.io<br/>InferencePool"]
-        InferenceObjective["inference.networking.x-k8s.io<br/>InferenceObjective"]
-        InferenceModelRewrite["inference.networking.x-k8s.io<br/>InferenceModelRewrite"]
-        Pods["core<br/>Pods"]
-        Leases["coordination.k8s.io<br/>Leases"]
-        Events["core<br/>Events"]
-        ConfigMaps["core<br/>ConfigMaps"]
+        Pods["core<br/>pods"]
     end
 
-    %% EPP ClusterRole path
-    SA_EPP -->|bound via| CRB_EPP
-    CRB_EPP -->|grants| CR_EPP
-    CR_EPP -->|create| TokenReviews
-    CR_EPP -->|create| SAR
-    CR_EPP -->|get| MetricsNonRes
+    subgraph ClusterResources["Cluster API Resources"]
+        TokenReviews["authentication.k8s.io<br/>tokenreviews"]
+        SAR["authorization.k8s.io<br/>subjectaccessreviews"]
+        MetricsNonResource["/metrics<br/>(non-resource URL)"]
+    end
 
-    %% BBR ClusterRole path
-    SA_BBR -->|bound via| CRB_BBR
-    CRB_BBR -->|grants| CR_BBR
-    CR_BBR -->|"get, list, watch"| ConfigMaps
+    subgraph CRDResources["CRD Resources Watched"]
+        InferencePool["inference.networking.k8s.io/v1<br/>InferencePool"]
+        InferenceObjective["inference.networking.x-k8s.io/v1alpha2<br/>InferenceObjective"]
+        InferenceModelRewrite["inference.networking.x-k8s.io/v1alpha2<br/>InferenceModelRewrite"]
+        ConfigMaps["core<br/>ConfigMaps<br/>(bbr-managed=true)"]
+        Leases["coordination.k8s.io<br/>Leases<br/>(leader election)"]
+    end
 
-    %% EPP namespace-scoped paths
-    SA_EPP -->|bound via| RB_NonSA
-    RB_NonSA -->|grants| R_NonSA
-    R_NonSA -->|"get, list, watch"| InferencePool
-    R_NonSA -->|"get, list, watch"| InferenceObjective
-    R_NonSA -->|"get, list, watch"| InferenceModelRewrite
+    subgraph SecretResources["Secrets"]
+        MetricsSecret["inference-gateway-sa-metrics-reader-secret<br/>Type: kubernetes.io/service-account-token<br/>Purpose: ServiceMonitor auth"]
+        TLSCerts["TLS Certificates<br/>Type: tls.crt/tls.key<br/>RSA 4096-bit (self-signed)<br/>Hot reload via fsnotify"]
+    end
 
-    SA_EPP -->|bound via| RB_SA
-    RB_SA -->|grants| R_SA
-    R_SA -->|"get, list, watch"| Pods
+    %% Namespace Role bindings
+    SA_EPP -->|"bound via"| RB_NS
+    SA_BBR -->|"bound via"| RB_NS
+    RB_NS -->|"grants"| Role_SA
+    Role_SA -->|"get, watch, list"| Pods
 
-    SA_EPP -->|bound via| RB_Leader
-    RB_Leader -->|grants| R_Leader
-    R_Leader -->|"get, create,<br/>update, patch, delete"| Leases
-    R_Leader -->|"create, patch"| Events
+    %% Cluster Role bindings (conditional)
+    SA_EPP -->|"bound via (conditional)"| CRB_Metrics
+    CRB_Metrics -->|"grants"| CR_TokenReview
+    CR_TokenReview -->|"create"| TokenReviews
+    CR_TokenReview -->|"create"| SAR
+    CR_TokenReview -->|"get"| MetricsNonResource
 
-    %% BBR namespace-scoped path
-    SA_BBR -->|bound via| RB_BBR_CM
-    RB_BBR_CM -->|grants| R_BBR_CM
-    R_BBR_CM -->|"get, list, watch"| ConfigMaps
+    %% CRD watches (via controller-runtime, SA token auth)
+    SA_EPP -.->|"watches via<br/>controller-runtime"| InferencePool
+    SA_EPP -.->|"watches via<br/>controller-runtime"| InferenceObjective
+    SA_EPP -.->|"watches via<br/>controller-runtime"| InferenceModelRewrite
+    SA_EPP -.->|"watches via<br/>controller-runtime"| Leases
+    SA_BBR -.->|"watches via<br/>controller-runtime"| ConfigMaps
 
-    %% Styling
-    style SA_EPP fill:#4a90e2,color:#fff
-    style SA_BBR fill:#4a90e2,color:#fff
-    style CR_EPP fill:#f5a623,color:#000
-    style CR_BBR fill:#f5a623,color:#000
-    style R_NonSA fill:#f5a623,color:#000
-    style R_SA fill:#f5a623,color:#000
-    style R_Leader fill:#f5a623,color:#000
-    style R_BBR_CM fill:#f5a623,color:#000
-    style InferencePool fill:#7ed321,color:#000
-    style InferenceObjective fill:#7ed321,color:#000
-    style InferenceModelRewrite fill:#7ed321,color:#000
-    style Pods fill:#7ed321,color:#000
-    style Leases fill:#7ed321,color:#000
-    style Events fill:#7ed321,color:#000
-    style ConfigMaps fill:#7ed321,color:#000
-    style TokenReviews fill:#7ed321,color:#000
-    style SAR fill:#7ed321,color:#000
-    style MetricsNonRes fill:#7ed321,color:#000
+    %% Secrets associations
+    SA_EPP -.->|"uses"| MetricsSecret
+    SA_EPP -.->|"mounts"| TLSCerts
+    SA_BBR -.->|"mounts"| TLSCerts
+
+    %% Styles
+    style SA_EPP fill:#4a90e2,stroke:#333,color:#fff
+    style SA_BBR fill:#4a90e2,stroke:#333,color:#fff
+    style Role_SA fill:#f5a623,stroke:#333
+    style CR_TokenReview fill:#f5a623,stroke:#333,stroke-dasharray:5
+    style RB_NS fill:#7ed321,stroke:#333
+    style CRB_Metrics fill:#7ed321,stroke:#333,stroke-dasharray:5
+    style Pods fill:#d5e8d4,stroke:#82b366
+    style TokenReviews fill:#ffe6cc,stroke:#d79b00
+    style SAR fill:#ffe6cc,stroke:#d79b00
+    style MetricsNonResource fill:#ffe6cc,stroke:#d79b00
+    style InferencePool fill:#dae8fc,stroke:#6c8ebf
+    style InferenceObjective fill:#dae8fc,stroke:#6c8ebf
+    style InferenceModelRewrite fill:#dae8fc,stroke:#6c8ebf
+    style ConfigMaps fill:#dae8fc,stroke:#6c8ebf
+    style Leases fill:#dae8fc,stroke:#6c8ebf
+    style MetricsSecret fill:#e1d5e7,stroke:#9673a6
+    style TLSCerts fill:#e1d5e7,stroke:#9673a6

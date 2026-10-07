@@ -1,0 +1,66 @@
+sequenceDiagram
+    participant User as User / Admin
+    participant CLI as rhaii-validator CLI<br/>(kubectl plugin)
+    participant K8sAPI as Kubernetes API<br/>6443/TCP HTTPS
+    participant CheckPod as Check Job Pod<br/>(Privileged)
+    participant HostGPU as Host GPU<br/>(nvidia-smi / rocm-smi)
+    participant ServerPod as Server Job Pod<br/>(validator-tools)
+    participant ClientPod as Client Job Pod<br/>(validator-tools)
+    participant CM as ConfigMap<br/>(Report)
+
+    Note over User,CM: Flow 1: GPU Hardware Validation
+
+    User->>CLI: kubectl rhaii-validate check
+    CLI->>K8sAPI: Create Namespace, SA, RBAC<br/>HTTPS/6443 TLS 1.2+
+    CLI->>K8sAPI: List Nodes (GPU labels)<br/>Bearer Token
+    K8sAPI-->>CLI: Node list with GPU resources
+    CLI->>K8sAPI: Create Check Job per node
+    K8sAPI->>CheckPod: Schedule on GPU node
+
+    CheckPod->>HostGPU: chroot /host nvidia-smi<br/>(privileged container)
+    HostGPU-->>CheckPod: GPU driver version, ECC errors,<br/>PCIe topology
+    CheckPod->>CheckPod: Check /sys/class/infiniband<br/>/sys/bus/pci/devices
+
+    CLI->>K8sAPI: Read pod logs (JSON on stdout)
+    K8sAPI-->>CLI: Structured check results
+    CLI->>K8sAPI: Create/Update ConfigMap
+    K8sAPI->>CM: Store JSON report
+
+    Note over User,CM: Flow 2: RDMA Bandwidth Test (Ring Topology)
+
+    CLI->>K8sAPI: Create Server Job<br/>(ib_write_bw --server)
+    K8sAPI->>ServerPod: Schedule on target node
+    ServerPod->>ServerPod: Listen on 18515+/TCP<br/>(RDMA port)
+    CLI->>K8sAPI: Get Server Pod IP
+    K8sAPI-->>CLI: Pod IP address
+
+    Note over CLI: Wait 3s for server readiness
+
+    CLI->>K8sAPI: Create Client Job<br/>(ib_write_bw --connect=<server-ip>)
+    K8sAPI->>ClientPod: Schedule on peer node
+    ClientPod->>ServerPod: ib_write_bw<br/>18515+/TCP RDMA (IB/RoCE)<br/>GPUDirect RDMA
+
+    ClientPod-->>CLI: Bandwidth results (pod logs)
+    CLI->>K8sAPI: Update ConfigMap
+    K8sAPI->>CM: Append bandwidth report
+
+    Note over User,CM: Flow 3: TCP Bandwidth Test (iperf3)
+
+    CLI->>K8sAPI: Create Server Job (iperf3 -s)
+    K8sAPI->>ServerPod: Schedule on target node
+    ServerPod->>ServerPod: Listen on 5201/TCP
+    CLI->>K8sAPI: Create Client Job (iperf3 -c)
+    K8sAPI->>ClientPod: Schedule on peer node
+    ClientPod->>ServerPod: iperf3<br/>5201/TCP plaintext
+    ClientPod-->>CLI: TCP bandwidth results
+
+    Note over User,CM: Flow 4: RDMA Connectivity (Pingmesh)
+
+    CLI->>K8sAPI: Create pairwise Jobs<br/>(ibv_rc_pingpong, N-choose-2)
+    K8sAPI->>ServerPod: Schedule disjoint pairs
+    K8sAPI->>ClientPod: Schedule disjoint pairs
+    ClientPod->>ServerPod: ibv_rc_pingpong<br/>18515+/TCP RDMA
+    ClientPod-->>CLI: Connectivity results
+
+    CLI->>K8sAPI: Cleanup Jobs, RBAC
+    CLI-->>User: Validation report (table/JSON)

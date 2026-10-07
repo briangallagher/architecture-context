@@ -1,0 +1,113 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  CLUSTER INTERNAL (Trusted - No External Ingress)                       │
+│                                                                          │
+│  This component has NO external ingress. All traffic is cluster-internal. │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  OPERATOR NAMESPACE (e.g. redhat-ods-applications)                      │
+│                                                                          │
+│  [trainer-operator-controller-manager]                                   │
+│  - Deployment: trainer-operator-controller-manager                       │
+│  - Image: /manager (FIPS: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime)│
+│  - ServiceAccount: trainer-operator-controller-manager                   │
+│  - Informer Cache: scoped to APPLICATIONS_NAMESPACE                     │
+│  - Label Selector: platform.opendatahub.io/part-of=trainer              │
+│  - StripUnusedFields: enabled (memory hardening)                        │
+│         │                                                                │
+│         │ Port: 8080/TCP                                                 │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: NONE (SecureServing explicitly disabled)            │
+│         │ Auth: None                                                     │
+│         │ Purpose: Prometheus metrics                                    │
+│         ▼                                                                │
+│  [trainer-operator-controller-manager-metrics-service]                   │
+│  - Type: ClusterIP                                                       │
+│  - Port: 8080/TCP → 8080                                                │
+│  - Scraped by: Prometheus (via PodMonitor)                              │
+│                                                                          │
+│  [Health/Readiness Probes]                                               │
+│  - Port: 8081/TCP                                                        │
+│  - /healthz (GET) - Unauthenticated                                     │
+│  - /readyz (GET) - Unauthenticated                                      │
+│         │                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  CONTROL PLANE                                                           │
+│                                                                          │
+│         │ Port: 6443/TCP                                                 │
+│         │ Protocol: HTTPS/WSS                                            │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: ServiceAccount token (in-cluster)                        │
+│         ▼                                                                │
+│  [Kubernetes API Server]                                                 │
+│  - Purpose: CRUD on Trainer CRs, Deployments, Services, ConfigMaps,    │
+│             Namespaces, Secrets, RBAC, CRDs, JobSets, TrainJobs,        │
+│             TrainingRuntimes, ClusterTrainingRuntimes, ImageStreams,     │
+│             WebhookConfigurations, NetworkPolicies, PodMonitors         │
+│  - Auth: RBAC via trainer-operator-manager-role ClusterRole             │
+│  - SA: trainer-operator-controller-manager                               │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  DEPENDENCY: JOBSET OPERATOR                                             │
+│                                                                          │
+│  [JobSet Operator]                                                       │
+│  - CRD: operator.openshift.io/jobsetoperators                           │
+│  - Verification: CRD installed + CR exists + operator healthy            │
+│  - Hard prerequisite on OpenShift; soft (CRD only) on vanilla K8s       │
+│  - Failure: Trainer CR status set to Degraded, reconciliation halted    │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  MANAGED RESOURCES (Target Namespace)                                    │
+│                                                                          │
+│  [Kubeflow Trainer v2 Resources]                                        │
+│  - TrainJobs (trainer.kubeflow.org)                                     │
+│  - TrainingRuntimes (trainer.kubeflow.org)                              │
+│  - ClusterTrainingRuntimes (trainer.kubeflow.org)                       │
+│  - JobSets (jobset.x-k8s.io)                                           │
+│  - Deployments, Services, ConfigMaps, RBAC resources                    │
+│  - OpenShift ImageStreams (image.openshift.io)                           │
+│  - NetworkPolicies (networking.k8s.io)                                  │
+│  - PodMonitors (monitoring.coreos.com)                                  │
+│  - Field Owner: trainer-module-controller                                │
+│  - Garbage Collection: stale resources from previous versions removed   │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+RBAC Summary:
+- ClusterRole: trainer-operator-manager-role
+  - API Groups: core, events.k8s.io, admissionregistration.k8s.io,
+                apiextensions.k8s.io, apps, components.platform.opendatahub.io,
+                config.openshift.io, coordination.k8s.io, image.openshift.io,
+                jobset.x-k8s.io, monitoring.coreos.com, networking.k8s.io,
+                node.k8s.io, operator.openshift.io, operators.coreos.com,
+                rbac.authorization.k8s.io, scheduling.volcano.sh,
+                scheduling.x-k8s.io, trainer.kubeflow.org
+  - Key Resources: trainers, trainjobs, trainingruntimes,
+                    clustertrainingruntimes, jobsets, deployments,
+                    services, configmaps, secrets, namespaces
+  - Verbs: get, list, watch, create, update, patch, delete
+
+- ClusterRole: trainer-operator-trainer-admin-role
+  - Resources: trainers, trainers/status
+  - Verbs: full CRUD
+
+- ClusterRole: trainer-operator-trainer-viewer-role
+  - Resources: trainers, trainers/status
+  - Verbs: get, list, watch (read-only)
+
+Binding:
+- trainer-operator-manager-rolebinding → trainer-operator-controller-manager SA
+
+FIPS Configuration:
+- Build: CGO_ENABLED=1, GOEXPERIMENT=strictfipsruntime
+- Linking: Dynamic (CGO) with UBI 9 OpenSSL
+- Metrics: Plaintext HTTP (no TLS) - accepted pattern for cluster-internal
+- K8s API: TLS 1.2+ via in-cluster ServiceAccount token
+
+Secrets:
+- None defined (no custom secrets managed by this operator)
+
+Authentication Summary:
+- :8080/metrics → No auth (plaintext HTTP, cluster-internal only)
+- :8081/healthz → No auth (Kubernetes probe)
+- :8081/readyz → No auth (Kubernetes probe)
+- Kubernetes API → ServiceAccount token, RBAC enforced

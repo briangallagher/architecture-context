@@ -1,0 +1,67 @@
+graph TB
+    subgraph External["EXTERNAL (Untrusted)"]
+        Client["External Client"]
+    end
+
+    subgraph Platform["PLATFORM LAYER (KServe / Service Mesh)"]
+        KServe["KServe ServingRuntime<br/>TLS Termination (platform-managed)<br/>AuthN/AuthZ (platform-managed)"]
+    end
+
+    subgraph Container["CONTAINER (vllm-gaudi, UID 2000)"]
+        direction TB
+
+        subgraph VLLMServer["vLLM API Server (v0.16.0)"]
+            API["OpenAI-compatible API<br/>/v1/completions<br/>/v1/chat/completions<br/>/v1/embeddings<br/>/v1/models<br/>/health"]
+            AuthCheck["Optional API Key<br/>(--api-key flag)"]
+        end
+
+        subgraph GaudiPlugin["vllm_gaudi Plugin (HpuPlatform)"]
+            Attention["Attention Backends"]
+            Quantization["Quantization<br/>FP8/GPTQ/AWQ"]
+            MoE["Fused MoE"]
+            KVOps["KV Cache / NIXL"]
+        end
+
+        subgraph Runtime["Habana SynapseAI 1.23.0"]
+            HPU["Intel Gaudi HPU<br/>Device: /dev/accel/*"]
+        end
+    end
+
+    subgraph Distributed["INTER-WORKER (Distributed Inference)"]
+        Ray["Ray Workers<br/>Ports: 6379, 8265, dynamic<br/>Encryption: not configured"]
+        HCCL["HCCL<br/>All-reduce / Collective Ops<br/>Intra-node or RDMA"]
+    end
+
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        Storage["Model Storage<br/>PVC (filesystem) or S3 (443/TCP)<br/>TLS 1.2+ (S3)<br/>AWS IAM (S3)"]
+    end
+
+    subgraph FIPSWarning["FIPS STATUS"]
+        FIPS["NOT FIPS-COMPLIANT<br/>OpenSSL FIPS provider<br/>explicitly removed at build"]
+    end
+
+    %% Flows
+    Client -->|"HTTPS/443<br/>TLS (platform-managed)<br/>Bearer Token / API Key"| KServe
+    KServe -->|"HTTP/8080<br/>mTLS (if mesh)<br/>Service Identity"| API
+    API --> AuthCheck
+    API --> GaudiPlugin
+    GaudiPlugin --> HPU
+    GaudiPlugin -->|"Worker orchestration"| Ray
+    Ray -->|"HCCL collective ops"| HCCL
+    HCCL --> HPU
+    API -->|"Model weight loading<br/>Filesystem or HTTPS/443"| Storage
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef platform fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef container fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef distributed fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef externalservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef warning fill:#f8cecc,stroke:#b85450,stroke-width:2px
+
+    class Client external
+    class KServe platform
+    class API,AuthCheck,Attention,Quantization,MoE,KVOps,HPU container
+    class Ray,HCCL distributed
+    class Storage externalservice
+    class FIPS warning

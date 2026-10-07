@@ -1,0 +1,13 @@
+{
+  "schema_version": "test-only-reuse-snapshot/v1",
+  "snapshot_id": "snapshot:test-only:rhoai-previous:praxis-policy",
+  "platform": "rhoai-previous",
+  "route": "structured-component/v1",
+  "accepted": true,
+  "component": "praxis-policy",
+  "aliases": ["policy"],
+  "repository": "https://github.com/praxis-proxy/policy.git",
+  "response_identity": "response:test-only:001",
+  "synthesis_fixture": "reuse-synthesis-test-only.json",
+  "document_source": "runtime-normalized tests/fixtures/structured_component/analyzer-rbac-praxis.json"
+}

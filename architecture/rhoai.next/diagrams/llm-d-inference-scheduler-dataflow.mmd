@@ -1,38 +1,42 @@
 sequenceDiagram
     participant Client as External Client
-    participant Envoy as Envoy Gateway<br/>80/TCP HTTP
-    participant EPP as EPP ext-proc<br/>9002/TCP gRPC TLS
-    participant K8sAPI as Kubernetes API<br/>443/TCP HTTPS
-    participant ModelMetrics as Model Server /metrics<br/>HTTP/HTTPS
-    participant KVCache as llm-d-kv-cache<br/>5557/TCP ZMQ
-    participant PDSidecar as PD Sidecar<br/>8000/TCP HTTP/HTTPS
-    participant Prefiller as Remote Prefiller<br/>HTTP/HTTPS TLS
-    participant Decoder as Local vLLM Decoder<br/>8001/TCP HTTP
+    participant Envoy as Envoy Proxy<br/>8081/TCP HTTP
+    participant EPP as Endpoint Picker (EPP)<br/>9002/TCP gRPC TLS 1.2+
+    participant ModelSrv as Model Server<br/>8000/TCP HTTP
+    participant Sidecar as pd-sidecar<br/>8000/TCP HTTP/HTTPS
+    participant Prefiller as Remote Prefiller<br/>8000/TCP HTTP/HTTPS
+    participant Decoder as Local vLLM Decoder<br/>8001/TCP HTTP/HTTPS
 
-    Note over EPP,KVCache: Flow 1: Inference Request Routing (EPP)
-    Client->>Envoy: POST /v1/chat/completions<br/>HTTP/80
-    Envoy->>EPP: ext-proc ProcessingRequest<br/>gRPC/9002 TLS (self-signed)
-    EPP->>K8sAPI: Watch InferencePool, Pods<br/>HTTPS/443 ServiceAccount token
-    EPP->>ModelMetrics: Scrape metrics<br/>(queue depth, KV-cache, LoRA)
-    EPP->>KVCache: ZMQ SUB<br/>KV-cache block index updates
-    Note over EPP: Filter → Score → Pick<br/>Evaluate endpoints:<br/>KV-cache util, queue depth,<br/>prefix affinity, LoRA locality
-    EPP-->>Envoy: ProcessingResponse<br/>Set target-pod header
-    Envoy->>Decoder: Routed inference request<br/>HTTP/8000
+    Note over Client,Decoder: Flow 1: Inference Request Routing (EPP)
+    Client->>Envoy: POST /v1/chat/completions<br/>HTTP
+    Envoy->>EPP: ext-proc ProcessingRequest<br/>gRPC TLS 1.2+
+    EPP->>ModelSrv: GET /metrics<br/>HTTP (insecureSkipVerify)
+    ModelSrv-->>EPP: KV cache, queue depth,<br/>running requests
+    Note over EPP: Filter → Score → Pick<br/>Select optimal endpoint
+    EPP-->>Envoy: ext-proc ProcessingResponse<br/>Route to selected pod
+    Envoy->>ModelSrv: Forward request<br/>HTTP/gRPC
+    ModelSrv-->>Envoy: Inference result
+    Envoy-->>Client: Response (streaming/unary)
 
-    Note over PDSidecar,Decoder: Flow 2: P/D Disaggregated Inference (NIXL v2)
-    Envoy->>PDSidecar: POST /v1/chat/completions<br/>HTTP(S)/8000 TLS 1.2+
-    PDSidecar->>Prefiller: Prefill request<br/>+ kv_transfer_params<br/>HTTP(S) TLS (configurable)<br/>SSRF allowlist validated
-    Note over Prefiller: KV-cache generation
-    Prefiller-->>PDSidecar: Prefill complete<br/>(KV-cache transferred via NIXL/RDMA)
-    PDSidecar->>Decoder: Decode request<br/>HTTP/8001 (localhost)
-    Decoder-->>PDSidecar: Streaming tokens
-    PDSidecar-->>Envoy: SSE streaming response<br/>HTTP(S)/8000
+    Note over Client,Decoder: Flow 2: P/D Disaggregation (NIXLv2 Serial)
+    Client->>Envoy: POST /v1/chat/completions
+    Envoy->>Sidecar: Forward request<br/>HTTP/HTTPS TLS 1.2+
+    Sidecar->>Prefiller: Prefill request<br/>HTTP/HTTPS (configurable TLS)
+    Note over Prefiller: Generate KV cache<br/>via RDMA transfer
+    Prefiller-->>Sidecar: Prefill complete<br/>(KV metadata)
+    Sidecar->>Decoder: Decode request<br/>HTTP/HTTPS (configurable TLS)
+    Note over Decoder: Decode using<br/>transferred KV cache
+    Decoder-->>Sidecar: Token stream
+    Sidecar-->>Client: SSE response stream<br/>HTTP/HTTPS TLS 1.2+
 
-    Note over PDSidecar,Decoder: Flow 3: E/P/D Multimodal Pipeline
-    Envoy->>PDSidecar: POST /v1/responses<br/>(multimodal content)
-    PDSidecar->>Prefiller: Fan-out to encoder cluster<br/>HTTP(S) TLS SSRF validated
-    Note over Prefiller: Encode multimodal content
-    PDSidecar->>Prefiller: Prefill with encoded content<br/>HTTP(S) TLS SSRF validated
-    PDSidecar->>Decoder: Decode with KV-cache<br/>HTTP/8001
-    Decoder-->>PDSidecar: Streaming tokens
-    PDSidecar-->>Envoy: SSE streaming response
+    Note over Client,Decoder: Flow 3: E/P/D Disaggregation (with Encoder)
+    Client->>Envoy: POST /v1/chat/completions<br/>(multimodal input)
+    Envoy->>Sidecar: Forward request<br/>HTTP/HTTPS TLS 1.2+
+    Sidecar->>Prefiller: Encode fanout<br/>(parallel to N encoders)
+    Note over Prefiller: Encoder processes<br/>images/audio
+    Prefiller-->>Sidecar: Encoded embeddings
+    Sidecar->>Prefiller: Prefill with embeddings<br/>HTTP/HTTPS
+    Prefiller-->>Sidecar: Prefill complete
+    Sidecar->>Decoder: Decode request<br/>HTTP/HTTPS
+    Decoder-->>Sidecar: Token stream
+    Sidecar-->>Client: SSE response stream

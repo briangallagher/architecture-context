@@ -1,99 +1,90 @@
 graph TD
-    subgraph ServiceAccounts["Service Accounts"]
-        SA_Prom["prometheus<br/>(redhat-ods-monitoring)"]
-        SA_MMCtrl["modelmesh-controller<br/>(redhat-ods-applications)"]
-        SA_NBCtrl["notebook-controller-<br/>service-account<br/>(redhat-ods-applications)"]
-        SA_ModelCtrl["odh-model-controller<br/>(redhat-ods-applications)"]
-        SA_Dashboard["rhods-dashboard<br/>(redhat-ods-applications)"]
-        SA_MM["modelmesh<br/>(redhat-ods-applications)"]
-        SA_MonAll["all SAs<br/>(redhat-ods-monitoring)"]
+    subgraph "Service Accounts"
+        SA_Prom["SA: prometheus<br/>Namespace: redhat-ods-monitoring"]
+        SA_MMC["SA: modelmesh-controller<br/>Namespace: redhat-ods-applications"]
+        SA_NBC["SA: notebook-controller-service-account<br/>Namespace: redhat-ods-applications"]
+        SA_OMC["SA: odh-model-controller<br/>Namespace: redhat-ods-applications"]
+        SA_Dash["SA: rhods-dashboard<br/>Namespace: redhat-ods-applications"]
+        SA_MM["SA: modelmesh<br/>Namespace: redhat-ods-applications"]
+        SA_AllMon["All SAs<br/>Namespace: redhat-ods-monitoring"]
     end
 
-    subgraph ClusterRoleBindings["Cluster Role Bindings"]
-        CRB_Scraper["prometheus-scraper<br/>(ClusterRoleBinding)"]
+    subgraph "ClusterRole Bindings"
+        CRB_Scraper["ClusterRoleBinding:<br/>prometheus-scraper<br/>(cluster-wide)"]
+        RB_AppsSCC["RoleBinding:<br/>rhods-applications-scc<br/>(redhat-ods-applications)"]
+        RB_MonSCC["RoleBinding:<br/>rhods-monitoring-scc<br/>(redhat-ods-monitoring)"]
+        RB_PromViewer["RoleBinding:<br/>rhods-prometheus-viewer<br/>(redhat-ods-applications)"]
     end
 
-    subgraph RoleBindings["Role Bindings (Namespaced)"]
-        RB_AppSCC["rhods-applications-scc<br/>(redhat-ods-applications)"]
-        RB_MonSCC["rhods-monitoring-scc<br/>(redhat-ods-monitoring)"]
-        RB_PromViewer["rhods-prometheus-viewer<br/>(redhat-ods-applications)"]
+    subgraph "Roles"
+        CR_Scraper["ClusterRole:<br/>prometheus-scraper"]
+        SCC_AnyUID["SCC Role:<br/>system:openshift:scc:anyuid"]
+        Role_View["ClusterRole:<br/>view"]
     end
 
-    subgraph ClusterRoles["Cluster Roles"]
-        CR_Scraper["prometheus-scraper<br/>(ClusterRole)"]
-        CR_AnyUID["system:openshift:scc:anyuid<br/>(ClusterRole)"]
-        CR_View["view<br/>(ClusterRole)"]
+    subgraph "API Resources (prometheus-scraper)"
+        TR["authentication.k8s.io<br/>tokenreviews<br/>Verbs: create"]
+        SAR["authorization.k8s.io<br/>subjectaccessreviews<br/>Verbs: create"]
+        NS["core<br/>namespaces<br/>Verbs: get"]
+        EPods["core<br/>endpoints, pods, services,<br/>namespaces<br/>Verbs: list, get, watch"]
+        RouterM["route.openshift.io<br/>routers/metrics,<br/>routers/federate<br/>Verbs: get"]
+        RegM["image.openshift.io<br/>registry/metrics<br/>Verbs: get"]
     end
 
-    subgraph APIResources_Scraper["API Resources (prometheus-scraper)"]
-        R_TokenReview["authentication.k8s.io<br/>tokenreviews<br/>[create]"]
-        R_SAR["authorization.k8s.io<br/>subjectaccessreviews<br/>[create]"]
-        R_NS["core<br/>namespaces<br/>[get]"]
-        R_Endpoints["core<br/>endpoints, pods,<br/>services, namespaces<br/>[list, get, watch]"]
-        R_Routes["route.openshift.io<br/>routers/metrics,<br/>routers/federate<br/>[get]"]
-        R_Registry["image.openshift.io<br/>registry/metrics<br/>[get]"]
+    subgraph "SCC Capabilities (anyuid)"
+        AnyUID["Allows running containers<br/>as any UID<br/>(bypasses restricted SCC)"]
     end
 
-    subgraph SCCCapabilities["SCC: anyuid Capabilities"]
-        SCC_RunAs["Allows running containers<br/>as any UID<br/>(bypasses OpenShift<br/>restricted SCC)"]
-    end
-
-    subgraph ViewCapabilities["ClusterRole: view"]
-        View_Read["Read-only access to<br/>most namespaced resources<br/>(pods, services, configmaps,<br/>deployments, etc.)"]
+    subgraph "View Role Capabilities"
+        ViewCap["Read-only access to<br/>most namespaced resources<br/>in redhat-ods-applications"]
     end
 
     %% prometheus-scraper bindings
     SA_Prom -->|"bound via"| CRB_Scraper
     CRB_Scraper -->|"grants"| CR_Scraper
-    CR_Scraper -->|"create"| R_TokenReview
-    CR_Scraper -->|"create"| R_SAR
-    CR_Scraper -->|"get"| R_NS
-    CR_Scraper -->|"list, get, watch"| R_Endpoints
-    CR_Scraper -->|"get"| R_Routes
-    CR_Scraper -->|"get"| R_Registry
+    CR_Scraper -->|"create"| TR
+    CR_Scraper -->|"create"| SAR
+    CR_Scraper -->|"get"| NS
+    CR_Scraper -->|"list, get, watch"| EPods
+    CR_Scraper -->|"get"| RouterM
+    CR_Scraper -->|"get"| RegM
 
-    %% anyuid SCC bindings (applications namespace)
-    SA_MMCtrl -->|"bound via"| RB_AppSCC
-    SA_NBCtrl -->|"bound via"| RB_AppSCC
-    SA_ModelCtrl -->|"bound via"| RB_AppSCC
-    SA_Dashboard -->|"bound via"| RB_AppSCC
-    SA_MM -->|"bound via"| RB_AppSCC
-    RB_AppSCC -->|"grants"| CR_AnyUID
-    CR_AnyUID -->|"provides"| SCC_RunAs
+    %% SCC bindings - applications namespace
+    SA_MMC -->|"bound via"| RB_AppsSCC
+    SA_NBC -->|"bound via"| RB_AppsSCC
+    SA_OMC -->|"bound via"| RB_AppsSCC
+    SA_Dash -->|"bound via"| RB_AppsSCC
+    SA_MM -->|"bound via"| RB_AppsSCC
+    RB_AppsSCC -->|"grants"| SCC_AnyUID
+    SCC_AnyUID -->|"allows"| AnyUID
 
-    %% anyuid SCC bindings (monitoring namespace)
-    SA_MonAll -->|"bound via"| RB_MonSCC
-    RB_MonSCC -->|"grants"| CR_AnyUID
+    %% SCC bindings - monitoring namespace
+    SA_AllMon -->|"bound via"| RB_MonSCC
+    RB_MonSCC -->|"grants"| SCC_AnyUID
 
-    %% prometheus viewer binding
+    %% Prometheus viewer binding
     SA_Prom -->|"bound via"| RB_PromViewer
-    RB_PromViewer -->|"grants"| CR_View
-    CR_View -->|"provides"| View_Read
+    RB_PromViewer -->|"grants"| Role_View
+    Role_View -->|"read-only"| ViewCap
 
     %% Styling
     style SA_Prom fill:#4a90e2,stroke:#333,color:#fff
-    style SA_MMCtrl fill:#4a90e2,stroke:#333,color:#fff
-    style SA_NBCtrl fill:#4a90e2,stroke:#333,color:#fff
-    style SA_ModelCtrl fill:#4a90e2,stroke:#333,color:#fff
-    style SA_Dashboard fill:#4a90e2,stroke:#333,color:#fff
+    style SA_MMC fill:#4a90e2,stroke:#333,color:#fff
+    style SA_NBC fill:#4a90e2,stroke:#333,color:#fff
+    style SA_OMC fill:#4a90e2,stroke:#333,color:#fff
+    style SA_Dash fill:#4a90e2,stroke:#333,color:#fff
     style SA_MM fill:#4a90e2,stroke:#333,color:#fff
-    style SA_MonAll fill:#4a90e2,stroke:#333,color:#fff
+    style SA_AllMon fill:#4a90e2,stroke:#333,color:#fff
 
     style CR_Scraper fill:#f5a623,stroke:#333
-    style CR_AnyUID fill:#e6522c,stroke:#333,color:#fff
-    style CR_View fill:#f5a623,stroke:#333
+    style SCC_AnyUID fill:#f5a623,stroke:#333
+    style Role_View fill:#f5a623,stroke:#333
 
-    style CRB_Scraper fill:#dae8fc,stroke:#6c8ebf
-    style RB_AppSCC fill:#dae8fc,stroke:#6c8ebf
-    style RB_MonSCC fill:#dae8fc,stroke:#6c8ebf
-    style RB_PromViewer fill:#dae8fc,stroke:#6c8ebf
-
-    style R_TokenReview fill:#7ed321,stroke:#333
-    style R_SAR fill:#7ed321,stroke:#333
-    style R_NS fill:#7ed321,stroke:#333
-    style R_Endpoints fill:#7ed321,stroke:#333
-    style R_Routes fill:#7ed321,stroke:#333
-    style R_Registry fill:#7ed321,stroke:#333
-
-    style SCC_RunAs fill:#e6522c,stroke:#333,color:#fff
-    style View_Read fill:#7ed321,stroke:#333
+    style TR fill:#7ed321,stroke:#333
+    style SAR fill:#7ed321,stroke:#333
+    style NS fill:#7ed321,stroke:#333
+    style EPods fill:#7ed321,stroke:#333
+    style RouterM fill:#7ed321,stroke:#333
+    style RegM fill:#7ed321,stroke:#333
+    style AnyUID fill:#e8e8e8,stroke:#333
+    style ViewCap fill:#e8e8e8,stroke:#333

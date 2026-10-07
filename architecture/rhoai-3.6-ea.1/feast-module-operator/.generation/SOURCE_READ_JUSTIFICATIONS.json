@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "component": "feast-module-operator",
+  "reads": [
+    {
+      "path": "cmd/main.go",
+      "line_range": "1-43",
+      "gap_category": ["http_endpoints", "integration_points"],
+      "question": "What entrypoints and subcommands does the operator binary expose?",
+      "expected_signal": "CLI structure, subcommand registration, controller setup",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis"]
+    },
+    {
+      "path": "Dockerfile.konflux",
+      "line_range": "1-52",
+      "gap_category": ["fips_compliance"],
+      "question": "What build flags and base images are used for FIPS compliance?",
+      "expected_signal": "CGO_ENABLED, GOEXPERIMENT, base image, linking mode",
+      "outcome": "resolved",
+      "sections": ["Security"]
+    },
+    {
+      "path": "internal/controller/feastoperator/feastoperator_controller.go",
+      "line_range": "1-179",
+      "gap_category": ["integration_points", "internal_dependencies", "authentication"],
+      "question": "What resources does the controller reconcile, own, and watch? What RBAC markers are declared?",
+      "expected_signal": "Owns(), Watches(), RBAC markers, import dependencies",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Integration Points", "Internal Platform Dependencies"]
+    },
+    {
+      "path": "cmd/operator/operator.go",
+      "line_range": "1-54",
+      "gap_category": ["http_endpoints", "authentication"],
+      "question": "How is the operator command configured and how does it set up the manager?",
+      "expected_signal": "Manager construction, config loading, startup flow",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis"]
+    },
+    {
+      "path": "config/default/metrics_service.yaml",
+      "line_range": "1-17",
+      "gap_category": ["http_endpoints", "authentication"],
+      "question": "What port and protocol does the metrics service use?",
+      "expected_signal": "Service port, protocol, selector, port name",
+      "outcome": "resolved",
+      "sections": ["Network Architecture", "HTTP Endpoints"]
+    },
+    {
+      "path": "config/rbac/metrics_auth_role.yaml",
+      "line_range": "1-17",
+      "gap_category": ["authentication"],
+      "question": "What authentication mechanism protects the metrics endpoint?",
+      "expected_signal": "TokenReview and SubjectAccessReview permissions for metrics auth",
+      "outcome": "resolved",
+      "sections": ["Authentication & Authorization"]
+    },
+    {
+      "path": "config/default/manager_metrics_patch.yaml",
+      "line_range": "1-8",
+      "gap_category": ["http_endpoints", "authentication"],
+      "question": "How is the metrics bind address configured in the deployment?",
+      "expected_signal": "Environment variable for metrics bind address",
+      "outcome": "resolved",
+      "sections": ["HTTP Endpoints", "Network Architecture"]
+    },
+    {
+      "path": "pkg/manager/manager.go",
+      "line_range": "1-151",
+      "gap_category": ["http_endpoints", "authentication", "internal_dependencies"],
+      "question": "How is the controller-runtime manager configured, including metrics server, health probes, and cache?",
+      "expected_signal": "MetricsServer options, health check registration, scheme setup, cache configuration, odh-platform-utilities usage",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "HTTP Endpoints", "Authentication & Authorization", "Data Flows"]
+    },
+    {
+      "path": "pkg/config/config.go",
+      "line_range": "1-270",
+      "gap_category": ["http_endpoints", "authentication"],
+      "question": "What are the default bind addresses for metrics and health endpoints?",
+      "expected_signal": "Default port configuration for health and metrics servers",
+      "outcome": "resolved",
+      "scope_reason": "Config file defines all operator configuration including controller bind addresses, leader election, and platform version; narrower symbol-level read would miss the default constants needed to establish endpoint ports",
+      "sections": ["HTTP Endpoints", "Architectural Analysis"]
+    },
+    {
+      "path": "internal/controller/feastoperator/feastoperator_platform_version.go",
+      "line_range": "1-139",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "How does the operator implement the platform version handshake protocol?",
+      "expected_signal": "ConfigMap read, version comparison, upgrade handshake logic",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Data Flows", "Integration Points"]
+    }
+  ]
+}

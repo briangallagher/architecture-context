@@ -1,0 +1,45 @@
+graph LR
+    TrustyAIOp["TrustyAI Service<br/>Operator"]
+
+    %% External Dependencies (runtime)
+    TrustyAIOp -->|"controller framework"| ControllerRuntime["controller-runtime<br/>0.23.3"]
+    TrustyAIOp -->|"TLS profile"| OpenShiftAPI["OpenShift API<br/>(config.openshift.io)"]
+    TrustyAIOp -->|"job queueing<br/>(conditional)"| Kueue["Kueue<br/>0.16.0-devel"]
+    TrustyAIOp -->|"model types"| KServeLib["KServe Library<br/>0.19.0"]
+
+    %% Internal RHOAI Dependencies
+    TrustyAIOp -->|"platform detection<br/>manifest rendering"| ODHPlatformUtils["odh-platform-utilities<br/>0.3.1"]
+    TrustyAIOp -->|"model serving state<br/>InferenceService watch"| KServe["KServe<br/>InferenceService"]
+    TrustyAIOp -->|"evaluation policy<br/>ConfigMap read"| ODHOperator["OpenDataHub<br/>Operator"]
+    TrustyAIOp -.->|"ServiceMonitor mgmt<br/>(conditional)"| PromOperator["prometheus-operator<br/>0.64.1"]
+
+    %% Consumed by / Integration Points
+    RHOAIDashboard["RHOAI Dashboard"] -->|"component mgmt"| TrustyAIOp
+    ODHOperator -->|"provisions<br/>trustyai-dsc-config"| TrustyAIOp
+
+    %% Runtime Dependencies
+    TrustyAIOp -->|"observability"| PromClient["prometheus/client_golang<br/>1.23.2"]
+    TrustyAIOp -->|"configuration"| Viper["spf13/viper<br/>1.19.0"]
+    TrustyAIOp -->|"resource operations"| K8sAPI["Kubernetes API<br/>(k8s.io/api 0.35.3)"]
+
+    %% External Services
+    TrustyAIOp -->|"API server<br/>6443/TCP HTTPS"| K8sAPIServer["Kubernetes API Server"]
+
+    %% Build
+    TrustyAIOp -->|"build toolchain"| Go["Go 1.26<br/>FIPS: strictfipsruntime"]
+
+    style TrustyAIOp fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style ControllerRuntime fill:#999,stroke:#333
+    style OpenShiftAPI fill:#999,stroke:#333
+    style Kueue fill:#999,stroke:#333,stroke-dasharray:5 5
+    style KServeLib fill:#999,stroke:#333
+    style ODHPlatformUtils fill:#7ed321,stroke:#333,color:#fff
+    style KServe fill:#7ed321,stroke:#333,color:#fff
+    style ODHOperator fill:#7ed321,stroke:#333,color:#fff
+    style PromOperator fill:#999,stroke:#333,stroke-dasharray:5 5
+    style RHOAIDashboard fill:#7ed321,stroke:#333,color:#fff
+    style PromClient fill:#999,stroke:#333
+    style Viper fill:#999,stroke:#333
+    style K8sAPI fill:#999,stroke:#333
+    style K8sAPIServer fill:#f5a623,stroke:#333
+    style Go fill:#e8e8e8,stroke:#333

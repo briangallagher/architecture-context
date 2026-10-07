@@ -1,80 +1,140 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA_Dashboard["odh-dashboard<br/>(main container)"]
-        SA_Modules["odh-dashboard-modules<br/>(BFF containers)"]
+        SA_Dashboard["odh-dashboard<br/>(core dashboard SA)"]
+        SA_Modules["odh-dashboard-modules<br/>(module BFFs SA)"]
     end
 
     subgraph ClusterRoleBindings["ClusterRole Bindings"]
-        CRB_Dashboard["odh-dashboard<br/>(ClusterRoleBinding)<br/>cluster-scoped"]
+        CRB_Dashboard["odh-dashboard<br/>(ClusterRoleBinding)"]
+        CRB_Modules["odh-dashboard-modules<br/>(ClusterRoleBinding)"]
+        CRB_AuthDelegator["auth-delegator<br/>(ClusterRoleBinding)"]
+        CRB_Monitoring["cluster-monitoring<br/>(ClusterRoleBinding)"]
+        CRB_ImagePuller["image-puller<br/>(ClusterRoleBinding)"]
     end
 
-    subgraph RoleBindings["Role Bindings"]
-        RB_Dashboard["odh-dashboard<br/>(RoleBinding)<br/>dashboard namespace"]
-        RB_Modules["odh-dashboard-modules<br/>(RoleBinding)<br/>dashboard namespace"]
+    subgraph ClusterRoles["ClusterRoles"]
+        CR_Dashboard["ClusterRole:<br/>odh-dashboard"]
+        CR_Modules["ClusterRole:<br/>odh-dashboard-modules"]
+        CR_GenAI["ClusterRole:<br/>odh-dashboard-gen-ai"]
+        CR_AuthDelegator["ClusterRole:<br/>system:auth-delegator"]
+        CR_Monitoring["ClusterRole:<br/>cluster-monitoring-view"]
+        CR_ImagePuller["ClusterRole:<br/>system:image-puller"]
     end
 
-    subgraph ClusterRolePerms["ClusterRole: odh-dashboard"]
-        direction TB
-        P_Storage["storage.k8s.io<br/>storageclasses<br/>update, patch"]
-        P_Nodes["core ('')<br/>nodes<br/>get, list"]
-        P_Config["config.openshift.io<br/>clusterversions, ingresses<br/>get, list, watch"]
-        P_Operators["operators.coreos.com<br/>clusterserviceversions,<br/>subscriptions<br/>get, list, watch"]
-        P_Images["image.openshift.io<br/>imagestreams,<br/>imagestreamtags<br/>get, list, watch, create,<br/>update, patch, delete"]
-        P_Machine["machine.openshift.io<br/>machineautoscalers,<br/>machinesets<br/>get, list, watch"]
-        P_Quota["quota.openshift.io<br/>clusterresourcequotas<br/>get, list, watch"]
+    subgraph DashboardResources["odh-dashboard Resources"]
+        direction LR
+        StorageClasses["storage.k8s.io<br/>storageclasses<br/><i>update, patch</i>"]
+        Nodes["core<br/>nodes<br/><i>get, list</i>"]
+        ConfigMaps["core<br/>configmaps, secrets,<br/>pvcs<br/><i>CRUD + watch</i>"]
+        Pods["core<br/>pods, services, SAs<br/><i>get, list, watch</i>"]
+        RBAC_Res["rbac.authorization.k8s.io<br/>rolebindings, roles,<br/>clusterrolebindings<br/><i>list, get, create,<br/>patch, delete</i>"]
+        Notebooks["kubeflow.org<br/>notebooks<br/><i>full CRUD</i>"]
+        InfSvc["serving.kserve.io<br/>inferenceservices<br/><i>get, list, watch</i>"]
+        ModelRegs["modelregistry.<br/>opendatahub.io<br/>modelregistries<br/><i>full CRUD</i>"]
+        DSC["datasciencecluster.<br/>opendatahub.io<br/><i>list, watch, get</i>"]
+        FeatureStores["feast.dev<br/>featurestores<br/><i>get, list, watch</i>"]
+        MLflows["mlflow.opendatahub.io<br/>mlflows<br/><i>get, list, watch</i>"]
+        TokenReviews["authentication.k8s.io<br/>tokenreviews<br/><i>create</i>"]
+        SAR["authorization.k8s.io<br/>subjectaccessreviews<br/><i>create</i>"]
+        Routes["route.openshift.io<br/>routes<br/><i>get, list, watch</i>"]
+        UsersGroups["user.openshift.io<br/>users, groups<br/><i>get, list, watch</i>"]
     end
 
-    subgraph NamespacedRole["Role: odh-dashboard (namespaced)"]
-        NR_Desc["Namespace-scoped permissions<br/>(dashboard namespace)"]
+    subgraph ModulesResources["odh-dashboard-modules Resources"]
+        direction LR
+        Mod_MLflows["mlflow.opendatahub.io<br/>mlflows<br/><i>get, list, watch</i>"]
+        Mod_Ingresses["config.openshift.io<br/>ingresses<br/><i>get, list, watch</i>"]
+        Mod_OTel["opentelemetry.io<br/>otelcollectors<br/><i>get, list, create,<br/>update, delete</i>"]
+        Mod_SAR["authorization.k8s.io<br/>subjectaccessreviews<br/><i>create</i>"]
+        Mod_Impersonate["core<br/>users, groups, SAs<br/><i>impersonate</i>"]
+        Mod_Sandboxes["agents.x-k8s.io<br/>sandboxes<br/><i>get, list</i>"]
+        Mod_MCP["mcp.kuadrant.io<br/>mcpserverregistrations<br/><i>get, list</i>"]
+        Mod_Routes["route.openshift.io<br/>routes<br/><i>get, list</i>"]
     end
 
-    subgraph ModulesRole["Role: odh-dashboard-modules (namespaced)"]
-        MR_Desc["Limited permissions for<br/>BFF sidecar containers"]
+    subgraph GenAIResources["odh-dashboard-gen-ai Resources"]
+        direction LR
+        GA_OTel["opentelemetry.io<br/>otelcollectors<br/><i>full CRUD</i>"]
+        GA_Core["core<br/>secrets, services,<br/>pvcs, configmaps,<br/>deployments<br/><i>create, get, update,<br/>delete</i>"]
+        GA_NetPol["networking.k8s.io<br/>networkpolicies<br/><i>create, get,<br/>update, delete</i>"]
     end
 
-    subgraph AuthMechanisms["Authentication & Authorization Layers"]
-        direction TB
-        L1["Layer 1: kube-rbac-proxy<br/>OAuth proxy headers<br/>X-Forwarded-Access-Token<br/>X-Auth-Request-User<br/>X-Auth-Request-Groups"]
-        L2["Layer 2: Dashboard Backend<br/>secureRoute (user auth)<br/>secureAdminRoute (admin check)"]
-        L3["Layer 3: BFF Middleware<br/>InjectRequestIdentity<br/>SubjectAccessReview (SAR)"]
-        L4["Layer 4: Kubernetes API<br/>Native RBAC on user identity<br/>(pass-through /api/k8s/*)"]
-    end
+    %% SA → CRB bindings
+    SA_Dashboard -->|"bound via"| CRB_Dashboard
+    SA_Dashboard -->|"bound via"| CRB_AuthDelegator
+    SA_Dashboard -->|"bound via"| CRB_Monitoring
+    SA_Dashboard -->|"bound via"| CRB_ImagePuller
+    SA_Modules -->|"bound via"| CRB_Modules
 
-    subgraph TokenIsolation["SA Token Isolation"]
-        T1["dashboard-sa-token<br/>(projected volume)<br/>Full dashboard RBAC"]
-        T2["modules-sa-token<br/>(projected volume)<br/>Limited BFF permissions"]
-        T3["automountServiceAccountToken: false<br/>(prevents automatic mounting)"]
-    end
+    %% CRB → CR grants
+    CRB_Dashboard -->|"grants"| CR_Dashboard
+    CRB_Modules -->|"grants"| CR_Modules
+    CRB_AuthDelegator -->|"grants"| CR_AuthDelegator
+    CRB_Monitoring -->|"grants"| CR_Monitoring
+    CRB_ImagePuller -->|"grants"| CR_ImagePuller
 
-    %% Bindings
-    SA_Dashboard -->|bound via| CRB_Dashboard
-    SA_Dashboard -->|bound via| RB_Dashboard
-    SA_Modules -->|bound via| RB_Modules
+    %% CR → Resources
+    CR_Dashboard -->|"permits"| StorageClasses
+    CR_Dashboard -->|"permits"| Nodes
+    CR_Dashboard -->|"permits"| ConfigMaps
+    CR_Dashboard -->|"permits"| Pods
+    CR_Dashboard -->|"permits"| RBAC_Res
+    CR_Dashboard -->|"permits"| Notebooks
+    CR_Dashboard -->|"permits"| InfSvc
+    CR_Dashboard -->|"permits"| ModelRegs
+    CR_Dashboard -->|"permits"| DSC
+    CR_Dashboard -->|"permits"| FeatureStores
+    CR_Dashboard -->|"permits"| MLflows
+    CR_Dashboard -->|"permits"| TokenReviews
+    CR_Dashboard -->|"permits"| SAR
+    CR_Dashboard -->|"permits"| Routes
+    CR_Dashboard -->|"permits"| UsersGroups
 
-    CRB_Dashboard -->|grants| ClusterRolePerms
-    RB_Dashboard -->|grants| NamespacedRole
-    RB_Modules -->|grants| ModulesRole
+    CR_Modules -->|"permits"| Mod_MLflows
+    CR_Modules -->|"permits"| Mod_Ingresses
+    CR_Modules -->|"permits"| Mod_OTel
+    CR_Modules -->|"permits"| Mod_SAR
+    CR_Modules -->|"permits"| Mod_Impersonate
+    CR_Modules -->|"permits"| Mod_Sandboxes
+    CR_Modules -->|"permits"| Mod_MCP
+    CR_Modules -->|"permits"| Mod_Routes
 
-    %% Token isolation
-    SA_Dashboard -->|uses| T1
-    SA_Modules -->|uses| T2
-
-    %% Auth flow
-    L1 -->|identity headers| L2
-    L2 -->|user token| L3
-    L3 -->|SAR check| L4
+    CR_GenAI -->|"permits"| GA_OTel
+    CR_GenAI -->|"permits"| GA_Core
+    CR_GenAI -->|"permits"| GA_NetPol
 
     %% Styling
-    classDef sa fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
-    classDef binding fill:#9b59b6,stroke:#333,stroke-width:2px,color:#fff
-    classDef perm fill:#7ed321,stroke:#333,stroke-width:1px,color:#fff
-    classDef role fill:#f5a623,stroke:#333,stroke-width:2px,color:#fff
-    classDef auth fill:#e74c3c,stroke:#333,stroke-width:1px,color:#fff
-    classDef token fill:#3498db,stroke:#333,stroke-width:1px,color:#fff
-
-    class SA_Dashboard,SA_Modules sa
-    class CRB_Dashboard,RB_Dashboard,RB_Modules binding
-    class P_Storage,P_Nodes,P_Config,P_Operators,P_Images,P_Machine,P_Quota perm
-    class NR_Desc,MR_Desc,NamespacedRole,ModulesRole role
-    class L1,L2,L3,L4 auth
-    class T1,T2,T3 token
+    style SA_Dashboard fill:#4a90e2,color:#fff,stroke:#357abd
+    style SA_Modules fill:#4a90e2,color:#fff,stroke:#357abd
+    style CR_Dashboard fill:#f5a623,color:#fff,stroke:#d4940e
+    style CR_Modules fill:#f5a623,color:#fff,stroke:#d4940e
+    style CR_GenAI fill:#f5a623,color:#fff,stroke:#d4940e
+    style CR_AuthDelegator fill:#999,color:#fff,stroke:#666
+    style CR_Monitoring fill:#999,color:#fff,stroke:#666
+    style CR_ImagePuller fill:#999,color:#fff,stroke:#666
+    style StorageClasses fill:#7ed321,color:#fff,stroke:#5db30e
+    style Nodes fill:#7ed321,color:#fff,stroke:#5db30e
+    style ConfigMaps fill:#7ed321,color:#fff,stroke:#5db30e
+    style Pods fill:#7ed321,color:#fff,stroke:#5db30e
+    style RBAC_Res fill:#7ed321,color:#fff,stroke:#5db30e
+    style Notebooks fill:#7ed321,color:#fff,stroke:#5db30e
+    style InfSvc fill:#7ed321,color:#fff,stroke:#5db30e
+    style ModelRegs fill:#7ed321,color:#fff,stroke:#5db30e
+    style DSC fill:#7ed321,color:#fff,stroke:#5db30e
+    style FeatureStores fill:#7ed321,color:#fff,stroke:#5db30e
+    style MLflows fill:#7ed321,color:#fff,stroke:#5db30e
+    style TokenReviews fill:#7ed321,color:#fff,stroke:#5db30e
+    style SAR fill:#7ed321,color:#fff,stroke:#5db30e
+    style Routes fill:#7ed321,color:#fff,stroke:#5db30e
+    style UsersGroups fill:#7ed321,color:#fff,stroke:#5db30e
+    style Mod_MLflows fill:#27ae60,color:#fff,stroke:#1e8449
+    style Mod_Ingresses fill:#27ae60,color:#fff,stroke:#1e8449
+    style Mod_OTel fill:#27ae60,color:#fff,stroke:#1e8449
+    style Mod_SAR fill:#27ae60,color:#fff,stroke:#1e8449
+    style Mod_Impersonate fill:#e74c3c,color:#fff,stroke:#c0392b
+    style Mod_Sandboxes fill:#27ae60,color:#fff,stroke:#1e8449
+    style Mod_MCP fill:#27ae60,color:#fff,stroke:#1e8449
+    style Mod_Routes fill:#27ae60,color:#fff,stroke:#1e8449
+    style GA_OTel fill:#3498db,color:#fff,stroke:#2980b9
+    style GA_Core fill:#3498db,color:#fff,stroke:#2980b9
+    style GA_NetPol fill:#3498db,color:#fff,stroke:#2980b9

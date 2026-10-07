@@ -1,0 +1,47 @@
+graph LR
+    TrainerOp["trainer-operator<br/>(Module Operator)"]
+
+    %% External Dependencies
+    TrainerOp -->|"dependency check<br/>(OLM subscription +<br/>CR health + CRD)"| JobSetOp["JobSet Operator<br/>(OLM)"]
+    TrainerOp -->|"scheduling primitive<br/>(required CRD)"| JobSetCRD["JobSet CRD<br/>jobset.x-k8s.io<br/>v1alpha2"]
+    TrainerOp -->|"deploys as<br/>managed sub-component"| KubeflowTrainer["Kubeflow Trainer V2<br/>v2.2.0 (bundled)"]
+
+    %% Internal Platform Dependencies
+    TrainerOp -->|"CR lifecycle<br/>(Trainer CR creator)"| RhodsOp["rhods-operator /<br/>opendatahub-operator"]
+    TrainerOp -->|"shared Go library<br/>(cache, conditions,<br/>kustomize, labels)"| ODHUtils["odh-platform-utilities"]
+    TrainerOp -->|"platformVersion<br/>handshake"| ODHConfig["odh-trainer-config<br/>ConfigMap"]
+
+    %% Kubernetes API dependencies
+    TrainerOp -->|"resource CRUD<br/>(server-side apply)"| K8sAPI["Kubernetes API<br/>Server"]
+    TrainerOp -->|"cluster type<br/>detection"| OSConfig["OpenShift Cluster<br/>Config<br/>(config.openshift.io)"]
+
+    %% Integration Points (components that depend on trainer-operator)
+    RhodsOp -->|"creates Trainer CR"| TrainerOp
+    Dashboard["ODH Dashboard"] -.->|"UI for<br/>TrainJob submission"| KubeflowTrainer
+
+    %% Downstream managed resources
+    KubeflowTrainer -->|"creates"| JobSets["JobSets<br/>(jobset.x-k8s.io)"]
+    KubeflowTrainer -->|"validates via"| Webhooks["Validating<br/>Webhooks<br/>(9443/TCP)"]
+
+    %% Monitoring
+    Prometheus["Prometheus /<br/>OpenShift Monitoring"] -.->|"PodMonitor<br/>metrics scraping"| TrainerOp
+    Prometheus -.->|"PodMonitor<br/>metrics scraping"| KubeflowTrainer
+
+    %% ImageStreams
+    TrainerOp -->|"creates"| ImageStreams["OpenShift<br/>ImageStreams<br/>(image.openshift.io)"]
+
+    %% Styling
+    style TrainerOp fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style KubeflowTrainer fill:#4a90e2,stroke:#333,color:#fff
+    style JobSetOp fill:#999,stroke:#333,color:#fff
+    style JobSetCRD fill:#999,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333
+    style OSConfig fill:#f5a623,stroke:#333
+    style RhodsOp fill:#7ed321,stroke:#333,color:#fff
+    style ODHUtils fill:#7ed321,stroke:#333,color:#fff
+    style ODHConfig fill:#7ed321,stroke:#333,color:#fff
+    style Dashboard fill:#7ed321,stroke:#333,color:#fff
+    style Prometheus fill:#f5a623,stroke:#333
+    style Webhooks fill:#dae8fc,stroke:#6c8ebf
+    style JobSets fill:#dae8fc,stroke:#6c8ebf
+    style ImageStreams fill:#dae8fc,stroke:#6c8ebf

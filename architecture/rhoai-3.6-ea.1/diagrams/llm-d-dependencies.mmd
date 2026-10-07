@@ -1,0 +1,28 @@
+graph LR
+    LLMD["llm-d<br/>(Disaggregated LLM Inference)"]
+
+    %% Internal Platform Dependencies (Required)
+    LLMD -->|"HTTP/gRPC proxy<br/>(Required)"| Router["llm-d-router<br/>(EPP + Envoy)"]
+    LLMD -->|"CRD routing<br/>(Required)"| GatewayAPI["Gateway API<br/>(InferencePool /<br/>InferenceModel CRDs)"]
+
+    %% Internal Platform Dependencies (Optional)
+    LLMD -.->|"gRPC 8001/TCP<br/>(Optional)"| MXServer["ModelExpress Server<br/>(P2P KV Cache Broker)"]
+
+    %% External Services
+    LLMD -->|"HTTPS 443/TCP<br/>HF_TOKEN"| HFHub["HuggingFace Hub<br/>(Model Artifacts)"]
+    LLMD -->|"gRPC OTLP<br/>4317/TCP"| OTel["OpenTelemetry<br/>Collector"]
+
+    %% Security Dependencies
+    MXServer -->|"mTLS STRICT<br/>AuthorizationPolicy"| Istio["Istio<br/>Service Mesh"]
+
+    %% Integration Points (consumers of llm-d)
+    Router -->|"HTTP 8000/TCP<br/>InferencePool routing"| LLMD
+
+    %% Styling
+    style LLMD fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style Router fill:#7ed321,stroke:#333
+    style GatewayAPI fill:#7ed321,stroke:#333
+    style MXServer fill:#9b59b6,stroke:#333,color:#fff
+    style Istio fill:#7ed321,stroke:#333
+    style HFHub fill:#f5a623,stroke:#333
+    style OTel fill:#f5a623,stroke:#333

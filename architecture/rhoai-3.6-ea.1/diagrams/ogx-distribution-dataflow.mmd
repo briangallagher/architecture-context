@@ -1,0 +1,31 @@
+sequenceDiagram
+    participant Client as External Client
+    participant OGX as OGX Server<br/>8321/TCP HTTP
+    participant Auth as Auth Module<br/>OAuth2 / JWKS
+    participant Provider as Inference Provider<br/>(vLLM / Cloud)
+    participant VectorDB as Vector DB<br/>(Milvus / PGVector / Qdrant)
+    participant PG as PostgreSQL<br/>5432/TCP
+
+    Note over Client,PG: Flow 1: Inference Request
+
+    Client->>OGX: POST /v1/inference/*<br/>HTTP 8321/TCP<br/>Platform-delegated encryption
+    OGX->>Auth: Validate OAuth2 bearer token<br/>(when AUTH_ISSUER configured)
+    Auth-->>OGX: Token valid / owner identity
+    OGX->>Provider: Forward inference request<br/>HTTP/HTTPS (TLS configurable)<br/>API token / IAM / bearer
+    Provider-->>OGX: Inference response
+    OGX->>PG: Persist state & metadata<br/>5432/TCP PostgreSQL<br/>Username/password auth
+    PG-->>OGX: Ack
+    OGX-->>Client: JSON response
+
+    Note over Client,PG: Flow 2: RAG Query
+
+    Client->>OGX: POST /v1/vector-io/*<br/>HTTP 8321/TCP<br/>Platform-delegated encryption
+    OGX->>Auth: Validate OAuth2 bearer token<br/>(when AUTH_ISSUER configured)
+    Auth-->>OGX: Token valid / owner identity
+    OGX->>VectorDB: Query vectors<br/>HTTP/gRPC/SQL (configurable)<br/>Token / API key / mTLS
+    VectorDB-->>OGX: Matching vectors + context
+    OGX->>Provider: Inference with RAG context<br/>HTTP/HTTPS (TLS)<br/>API token
+    Provider-->>OGX: Augmented response
+    OGX->>PG: Persist conversation state<br/>5432/TCP PostgreSQL<br/>Username/password auth
+    PG-->>OGX: Ack
+    OGX-->>Client: RAG-augmented response

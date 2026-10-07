@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jctanner/odh.architecture-context/schemas/structured-component-patch-v1.schema.json",
+  "title": "Structured component typed patch v1",
+  "description": "An untrusted bundle-bound proposal over stable typed analyzer fact IDs. Authority, attribution, and decisions are intentionally absent and must come from a separate trusted assembly policy. Numeric legacy architecture-table-patch v1 documents are intentionally incompatible.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "patch_id", "bundle_fingerprint", "operations"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "patch_id": {"$ref": "#/$defs/nonEmptyString"},
+    "bundle_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "operations": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/operation"}}
+  },
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "evidenceAtom": {"type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029]+$"},
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "revision"],
+      "properties": {
+        "path": {"allOf": [{"$ref": "#/$defs/evidenceAtom"}, {"pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}]},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "revision": {"$ref": "#/$defs/evidenceAtom"}
+      }
+    },
+    "operation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation_id", "action", "fact_type", "evidence", "reason"],
+      "properties": {
+        "operation_id": {"$ref": "#/$defs/nonEmptyString"},
+        "action": {"enum": ["add", "update", "delete"]},
+        "fact_type": {"$ref": "structured-component-document-v1.schema.json#/$defs/factType"},
+        "target_fact_id": {"type": "string", "pattern": "^fact:[a-z][a-z0-9_]*:[0-9a-f]{64}(?::([2-9]|[1-9][0-9]+))?$"},
+        "key": {"$ref": "#/$defs/nonEmptyString"},
+        "value": {},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
+        "reason": {"$ref": "#/$defs/nonEmptyString"}
+      },
+      "allOf": [
+        {"if": {"properties": {"action": {"const": "add"}}, "required": ["action"]}, "then": {"required": ["value"], "not": {"required": ["target_fact_id"]}}},
+        {"if": {"properties": {"action": {"const": "update"}}, "required": ["action"]}, "then": {"required": ["target_fact_id", "value"]}},
+        {"if": {"properties": {"action": {"const": "delete"}}, "required": ["action"]}, "then": {"required": ["target_fact_id"], "not": {"required": ["value"]}}}
+      ]
+    }
+  }
+}

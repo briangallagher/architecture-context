@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "component": "must-gather",
+  "reads": [
+    {
+      "path": "Dockerfile.konflux",
+      "line_range": "1-20",
+      "gap_category": ["fips_compliance", "internal_dependencies"],
+      "question": "What base images are used, what binaries are bundled, and what is the container entrypoint?",
+      "expected_signal": "Base image provenance, FIPS build flags, crypto library presence, entrypoint definition",
+      "outcome": "resolved",
+      "sections": ["Purpose", "FIPS Compliance", "Architecture Components"]
+    },
+    {
+      "path": "collection-scripts/gather.sh",
+      "line_range": "1-247",
+      "gap_category": ["integration_points", "internal_dependencies", "authentication", "http_endpoints", "grpc_services"],
+      "question": "What platform components does must-gather interact with, how does it authenticate, and does it expose any network services?",
+      "expected_signal": "Namespace inspection targets, CRD resource lists, authentication mechanism, network listeners",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Internal Platform Dependencies", "Integration Points", "Authentication & Authorization", "Data Flows"],
+      "scope_reason": "Main orchestration script; all collection dispatch, namespace targets, CRD lists, and authentication context are distributed throughout the file"
+    },
+    {
+      "path": "collection-scripts/common.sh",
+      "line_range": "1-140",
+      "gap_category": ["integration_points", "internal_dependencies", "authentication"],
+      "question": "What shared utilities are used for data collection, how is the operator namespace detected, and how are Helm releases collected?",
+      "expected_signal": "Kubernetes API interaction patterns, operator namespace detection, Helm CLI usage, authentication delegation",
+      "outcome": "resolved",
+      "sections": ["Architectural Analysis", "Internal Platform Dependencies", "Integration Points", "Authentication & Authorization"]
+    },
+    {
+      "path": "collection-scripts/llm-d/xks_util.sh",
+      "line_range": "1-180",
+      "gap_category": ["integration_points", "internal_dependencies"],
+      "question": "How does must-gather support non-OpenShift Kubernetes distributions, and what alternative collection mechanisms does it use?",
+      "expected_signal": "Distribution detection logic, kubectl-based inspect replacement, cross-platform API interaction patterns",
+      "outcome": "resolved",
+      "sections": ["Purpose", "Architectural Analysis", "Integration Points"]
+    },
+    {
+      "path": "collection-scripts/gather_serving.sh",
+      "line_range": "1-20",
+      "gap_category": ["internal_dependencies", "integration_points"],
+      "question": "What KServe and serving-related resources does must-gather collect, and what dependent resources (Authorino, NIM, llm-d) are included?",
+      "expected_signal": "Resource type lists, namespace discovery patterns, dependent component resource types",
+      "outcome": "resolved",
+      "sections": ["Internal Platform Dependencies"]
+    }
+  ]
+}

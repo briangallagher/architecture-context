@@ -1,75 +1,73 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Client["Client / KServe InferenceService"]
+        Client["External Client"]
     end
 
-    subgraph ClusterInternal["CLUSTER INTERNAL (Kubernetes Network)"]
+    subgraph PodBoundary["MODELMESH POD (Trust Boundary)"]
         direction TB
 
-        subgraph PodBoundary["ModelMesh Pod Boundary"]
+        subgraph ModelMeshSidecar["ModelMesh Sidecar (Java 21)"]
             direction TB
-
-            subgraph MeshSidecar["ModelMesh Container"]
-                API["ModelMeshApi (gRPC)<br/>Port: 8033/TCP<br/>Encryption: TLS (PKCS8, optional)<br/>Auth: mTLS (NONE/REQUIRE/OPTIONAL)"]
-                Mesh["SidecarModelMesh<br/>Distributed Cache & Router"]
-                Metrics["Prometheus Metrics<br/>Port: 2112/TCP<br/>Encryption: TLS (self-signed, optional)<br/>Auth: None"]
-                Health["Health Probes<br/>Port: 8089/TCP<br/>Encryption: None<br/>Auth: None"]
-                PreStop["PreStop Server<br/>Port: configurable/TCP<br/>Encryption: None<br/>Auth: None"]
-            end
-
-            subgraph RuntimeSidecar["Model Runtime Container"]
-                RuntimeGRPC["ModelRuntime gRPC<br/>Port: 8085/TCP or UDS<br/>Encryption: plaintext (localhost)<br/>Auth: None"]
-            end
-
-            Mesh -->|"gRPC 8085/TCP or UDS<br/>plaintext (localhost-only)<br/>No auth"| RuntimeGRPC
+            API["ModelMeshApi<br/>gRPC Server<br/>8033/TCP<br/>Optional TLS/mTLS<br/>FIPS: DISABLED"]
+            Cache["SidecarModelMesh<br/>LRU Cache Engine<br/>ProtoSplicer zero-copy"]
+            VModel["VModelManager<br/>etcd-backed state"]
+            HealthProbe["Health Probes<br/>8089/TCP HTTP<br/>No Auth"]
+            MetricsServer["Prometheus NettyServer<br/>2112/TCP HTTPS<br/>Self-signed TLS<br/>BouncyCastle"]
+            PreStopServer["PreStop Server<br/>8090/TCP HTTP<br/>No Auth"]
+            LitelinksRPC["Litelinks Thrift RPC<br/>8080/TCP<br/>Optional TLS/mTLS"]
         end
 
-        subgraph PeerPods["Other ModelMesh Pods (Same Deployment)"]
-            PeerMesh["Peer ModelMesh Instance<br/>Port: 8080/TCP<br/>Thrift (Litelinks)"]
-        end
-
-        Mesh <-->|"Thrift 8080/TCP<br/>TLS (optional, same keypair)<br/>mTLS (configurable via<br/>MM_INTRACLUSTER_CLIENTAUTH)"| PeerMesh
+        Runtime["Model Runtime Container<br/>(mlserver / Triton / custom)<br/>8085/TCP or UDS<br/>gRPC Plaintext"]
     end
 
-    subgraph CoordinationStore["COORDINATION STORE"]
-        etcd["etcd Cluster<br/>Port: 2379/TCP<br/>gRPC<br/>TLS (configurable)<br/>Auth: Client cert (configurable)"]
+    subgraph ClusterServices["CLUSTER SERVICES"]
+        Kubelet["Kubernetes Kubelet"]
+        Prometheus["Prometheus Scraper"]
+        Controller["modelmesh-serving Controller<br/>(ConfigMap interaction only)"]
     end
 
-    subgraph Monitoring["MONITORING (Optional)"]
-        Prometheus["Prometheus Server"]
-        StatsD["StatsD / Sysdig<br/>Port: 8126/UDP<br/>No encryption<br/>No auth"]
+    subgraph PeerPods["PEER MODELMESH PODS"]
+        PeerMM["Peer ModelMesh Pod<br/>8080/TCP Thrift"]
     end
 
-    subgraph ExternalServices["EXTERNAL SERVICES (Optional)"]
-        RemotePayload["Remote Payload Processor<br/>Port: configurable/TCP<br/>HTTP/HTTPS<br/>TLS (optional)<br/>Auth: None"]
+    subgraph ExternalServices["EXTERNAL SERVICES"]
+        etcd["etcd Cluster<br/>2379/TCP<br/>gRPC (etcd v3)<br/>Optional TLS<br/>Optional client cert"]
     end
 
-    %% External flows
-    Client -->|"gRPC 8033/TCP<br/>TLS (PKCS8 key)<br/>mTLS client certs<br/>(NONE/REQUIRE/OPTIONAL)"| API
+    %% External → Pod flows
+    Client -->|"gRPC/8033<br/>Optional TLS<br/>Optional mTLS<br/>(MM_TLS_CLIENT_AUTH)"| API
 
-    %% Internal flows
-    Mesh -->|"gRPC 2379/TCP<br/>TLS (configurable)<br/>Client cert (configurable)"| etcd
+    %% Internal pod flows
+    API --> Cache
+    Cache --> VModel
+    Cache -->|"gRPC/8085 Plaintext<br/>or UDS (localhost)<br/>No Auth"| Runtime
 
-    Prometheus -->|"HTTP(S) 2112/TCP<br/>TLS (self-signed)<br/>No auth"| Metrics
+    %% Inter-pod flows
+    LitelinksRPC -->|"Thrift/8080<br/>Optional TLS<br/>Optional mTLS<br/>(MM_INTRACLUSTER_CLIENTAUTH)"| PeerMM
 
-    Mesh -->|"UDP 8126<br/>No encryption<br/>No auth"| StatsD
+    %% Cluster service flows
+    Kubelet -->|"HTTP/8089<br/>No Encryption<br/>No Auth"| HealthProbe
+    Prometheus -->|"HTTPS/2112<br/>Self-signed TLS<br/>No Client Auth"| MetricsServer
 
-    Mesh -->|"HTTP/HTTPS<br/>TLS (optional)<br/>No auth"| RemotePayload
+    %% External service flows
+    Cache -->|"gRPC/2379<br/>Optional TLS<br/>Optional client cert"| etcd
+
+    %% Controller (no network, ConfigMap only)
+    Controller -.->|"ConfigMap<br/>model-serving-config<br/>(no direct network)"| PodBoundary
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
-    classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
-    classDef internal fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    classDef runtime fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    classDef coordination fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    classDef monitoring fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    classDef extsvc fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    classDef pod fill:#dbeafe,stroke:#3b82f6,stroke-width:2px
+    classDef sidecar fill:#4a90e2,stroke:#333,stroke-width:1px,color:#fff
+    classDef runtime fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef cluster fill:#e8e8e8,stroke:#666,stroke-width:1px
+    classDef extsvc fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef peer fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef warning fill:#f8d7da,stroke:#dc3545,stroke-width:2px
 
     class Client external
-    class API ingress
-    class Mesh,Health,PreStop,Metrics internal
-    class RuntimeGRPC runtime
-    class PeerMesh internal
-    class etcd coordination
-    class Prometheus,StatsD monitoring
-    class RemotePayload extsvc
+    class API,Cache,VModel,HealthProbe,MetricsServer,PreStopServer,LitelinksRPC sidecar
+    class Runtime runtime
+    class Kubelet,Prometheus,Controller cluster
+    class etcd extsvc
+    class PeerMM peer

@@ -1,51 +1,60 @@
 graph TB
     subgraph External["EXTERNAL (Untrusted)"]
-        Client["External Client"]
+        Client["Client / Application"]
     end
 
     subgraph Ingress["INGRESS (Platform-Managed)"]
-        Gateway["KServe Gateway<br/>443/TCP<br/>TLS 1.2+ Termination<br/>Bearer Token / OAuth"]
-        AuthProxy["Auth Proxy Sidecar<br/>(kube-rbac-proxy / oauth-proxy)<br/>Enforces AuthN/AuthZ"]
+        Gateway["Gateway API + HTTPRoute<br/>443/TCP → 8443/TCP<br/>TLS 1.2+<br/>TLS Termination"]
+        KubeRBAC["kube-rbac-proxy Sidecar<br/>8443/TCP HTTPS<br/>SubjectAccessReview"]
     end
 
-    subgraph Application["APPLICATION (Container - UID 2000)"]
+    subgraph Application["APPLICATION (Cluster-Internal, No Auth)"]
         direction TB
 
-        subgraph Container["vllm-rocm (odh-vllm-rocm-rhel9)"]
-            direction LR
-            HTTPPort["HTTP API<br/>8000/TCP<br/>No TLS<br/>No App Auth"]
-            GRPCPort["gRPC TGIS<br/>8033/TCP<br/>No TLS<br/>No App Auth"]
+        subgraph Pod["vllm-rocm Pod (UID 2000)"]
+            HTTPPort["HTTP API<br/>8000/TCP Plaintext<br/>/v1/* /health"]
+            GRPCPort["TGIS gRPC<br/>8033/TCP Plaintext<br/>vllm_tgis_adapter"]
+            VllmEngine2["vLLM Engine<br/>(PagedAttention)"]
         end
 
-        subgraph GPUAccess["GPU (Hardware)"]
-            GPU["AMD ROCm GPU<br/>PCIe/HIP<br/>Device API"]
+        subgraph GPU["GPU Hardware"]
+            AMDGPU["AMD ROCm GPU<br/>Device Plugin<br/>Instinct / Radeon"]
         end
     end
 
-    subgraph EgressServices["EGRESS (External Services)"]
-        S3["Model Storage (S3/PVC)<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>AWS IAM / SA Credentials"]
-        HFHub["Hugging Face Hub<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>HF Token (optional)"]
+    subgraph EgressServices["EGRESS (Startup-time)"]
+        S3["S3 Model Storage<br/>s3.amazonaws.com<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>AWS IAM"]
+        HFHub["Hugging Face Hub<br/>huggingface.co<br/>443/TCP HTTPS<br/>TLS 1.2+<br/>Bearer Token (optional)"]
+        PVC["PVC Model Storage<br/>Local Volume<br/>Filesystem<br/>No Auth"]
     end
 
-    %% Flows
-    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token / OAuth"| Gateway
-    Gateway -->|"HTTP (internal)<br/>Platform mTLS if mesh enabled"| AuthProxy
-    AuthProxy -->|"HTTP/8000<br/>No encryption (pod-local)<br/>Auth already enforced"| HTTPPort
-    AuthProxy -->|"gRPC/8033<br/>No encryption (pod-local)<br/>Auth already enforced"| GRPCPort
-    HTTPPort -->|"PCIe/HIP<br/>Device API"| GPU
-    GRPCPort -->|"PCIe/HIP<br/>Device API"| GPU
-    Container -->|"HTTPS/443<br/>TLS 1.2+<br/>IAM/SA Credentials"| S3
-    Container -->|"HTTPS/443<br/>TLS 1.2+<br/>HF Token"| HFHub
+    %% External to Ingress
+    Client -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| Gateway
+
+    %% Ingress to Auth
+    Gateway -->|"HTTPS/8443<br/>TLS<br/>Token Validation"| KubeRBAC
+
+    %% Auth to Application
+    KubeRBAC -->|"HTTP/8000<br/>Plaintext<br/>Pre-authenticated"| HTTPPort
+    KubeRBAC -->|"gRPC/8033<br/>Plaintext<br/>Pre-authenticated"| GRPCPort
+
+    %% Application to GPU
+    VllmEngine2 -->|"Device Driver<br/>ROCm<br/>N/A"| AMDGPU
+
+    %% Egress
+    VllmEngine2 -->|"HTTPS/443<br/>TLS 1.2+<br/>AWS IAM"| S3
+    VllmEngine2 -->|"HTTPS/443<br/>TLS 1.2+<br/>Bearer Token"| HFHub
+    VllmEngine2 -->|"Filesystem<br/>Volume Mount"| PVC
 
     %% Styling
     classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
     classDef ingress fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
     classDef application fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
     classDef gpu fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    classDef egressservice fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef egress fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 
     class Client external
-    class Gateway,AuthProxy ingress
-    class HTTPPort,GRPCPort application
-    class GPU gpu
-    class S3,HFHub egressservice
+    class Gateway,KubeRBAC ingress
+    class HTTPPort,GRPCPort,VllmEngine2 application
+    class AMDGPU gpu
+    class S3,HFHub,PVC egress

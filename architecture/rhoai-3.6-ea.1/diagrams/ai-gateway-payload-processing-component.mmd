@@ -1,0 +1,69 @@
+graph TB
+    subgraph "ai-gateway-payload-processing Operator"
+        direction TB
+        Runner["llm-d-inference-payload-processor<br/>Runner Framework"]
+        Plugins["Plugin Registry<br/>plugins.RegisterPlugins()"]
+
+        subgraph Controllers["Controllers"]
+            EPController["ExternalProvider<br/>Controller"]
+            EMController["ExternalModel<br/>Controller"]
+        end
+
+        Runner --> Plugins
+        Runner --> Controllers
+    end
+
+    %% CRDs
+    ExternalProviderCR["ExternalProvider CR<br/>inference.opendatahub.io/v1alpha1"]
+    ExternalModelCR["ExternalModel CR<br/>inference.opendatahub.io/v1alpha1"]
+
+    %% Watched CRDs
+    ExternalProviderCR -->|watched by| EPController
+    ExternalModelCR -->|watched by| EMController
+
+    %% ExternalProvider controller creates
+    EPController -->|creates| ExtNameSvc["ExternalName Service"]
+    EPController -->|creates| ServiceEntry["Istio ServiceEntry<br/>MESH_EXTERNAL"]
+    EPController -->|creates| DestRule["Istio DestinationRule<br/>SIMPLE TLS origination"]
+    EPController -->|validates| CredSecret["Credential Secret<br/>(same namespace)"]
+
+    %% ExternalModel controller creates
+    EMController -->|resolves| ExternalProviderCR
+    EMController -->|creates| HTTPRoute["Gateway API HTTPRoute<br/>port 443, 300s timeout"]
+
+    %% Gateway
+    HTTPRoute -->|targets| Gateway["maas-default-gateway<br/>openshift-ingress"]
+
+    %% External AI Providers
+    subgraph ExternalProviders["External AI Providers"]
+        OpenAI["OpenAI API"]
+        Anthropic["Anthropic API"]
+        Azure["Azure OpenAI"]
+        VertexAI["Vertex AI"]
+    end
+
+    ServiceEntry -->|mesh routing to| ExternalProviders
+    DestRule -->|TLS origination for| ExternalProviders
+
+    %% Kubernetes API
+    K8sAPI["Kubernetes API<br/>6443/HTTPS"]
+    Controllers -->|watches/CRUD| K8sAPI
+
+    %% Styling
+    style EPController fill:#4a90e2,color:#fff
+    style EMController fill:#4a90e2,color:#fff
+    style Runner fill:#4a90e2,color:#fff
+    style Plugins fill:#4a90e2,color:#fff
+    style ExternalProviderCR fill:#f5a623,color:#000
+    style ExternalModelCR fill:#f5a623,color:#000
+    style ExtNameSvc fill:#7ed321,color:#000
+    style ServiceEntry fill:#7ed321,color:#000
+    style DestRule fill:#7ed321,color:#000
+    style HTTPRoute fill:#7ed321,color:#000
+    style Gateway fill:#e8e8e8,color:#000
+    style CredSecret fill:#e8e8e8,color:#000
+    style K8sAPI fill:#e8e8e8,color:#000
+    style OpenAI fill:#999,color:#fff
+    style Anthropic fill:#999,color:#fff
+    style Azure fill:#999,color:#fff
+    style VertexAI fill:#999,color:#fff

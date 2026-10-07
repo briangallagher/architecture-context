@@ -1,94 +1,89 @@
 graph TB
-    subgraph DeployerContainer["odh-deployer Container (Init Container)"]
-        DeploySH["deploy.sh<br/>Main Deployment Script<br/>(Bash)"]
-        Manifests["Manifest Files<br/>(KfDef YAML, CRDs,<br/>Kustomize Overlays)"]
-        OC["oc CLI<br/>(OpenShift Client)"]
-
-        DeploySH -->|reads| Manifests
-        DeploySH -->|executes| OC
+    subgraph "odh-deployer Init Container"
+        DeploySH["deploy.sh<br/>Main Orchestrator"]
+        Dockerfile["UBI8-minimal Image<br/>oc CLI + openssl"]
+        DeploySH -->|"packaged in"| Dockerfile
     end
 
-    subgraph KfDefCRs["KfDef Custom Resources"]
-        KfDashboard["rhods-dashboard<br/>KfDef"]
-        KfNBC["rhods-nbc<br/>KfDef"]
-        KfModelMesh["rhods-model-mesh<br/>KfDef"]
-        KfDSPO["rhods-data-science-<br/>pipelines-operator KfDef"]
-        KfMonitoring["rhods-monitoring<br/>KfDef"]
-        KfAnaconda["rhods-anaconda<br/>KfDef"]
+    subgraph "KfDef Manifests (Created by deploy.sh)"
+        KfDefDashboard["KfDef: rhods-dashboard"]
+        KfDefNBC["KfDef: rhods-nbc"]
+        KfDefModelMesh["KfDef: rhods-model-mesh"]
+        KfDefDSPO["KfDef: rhods-dspo"]
+        KfDefNotebooks["KfDef: rhods-notebooks"]
+        KfDefMonitoring["KfDef: rhods-monitoring"]
+        KfDefAnaconda["KfDef: rhods-anaconda"]
     end
 
-    subgraph DashboardCRDs["Dashboard CRDs"]
-        OdhApp["OdhApplication CRs<br/>(ISV Tiles)"]
-        OdhDoc["OdhDocument CRs<br/>(Documentation)"]
-        OdhQS["OdhQuickStart CRs<br/>(Guided Workflows)"]
-        OdhConfig["OdhDashboardConfig CR<br/>(Feature Flags)"]
+    subgraph "Monitoring Stack (Created by deploy.sh)"
+        Prometheus["Prometheus<br/>9091/TCP"]
+        Alertmanager["Alertmanager<br/>443/TCP"]
+        BlackboxExporter["Blackbox Exporter<br/>9114/TCP"]
+        OAuthProxy["oauth-proxy sidecars"]
+        Prometheus --- OAuthProxy
+        Alertmanager --- OAuthProxy
+        BlackboxExporter --- OAuthProxy
     end
 
-    subgraph MonitoringStack["Monitoring Stack"]
-        Prometheus["Prometheus<br/>9091/TCP HTTPS"]
-        Alertmanager["Alertmanager<br/>443/TCP HTTPS"]
-        Blackbox["Blackbox Exporter<br/>9114/TCP HTTPS"]
-
-        Prometheus -->|alerts| Alertmanager
-        Prometheus -->|probes via| Blackbox
+    subgraph "Dashboard CRDs & ISVs"
+        OdhAppCRD["CRD: OdhApplication"]
+        OdhDocCRD["CRD: OdhDocument"]
+        OdhQSCRD["CRD: OdhQuickStart"]
+        OdhDashCRD["CRD: OdhDashboardConfig"]
+        ISVTiles["ISV Application Tiles<br/>(AIKit, Anaconda, Jupyter,<br/>OpenVINO, Pachyderm, Watson)"]
     end
 
-    subgraph SecurityResources["Security & Network"]
-        NetPol["NetworkPolicies<br/>(applications, monitoring,<br/>operator namespaces)"]
-        PodSec["Pod Security RBAC<br/>(anyuid SCC bindings)"]
+    subgraph "Network Policies"
+        NPOperator["NetworkPolicy:<br/>operator namespace"]
+        NPApps["NetworkPolicy:<br/>applications namespace"]
+        NPMonitoring["NetworkPolicy:<br/>monitoring namespace"]
     end
 
-    %% Deploy script creates resources
-    DeploySH -->|creates| KfDashboard
-    DeploySH -->|creates| KfNBC
-    DeploySH -->|creates| KfModelMesh
-    DeploySH -->|creates| KfDSPO
-    DeploySH -->|creates| KfMonitoring
-    DeploySH -->|creates| KfAnaconda
-    DeploySH -->|applies| OdhApp
-    DeploySH -->|applies| OdhDoc
-    DeploySH -->|applies| OdhQS
-    DeploySH -->|applies| OdhConfig
-    DeploySH -->|deploys| Prometheus
-    DeploySH -->|deploys| Alertmanager
-    DeploySH -->|deploys| Blackbox
-    DeploySH -->|applies| NetPol
-    DeploySH -->|applies| PodSec
+    %% deploy.sh creates everything
+    DeploySH -->|"creates namespaces<br/>(ods-apps, ods-monitoring, notebooks)"| Namespaces["OpenShift Namespaces"]
+    DeploySH -->|"applies CRDs"| OdhAppCRD
+    DeploySH -->|"applies CRDs"| OdhDocCRD
+    DeploySH -->|"applies CRDs"| OdhQSCRD
+    DeploySH -->|"applies CRDs"| OdhDashCRD
+    DeploySH -->|"creates"| KfDefDashboard
+    DeploySH -->|"creates"| KfDefNBC
+    DeploySH -->|"creates"| KfDefModelMesh
+    DeploySH -->|"creates"| KfDefDSPO
+    DeploySH -->|"creates"| KfDefNotebooks
+    DeploySH -->|"creates"| KfDefMonitoring
+    DeploySH -->|"creates"| KfDefAnaconda
+    DeploySH -->|"deploys"| Prometheus
+    DeploySH -->|"deploys"| Alertmanager
+    DeploySH -->|"deploys"| BlackboxExporter
+    DeploySH -->|"applies"| ISVTiles
+    DeploySH -->|"applies"| NPOperator
+    DeploySH -->|"applies"| NPApps
+    DeploySH -->|"applies"| NPMonitoring
 
-    %% Operator reconciles KfDefs
-    Operator["rhods-operator<br/>(opendatahub operator)"]
-    KfDashboard -->|reconciled by| Operator
-    KfNBC -->|reconciled by| Operator
-    KfModelMesh -->|reconciled by| Operator
-    KfDSPO -->|reconciled by| Operator
-    KfMonitoring -->|reconciled by| Operator
-    KfAnaconda -->|reconciled by| Operator
-
-    %% External alerting (managed service)
-    Alertmanager -->|critical alerts| PagerDuty["PagerDuty API"]
-    Alertmanager -->|notifications| SMTP["SMTP Server"]
-    Alertmanager -->|heartbeat| DMS["Dead Man's Snitch"]
+    %% External dependency
+    RHODSOperator["rhods-operator"] -->|"watches"| KfDefDashboard
+    RHODSOperator -->|"watches"| KfDefNBC
+    RHODSOperator -->|"watches"| KfDefModelMesh
+    RHODSOperator -->|"watches"| KfDefDSPO
+    DeploySH -->|"oc CLI calls<br/>6443/TCP HTTPS"| K8sAPI["OpenShift API Server"]
 
     %% Styling
     style DeploySH fill:#4a90e2,stroke:#333,stroke-width:3px,color:#fff
-    style Manifests fill:#4a90e2,stroke:#333,color:#fff
-    style OC fill:#4a90e2,stroke:#333,color:#fff
-    style Operator fill:#7ed321,stroke:#333,stroke-width:2px
+    style Dockerfile fill:#4a90e2,stroke:#333,color:#fff
     style Prometheus fill:#e6522c,stroke:#333,color:#fff
     style Alertmanager fill:#e6522c,stroke:#333,color:#fff
-    style Blackbox fill:#e6522c,stroke:#333,color:#fff
-    style KfDashboard fill:#f5a623,stroke:#333
-    style KfNBC fill:#f5a623,stroke:#333
-    style KfModelMesh fill:#f5a623,stroke:#333
-    style KfDSPO fill:#f5a623,stroke:#333
-    style KfMonitoring fill:#f5a623,stroke:#333
-    style KfAnaconda fill:#f5a623,stroke:#333
-    style OdhApp fill:#9b59b6,stroke:#333,color:#fff
-    style OdhDoc fill:#9b59b6,stroke:#333,color:#fff
-    style OdhQS fill:#9b59b6,stroke:#333,color:#fff
-    style OdhConfig fill:#9b59b6,stroke:#333,color:#fff
-    style NetPol fill:#3498db,stroke:#333,color:#fff
-    style PodSec fill:#3498db,stroke:#333,color:#fff
-    style PagerDuty fill:#999,stroke:#333
-    style SMTP fill:#999,stroke:#333
-    style DMS fill:#999,stroke:#333
+    style BlackboxExporter fill:#e6522c,stroke:#333,color:#fff
+    style OAuthProxy fill:#e6522c,stroke:#333,color:#fff
+    style RHODSOperator fill:#7ed321,stroke:#333
+    style K8sAPI fill:#f5a623,stroke:#333
+    style OdhAppCRD fill:#f5a623,stroke:#333
+    style OdhDocCRD fill:#f5a623,stroke:#333
+    style OdhQSCRD fill:#f5a623,stroke:#333
+    style OdhDashCRD fill:#f5a623,stroke:#333
+    style KfDefDashboard fill:#b8e986,stroke:#333
+    style KfDefNBC fill:#b8e986,stroke:#333
+    style KfDefModelMesh fill:#b8e986,stroke:#333
+    style KfDefDSPO fill:#b8e986,stroke:#333
+    style KfDefNotebooks fill:#b8e986,stroke:#333
+    style KfDefMonitoring fill:#b8e986,stroke:#333
+    style KfDefAnaconda fill:#b8e986,stroke:#333

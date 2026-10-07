@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "component": "ml-metadata",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "ml-metadata-no-builtin-auth-001",
+      "claim": "The MLMD gRPC server has no built-in authentication; it supports optional TLS/mTLS via protobuf configuration but the default RHOAI container entrypoint runs without encryption or authentication.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "ml_metadata/tools/docker_server/Dockerfile.konflux:56-59"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "ml_metadata/proto/metadata_store.proto:860-873"
+        }
+      ],
+      "reasoning": "The Dockerfile entrypoint passes only --grpc_port and --metadata_store_server_config_file; no TLS certificates are configured by default. The MetadataStoreServerConfig.SSLConfig proto supports server_key, server_cert, custom_ca, and client_verify fields, but these require explicit configuration. In RHOAI, network-level authentication and encryption must be provided by the platform (service mesh, network policies).",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "ml-metadata-no-deployment-manifests-002",
+      "claim": "The ml-metadata repository contains no Kubernetes deployment manifests (no kustomization.yaml); deployment is managed externally by the Data Science Pipelines Operator.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/coverage_findings"
+        }
+      ],
+      "reasoning": "No kustomization.yaml files exist in the repository checkout. The repository is a build-only source tree that produces container images. Kubernetes deployment configuration (Deployments, Services, ConfigMaps) is managed by the operator or platform manifests that consume the built container image.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    }
+  ]
+}

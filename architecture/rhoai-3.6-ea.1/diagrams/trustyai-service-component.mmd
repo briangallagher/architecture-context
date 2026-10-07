@@ -1,0 +1,74 @@
+graph TB
+    subgraph TrustyAI["TrustyAI Service"]
+        direction TB
+        FastAPI["FastAPI Application<br/>src.main"]
+        Hypercorn["Hypercorn ASGI Server"]
+        Hypercorn -->|serves| FastAPI
+
+        subgraph Endpoints["API Endpoints (87 routes)"]
+            Consumer["/consumer/kserve/v2<br/>Inference Data Ingestion"]
+            Fairness["/metrics/group/fairness/*<br/>SPD, DIR"]
+            Drift["/metrics/drift/*<br/>KS, Jensen-Shannon,<br/>Fourier MMD, Mean Shift"]
+            Explainers["/explainers/*<br/>LIME, SHAP, CF, PDP,<br/>Time Series Saliency"]
+            Health["/q/health/live<br/>/q/health/ready"]
+            Metrics["/q/metrics<br/>Prometheus Metrics"]
+            Info["/info/*<br/>Model Metadata"]
+        end
+
+        FastAPI --> Consumer
+        FastAPI --> Fairness
+        FastAPI --> Drift
+        FastAPI --> Explainers
+        FastAPI --> Health
+        FastAPI --> Metrics
+        FastAPI --> Info
+
+        subgraph Storage["Storage Backend"]
+            StorageRouter{"SERVICE_STORAGE_FORMAT"}
+            HDF5["HDF5 / PVC<br/>(default)"]
+            MariaDBClient["MariaDB Client<br/>(optional)"]
+            StorageRouter -->|PVC| HDF5
+            StorageRouter -->|MARIA/DATABASE| MariaDBClient
+        end
+
+        PrometheusScheduler["Prometheus Scheduler<br/>Background Task<br/>(30s interval)"]
+        PrometheusScheduler -->|computes| Fairness
+        PrometheusScheduler -->|computes| Drift
+        PrometheusScheduler -->|publishes| Metrics
+
+        Consumer -->|persists| StorageRouter
+    end
+
+    subgraph Sidecar["Pod Sidecar"]
+        KubeRBACProxy["kube-rbac-proxy<br/>Authentication Gateway"]
+    end
+
+    ExternalClient["External Client"] -->|HTTPS| KubeRBACProxy
+    KubeRBACProxy -->|HTTP 127.0.0.1:8080<br/>Authenticated| FastAPI
+
+    ModelServing["ModelMesh / KServe<br/>Model Serving"] -->|POST /consumer/kserve/v2<br/>Inference Payloads| KubeRBACProxy
+
+    MariaDBClient -->|TCP/3306<br/>Optional TLS| MariaDB["MariaDB<br/>Database"]
+
+    Prometheus["Prometheus<br/>Scraper"] -->|GET /q/metrics| KubeRBACProxy
+
+    TLSAccess["Direct HTTPS Client"] -->|HTTPS 0.0.0.0:4443<br/>TLS (when certs mounted)| Hypercorn
+
+    style FastAPI fill:#4a90e2,stroke:#333
+    style Hypercorn fill:#4a90e2,stroke:#333
+    style KubeRBACProxy fill:#f5a623,stroke:#333
+    style Consumer fill:#7ed321,stroke:#333
+    style Fairness fill:#7ed321,stroke:#333
+    style Drift fill:#7ed321,stroke:#333
+    style Explainers fill:#7ed321,stroke:#333
+    style Health fill:#7ed321,stroke:#333
+    style Metrics fill:#7ed321,stroke:#333
+    style Info fill:#7ed321,stroke:#333
+    style HDF5 fill:#b8e6ff,stroke:#333
+    style MariaDBClient fill:#b8e6ff,stroke:#333
+    style MariaDB fill:#e8e8e8,stroke:#333
+    style ModelServing fill:#e8e8e8,stroke:#333
+    style Prometheus fill:#e8e8e8,stroke:#333
+    style PrometheusScheduler fill:#9b59b6,stroke:#333
+    style ExternalClient fill:#f9f9f9,stroke:#999
+    style TLSAccess fill:#f9f9f9,stroke:#999

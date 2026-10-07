@@ -1,0 +1,64 @@
+graph TB
+    subgraph "vllm-gaudi Plugin"
+        direction TB
+        Register["vllm_gaudi.__init__<br/>register() entry point"]
+        Platform["HpuPlatform<br/>extends vllm.platforms.Platform<br/>PlatformEnum.OOT"]
+        Register -->|returns| Platform
+
+        subgraph "Optimized Backends"
+            Attention["Attention Backends<br/>Unified + MLA variants"]
+            MoE["Fused MoE<br/>Routing operations"]
+            Quant["Quantization Kernels<br/>FP8 / GPTQ / AWQ /<br/>Compressed Tensors"]
+            LoRA["LoRA Adapters<br/>HPU-optimized"]
+            Rotary["Rotary Embeddings<br/>HPU kernels"]
+            KVCache["KV Cache Ops<br/>NIXL connectors"]
+        end
+
+        Platform -->|register_ops| Attention
+        Platform -->|register_ops| MoE
+        Platform -->|register_ops| Quant
+        Platform -->|register_ops| LoRA
+        Platform -->|register_ops| Rotary
+        Platform -->|register_ops| KVCache
+    end
+
+    subgraph "vLLM Server (upstream)"
+        APIServer["vllm.entrypoints.openai.api_server<br/>OpenAI-compatible HTTP API"]
+        Scheduler["Request Scheduler"]
+        ModelExec["Model Execution Engine"]
+        APIServer --> Scheduler
+        Scheduler --> ModelExec
+    end
+
+    subgraph "Container Image (UBI 9)"
+        Entrypoint["ENTRYPOINT<br/>python3 -m vllm.entrypoints.openai.api_server"]
+        SynapseAI["Habana SynapseAI 1.23.0<br/>HPU Runtime"]
+        GaudiPyTorch["Intel Gaudi PyTorch<br/>habana_frameworks.torch"]
+    end
+
+    subgraph "External Platform"
+        KServe["KServe<br/>ServingRuntime"]
+    end
+
+    Client[Client] -->|HTTP| APIServer
+    ModelExec -->|delegates to| Platform
+    Platform -->|uses| SynapseAI
+    Platform -->|uses| GaudiPyTorch
+    KServe -->|deploys & manages| Entrypoint
+
+    style Register fill:#4a90e2,stroke:#333
+    style Platform fill:#4a90e2,stroke:#333
+    style Attention fill:#7ed321,stroke:#333
+    style MoE fill:#7ed321,stroke:#333
+    style Quant fill:#7ed321,stroke:#333
+    style LoRA fill:#7ed321,stroke:#333
+    style Rotary fill:#7ed321,stroke:#333
+    style KVCache fill:#7ed321,stroke:#333
+    style APIServer fill:#f5a623,stroke:#333
+    style Scheduler fill:#f5a623,stroke:#333
+    style ModelExec fill:#f5a623,stroke:#333
+    style Entrypoint fill:#9b59b6,stroke:#333
+    style SynapseAI fill:#9b59b6,stroke:#333
+    style GaudiPyTorch fill:#9b59b6,stroke:#333
+    style KServe fill:#e8e8e8,stroke:#333
+    style Client fill:#f9f9f9,stroke:#999

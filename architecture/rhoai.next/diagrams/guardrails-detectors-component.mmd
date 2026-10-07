@@ -1,84 +1,77 @@
 graph TB
     subgraph "Guardrails Detectors"
-        subgraph "Common Framework"
-            BaseAPI["DetectorBaseAPI<br/>(FastAPI Base Class)"]
+        subgraph "Common Library"
+            BaseApp["BaseDetectorApp<br/>(FastAPI base class)"]
             Schemas["Pydantic Schemas<br/>(Request/Response)"]
-            Metrics["Prometheus<br/>Instrumentation"]
-            Logging["Structured Logging"]
+            Metrics["Prometheus<br/>Instrumentator"]
+            Health["/health endpoint"]
         end
 
-        subgraph "Built-in Detector<br/>Port: 8080/TCP"
-            BuiltInApp["Built-in App<br/>(FastAPI/uvicorn)"]
-            RegexPII["Regex PII Detectors<br/>(email, CC, SSN, phone, IP)"]
-            FileType["File-Type Validators<br/>(JSON, XML, YAML + schema)"]
-            CustomDet["Custom Python Detectors<br/>(AST sandboxed)"]
-            Registry["Detector Registry"]
-            BuiltInApp --> RegexPII
-            BuiltInApp --> FileType
-            BuiltInApp --> CustomDet
-            BuiltInApp --> Registry
+        subgraph "Built-in Detector (8080/TCP)"
+            BuiltInApp["Built-in App"]
+            RegexRegistry["RegexDetectorRegistry<br/>(email, CC, SSN, phone, IP)"]
+            FileTypeRegistry["FileTypeDetectorRegistry<br/>(JSON, XML, YAML validation)"]
+            CustomRegistry["CustomDetectorRegistry<br/>(user-defined Python functions)"]
+            ASTValidator["AST Security Validator<br/>(blocks dangerous imports)"]
+
+            BuiltInApp --> RegexRegistry
+            BuiltInApp --> FileTypeRegistry
+            BuiltInApp --> CustomRegistry
+            CustomRegistry --> ASTValidator
         end
 
-        subgraph "HuggingFace Detector<br/>Port: 8000/TCP"
-            HFApp["HuggingFace App<br/>(FastAPI/uvicorn)"]
-            SeqClass["Sequence Classification<br/>(AutoModelForSeqClass)"]
-            TokenClass["Token Classification<br/>(AutoModelForTokenClass)"]
-            CausalLM["Causal LM<br/>(GraniteForCausalLM)"]
-            PyTorch["PyTorch Inference<br/>(GPU/CPU)"]
-            HFApp --> SeqClass
-            HFApp --> TokenClass
+        subgraph "HuggingFace Detector (8000/TCP)"
+            HFApp["HuggingFace App"]
+            SeqClassifier["SequenceClassification<br/>(toxicity, prompt injection)"]
+            TokenClassifier["TokenClassification<br/>(NER, span merging)"]
+            CausalLM["GraniteForCausalLM<br/>(risk categories)"]
+
+            HFApp --> SeqClassifier
+            HFApp --> TokenClassifier
             HFApp --> CausalLM
-            SeqClass --> PyTorch
-            TokenClass --> PyTorch
-            CausalLM --> PyTorch
         end
 
-        subgraph "LLM Judge Detector<br/>Port: 8000/TCP<br/>(upstream only)"
-            JudgeApp["LLM Judge App<br/>(FastAPI/uvicorn)"]
-            VLLMJudge["vllm_judge Library"]
-            JudgeApp --> VLLMJudge
+        subgraph "LLM Judge Detector (8000/TCP)"
+            JudgeApp["LLM Judge App"]
+            JudgeDetector["Judge Detector<br/>(vllm_judge library)"]
+            JudgeApp --> JudgeDetector
         end
 
-        BuiltInApp -.->|extends| BaseAPI
-        HFApp -.->|extends| BaseAPI
-        JudgeApp -.->|extends| BaseAPI
-        BaseAPI --> Schemas
-        BaseAPI --> Metrics
-        BaseAPI --> Logging
+        BuiltInApp --> BaseApp
+        HFApp --> BaseApp
+        JudgeApp --> BaseApp
+        BaseApp --> Schemas
+        BaseApp --> Metrics
+        BaseApp --> Health
     end
 
-    Orchestrator["FMS Guardrails<br/>Orchestrator"] -->|POST /api/v1/text/contents<br/>8080/TCP| BuiltInApp
-    Orchestrator -->|POST /api/v1/text/contents<br/>8000/TCP| HFApp
-    Orchestrator -->|POST /api/v1/text/contents<br/>8000/TCP| JudgeApp
+    Orchestrator["FMS Guardrails<br/>Orchestrator"] -->|"POST /api/v1/text/contents"| BuiltInApp
+    Orchestrator -->|"POST /api/v1/text/contents"| HFApp
+    Orchestrator -->|"POST /api/v1/text/contents"| JudgeApp
 
-    VLLMJudge -->|HTTP<br/>OpenAI-compatible API| VLLMServer["External vLLM Server"]
-    PyTorch -.->|model load| ModelStorage["S3/Minio<br/>Model Storage<br/>9000/TCP"]
+    KServeInit["KServe Storage<br/>Initializer"] -->|"downloads model"| HFApp
+    S3["S3/Minio<br/>Model Storage"] -->|"model files"| KServeInit
+    vLLM["vLLM Server<br/>(OpenAI-compatible)"] <-->|"HTTP/8080"| JudgeDetector
 
-    Prometheus["Prometheus"] -->|scrape /metrics| BuiltInApp
-    Prometheus -->|scrape /metrics| HFApp
-    Prometheus -->|scrape /metrics| JudgeApp
+    Prometheus["Prometheus"] -->|"scrape /metrics"| Metrics
 
-    KServe["KServe"] -.->|deploys as<br/>InferenceService| HFApp
-    KServe -.->|deploys as<br/>InferenceService| JudgeApp
-
-    style BaseAPI fill:#4a90e2,color:#fff
-    style Schemas fill:#4a90e2,color:#fff
-    style Metrics fill:#4a90e2,color:#fff
-    style Logging fill:#4a90e2,color:#fff
-    style BuiltInApp fill:#7ed321,color:#fff
-    style HFApp fill:#7ed321,color:#fff
-    style JudgeApp fill:#f5a623,color:#fff
-    style RegexPII fill:#a8d08d
-    style FileType fill:#a8d08d
-    style CustomDet fill:#a8d08d
-    style Registry fill:#a8d08d
-    style SeqClass fill:#a8d08d
-    style TokenClass fill:#a8d08d
-    style CausalLM fill:#a8d08d
-    style PyTorch fill:#a8d08d
-    style VLLMJudge fill:#f5d0a0
+    style BuiltInApp fill:#4a90e2,color:#fff
+    style HFApp fill:#4a90e2,color:#fff
+    style JudgeApp fill:#4a90e2,color:#fff
+    style BaseApp fill:#6baed6,color:#fff
+    style Schemas fill:#6baed6,color:#fff
+    style Metrics fill:#6baed6,color:#fff
+    style Health fill:#6baed6,color:#fff
+    style RegexRegistry fill:#7ed321
+    style FileTypeRegistry fill:#7ed321
+    style CustomRegistry fill:#7ed321
+    style ASTValidator fill:#f5a623
+    style SeqClassifier fill:#7ed321
+    style TokenClassifier fill:#7ed321
+    style CausalLM fill:#7ed321
+    style JudgeDetector fill:#7ed321
     style Orchestrator fill:#e8e8e8,stroke:#333
-    style VLLMServer fill:#e8e8e8,stroke:#333
-    style ModelStorage fill:#e8e8e8,stroke:#333
+    style KServeInit fill:#e8e8e8,stroke:#333
+    style S3 fill:#f5a623,stroke:#333
+    style vLLM fill:#e8e8e8,stroke:#333
     style Prometheus fill:#e8e8e8,stroke:#333
-    style KServe fill:#e8e8e8,stroke:#333

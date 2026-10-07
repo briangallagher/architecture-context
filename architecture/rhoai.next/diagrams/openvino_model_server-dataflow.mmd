@@ -1,73 +1,46 @@
 sequenceDiagram
     participant Client as External Client
-    participant Gateway as Istio Gateway /<br/>OpenShift Route
-    participant KRBP as kube-rbac-proxy<br/>8443/TCP HTTPS
-    participant REST as Drogon HTTP Server<br/>8080/TCP HTTP
-    participant gRPC as gRPC Server<br/>8085/TCP HTTP/2
-    participant Handler as API Handler<br/>(TFS/KFS/V3)
-    participant MP as MediaPipe Graph<br/>Executor
-    participant OV as OpenVINO Runtime /<br/>GenAI Pipeline
+    participant Ingress as Platform Ingress<br/>443/TCP HTTPS TLS 1.2+
+    participant KRBAC as kube-rbac-proxy<br/>8443/TCP HTTPS TLS
+    participant REST as OVMS REST<br/>8888/TCP HTTP
+    participant gRPC as OVMS gRPC<br/>8001/TCP gRPC
+    participant MediaPipe as MediaPipe Graph<br/>(in-process)
+    participant OV as OpenVINO Runtime<br/>(in-process)
+    participant GenAI as OpenVINO GenAI<br/>(in-process)
+    participant S3 as Cloud Storage<br/>443/TCP HTTPS
     participant HF as HuggingFace Hub<br/>443/TCP HTTPS
-    participant S3 as S3 / Azure / GCS<br/>443/TCP HTTPS
-    participant FS as Local / PVC<br/>Filesystem
 
-    Note over Client,FS: Flow 1: REST Inference Request (KServe v2)
-    Client->>Gateway: POST /v2/models/{model}/infer<br/>HTTPS/443, TLS 1.2+
-    Gateway->>KRBP: Forward request<br/>mTLS / Service Identity
-    KRBP->>REST: Proxy (authenticated)<br/>HTTP/8080
-    REST->>Handler: Route to KFSInferenceServiceImpl
-    Handler->>OV: Execute inference<br/>C++ API / protobuf
-    OV-->>Handler: Inference result
-    Handler-->>REST: protobuf → JSON response
-    REST-->>KRBP: HTTP 200 JSON
-    KRBP-->>Gateway: HTTPS response
-    Gateway-->>Client: JSON prediction result
+    Note over Client,HF: Flow 1: Model Inference (REST via RHOAI)
+    Client->>Ingress: POST /v1/models/{name}:predict<br/>Auth: Bearer Token (OpenShift OAuth)
+    Ingress->>KRBAC: Forward request<br/>TLS
+    KRBAC->>REST: Proxy to OVMS<br/>HTTP plaintext (localhost)
+    REST->>OV: Execute inference<br/>(in-process)
+    OV-->>REST: Prediction result
+    REST-->>KRBAC: JSON response
+    KRBAC-->>Ingress: Response
+    Ingress-->>Client: HTTPS response
 
-    Note over Client,FS: Flow 2: LLM Chat Completions (OpenAI-compatible, SSE streaming)
-    Client->>Gateway: POST /v3/v1/chat/completions<br/>HTTPS/443, stream: true
-    Gateway->>KRBP: Forward request
-    KRBP->>REST: Proxy to Drogon<br/>HTTP/8080
-    REST->>Handler: Route to V3 handler (processV3)
-    Handler->>MP: Execute MediaPipe graph
-    MP->>OV: OpenVINO GenAI LLM Pipeline<br/>continuous batching
-    loop Token Generation (SSE)
-        OV-->>MP: Generated token
-        MP-->>Handler: Token chunk
-        Handler-->>REST: SSE data chunk
-        REST-->>KRBP: HTTP chunked
-        KRBP-->>Gateway: Stream chunk
-        Gateway-->>Client: SSE: data: {...}
-    end
-    Handler-->>REST: SSE: [DONE]
-    REST-->>Client: Stream complete
+    Note over Client,HF: Flow 2: Model Inference (gRPC direct)
+    Client->>gRPC: ModelInfer RPC<br/>gRPC plaintext
+    gRPC->>OV: Execute inference<br/>(in-process)
+    OV-->>gRPC: Inference result
+    gRPC-->>Client: gRPC response
 
-    Note over Client,FS: Flow 3: gRPC Streaming Inference
-    Client->>Gateway: gRPC ModelStreamInfer<br/>HTTP/2, TLS 1.2+
-    Gateway->>KRBP: Forward gRPC stream
-    KRBP->>gRPC: Proxy to gRPC server<br/>8085/TCP
-    gRPC->>Handler: KFSInferenceServiceImpl::ModelStreamInfer
-    Handler->>MP: Execute streaming MediaPipe graph
-    MP->>OV: OpenVINO GenAI pipeline
-    loop Streaming Response
-        OV-->>MP: Result chunk
-        MP-->>Handler: protobuf stream message
-        Handler-->>gRPC: gRPC stream response
-        gRPC-->>Client: gRPC stream frame
-    end
+    Note over Client,HF: Flow 3: LLM Chat Completion (OpenAI API)
+    Client->>REST: POST /v3/chat/completions<br/>Auth: API Key (optional)
+    REST->>MediaPipe: HttpLLMCalculator<br/>(in-process)
+    MediaPipe->>GenAI: ContinuousBatchingPipeline<br/>(in-process)
+    GenAI->>OV: Token generation<br/>(in-process)
+    OV-->>GenAI: Generated tokens
+    GenAI-->>MediaPipe: Token stream
+    MediaPipe-->>REST: SSE chunks
+    REST-->>Client: HTTP chunked/SSE stream
 
-    Note over Client,FS: Flow 4: Model Loading from HuggingFace
-    Note right of REST: Triggered by --pull CLI flag at startup
-    REST->>Handler: HfPullModelModule start
-    Handler->>HF: HTTPS GET model files<br/>443/TCP, TLS 1.2+, HF Token
-    HF-->>Handler: Model artifacts (weights, config)
-    Handler->>FS: Write to local filesystem
-    FS-->>Handler: Files written
-    Handler->>OV: ServableManager loads model
-    OV-->>Handler: Model ready for inference
+    Note over Client,HF: Flow 4: Model Loading from Cloud Storage
+    REST->>S3: GET model artifacts<br/>HTTPS TLS 1.2+<br/>Auth: AWS IAM / access key
+    S3-->>REST: Model files
 
-    Note over Client,FS: Flow 5: Model Loading from Cloud Storage
-    REST->>Handler: ServableManager model load
-    Handler->>S3: HTTPS GET model artifacts<br/>443/TCP, TLS 1.2+, IAM credentials
-    S3-->>Handler: Model files
-    Handler->>OV: Load into OpenVINO Runtime
-    OV-->>Handler: Model loaded
+    Note over Client,HF: Flow 5: HuggingFace Model Pull
+    REST->>HF: git clone model repo<br/>HTTPS TLS 1.2+<br/>Auth: HF_TOKEN (optional)
+    HF-->>REST: Model repository contents
+    Note right of REST: Saved to /mnt/models

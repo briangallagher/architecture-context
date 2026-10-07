@@ -1,0 +1,225 @@
+{
+  "component": "trustyai-explainability",
+  "reads": [
+    {
+      "expected_signal": "Service ports, deployment spec, RBAC rules, init container commands, service account bindings",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "http_endpoints"
+      ],
+      "line_range": "1-185",
+      "outcome": "resolved",
+      "path": "explainability-service/manifests/base/trustyai-deployment.yaml",
+      "question": "What services, ports, RBAC, service accounts, init containers, and integration patterns are defined in the deployment manifest?",
+      "scope_reason": "Full manifest read required to capture all multi-document YAML resources (Service, Deployment, ServiceAccount, ClusterRole, ClusterRoleBinding) that span the entire file",
+      "sections": [
+        "Architecture Components",
+        "HTTP Endpoints",
+        "Security",
+        "Integration Points",
+        "Internal Platform Dependencies",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "TLS configuration, authentication annotations",
+      "gap_category": [
+        "authentication"
+      ],
+      "line_range": "1-18",
+      "outcome": "resolved",
+      "path": "explainability-service/manifests/base/route.yaml",
+      "question": "Does the Route configure TLS termination or authentication?",
+      "sections": [
+        "Security",
+        "Data Flows",
+        "Architectural Analysis"
+      ]
+    },
+    {
+      "expected_signal": "Security extension config (OIDC, keycloak), endpoint paths, database JDBC config, TLS settings, distribution-specific feature flags",
+      "gap_category": [
+        "authentication",
+        "http_endpoints",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance"
+      ],
+      "line_range": "1-132",
+      "outcome": "resolved",
+      "path": "explainability-service/src/main/resources/application.properties",
+      "question": "What security extensions, HTTP endpoints, database integrations, TLS configuration, and feature flags are configured?",
+      "sections": [
+        "Purpose",
+        "Architectural Analysis",
+        "HTTP Endpoints",
+        "Authentication & Authorization",
+        "Integration Points",
+        "Internal Platform Dependencies",
+        "FIPS Compliance",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "Base image with FIPS crypto, build flags, Hermeto/cachi2 prefetch, OpenSSL presence",
+      "gap_category": [
+        "fips_compliance"
+      ],
+      "line_range": "1-53",
+      "outcome": "resolved",
+      "path": "Dockerfile.konflux",
+      "question": "What base images, build process, and FIPS-relevant configuration are used in the Konflux build?",
+      "sections": [
+        "FIPS Compliance",
+        "Purpose"
+      ]
+    },
+    {
+      "expected_signal": "@Path annotation, @GET/@POST methods",
+      "gap_category": [
+        "http_endpoints"
+      ],
+      "line_range": "1-60",
+      "outcome": "resolved",
+      "path": "explainability-service/src/main/java/org/kie/trustyai/service/endpoints/service/ServiceMetadataEndpoint.java",
+      "question": "What REST path and methods does the ServiceMetadataEndpoint expose?",
+      "sections": [
+        "HTTP Endpoints"
+      ]
+    },
+    {
+      "expected_signal": "@Path annotation, POST method, KServe/ModelMesh integration pattern",
+      "gap_category": [
+        "http_endpoints",
+        "integration_points"
+      ],
+      "line_range": "1-80",
+      "outcome": "resolved",
+      "path": "explainability-service/src/main/java/org/kie/trustyai/service/endpoints/consumer/ConsumerEndpoint.java",
+      "question": "What REST path does the KServe consumer endpoint use and what integration pattern does it implement?",
+      "sections": [
+        "HTTP Endpoints",
+        "Integration Points",
+        "Data Flows"
+      ]
+    },
+    {
+      "expected_signal": "@Path annotations for /request and /requests sub-paths, HTTP methods",
+      "gap_category": [
+        "http_endpoints"
+      ],
+      "line_range": "1-90",
+      "outcome": "resolved",
+      "path": "explainability-service/src/main/java/org/kie/trustyai/service/endpoints/metrics/BaseEndpoint.java",
+      "question": "What common REST sub-paths do metric endpoints expose?",
+      "sections": [
+        "HTTP Endpoints"
+      ]
+    },
+    {
+      "expected_signal": "Crypto library dependencies, gRPC dependencies, Quarkus security extensions",
+      "gap_category": [
+        "fips_compliance",
+        "grpc_services"
+      ],
+      "line_range": "1-80",
+      "outcome": "partially-resolved",
+      "path": "explainability-service/pom.xml",
+      "question": "What crypto, gRPC, and security dependencies are declared?",
+      "sections": [
+        "FIPS Compliance"
+      ]
+    },
+    {
+      "expected_signal": "@Path value",
+      "gap_category": [
+        "http_endpoints"
+      ],
+      "line_range": "29-37",
+      "outcome": "resolved",
+      "path": "explainability-service/src/main/java/org/kie/trustyai/service/endpoints/metrics/fairness/group/GroupStatisticalParityDifferenceEndpoint.java",
+      "question": "What is the @Path annotation for the SPD fairness endpoint?",
+      "sections": [
+        "HTTP Endpoints"
+      ]
+    },
+    {
+      "expected_signal": "@Path value",
+      "gap_category": [
+        "http_endpoints"
+      ],
+      "line_range": "29-35",
+      "outcome": "resolved",
+      "path": "explainability-service/src/main/java/org/kie/trustyai/service/endpoints/metrics/fairness/group/DisparateImpactRatioEndpoint.java",
+      "question": "What is the @Path annotation for the DIR fairness endpoint?",
+      "sections": [
+        "HTTP Endpoints"
+      ]
+    },
+    {
+      "expected_signal": "@Path value, @EndpointDisabled annotation",
+      "gap_category": [
+        "http_endpoints"
+      ],
+      "line_range": "1-30",
+      "outcome": "partially-resolved",
+      "path": "explainability-service/src/main/java/org/kie/trustyai/service/endpoints/metrics/drift/MeanshiftEndpoint.java",
+      "question": "What is the @Path annotation for the Meanshift drift endpoint?",
+      "sections": [
+        "HTTP Endpoints"
+      ]
+    },
+    {
+      "expected_signal": "@Path value, @GET method",
+      "gap_category": [
+        "http_endpoints"
+      ],
+      "line_range": "1-60",
+      "outcome": "resolved",
+      "path": "explainability-service/src/main/java/org/kie/trustyai/service/endpoints/metrics/UniversalListingEndpoint.java",
+      "question": "What is the @Path annotation for the universal metrics listing endpoint?",
+      "sections": [
+        "HTTP Endpoints"
+      ]
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance",
+        "http_endpoints",
+        "grpc_services"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "explainability-service/src/main/java/org/kie/trustyai/service/endpoints/metrics/drift/DriftEndpoint.java",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    },
+    {
+      "expected_signal": "Original read intent was not recorded by the agent; preserve the source-read audit trail for follow-up.",
+      "gap_category": [
+        "authentication",
+        "integration_points",
+        "internal_dependencies",
+        "fips_compliance",
+        "http_endpoints",
+        "grpc_services"
+      ],
+      "line_range": "unknown",
+      "outcome": "unhelpful",
+      "path": "explainability-service/src/main/java/org/kie/trustyai/service/endpoints/metrics/fairness/group/GroupEndpoint.java",
+      "question": "Orchestrator observed this source file read, but the agent omitted its read-justification metadata.",
+      "repair": true,
+      "repair_reason": "observed-source-read-missing-from-sidecar",
+      "sections": []
+    }
+  ],
+  "schema_version": 1
+}

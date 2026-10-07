@@ -1,0 +1,64 @@
+graph TB
+    subgraph ClusterInternal["CLUSTER-INTERNAL (Trusted - Kubernetes Network)"]
+        direction TB
+
+        subgraph NS_Operator["Namespace: ai-gateway-system"]
+            Operator["ai-gateway-operator Pod<br/>SA: ai-gateway-operator<br/>Image: controller:latest (UBI9)<br/>FIPS: strictfipsruntime + CGO"]
+            MetricsSvc["ai-gateway-metrics-service<br/>ClusterIP 8443/TCP"]
+            HealthProbe["Health Probes<br/>8081/TCP HTTP<br/>/healthz, /readyz<br/>No Auth, No TLS"]
+        end
+
+        subgraph KubeAPI["Kubernetes API Server"]
+            APIServer["kube-apiserver<br/>6443/TCP HTTPS<br/>TLS 1.2+<br/>ServiceAccount Auth"]
+        end
+
+        subgraph WatchedResources["Watched Resources (Read-Only)"]
+            AIGatewayCR["AIGateway CR<br/>(cluster-scoped)"]
+            DSCInit["DSCInitialization CR"]
+            KServeIS["InferenceService /<br/>LLMInferenceService"]
+        end
+
+        subgraph ManagedResources["Managed Resources (CRUD)"]
+            direction TB
+            GatewayAPIRes["Gateway API<br/>HTTPRoutes, Gateways<br/>ReferenceGrants"]
+            KuadrantRes["Kuadrant<br/>AuthPolicies<br/>TokenRateLimitPolicies"]
+            IstioRes["Istio Networking<br/>DestinationRules<br/>EnvoyFilters<br/>ServiceEntries"]
+            CertMgrRes["cert-manager<br/>Certificates"]
+            LLMdRes["llm-d<br/>LLMBatchGateways"]
+            ObsRes["Observability<br/>ServiceMonitors<br/>OTel Collectors<br/>Perses Dashboards"]
+            MaaSRes["MaaS Resources<br/>AITenants, Configs<br/>ExternalModels"]
+            NetPolRes["NetworkPolicies"]
+        end
+    end
+
+    %% Flows
+    Operator -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token"| APIServer
+    MetricsSvc -.->|"TCP/8443<br/>Metrics"| Operator
+
+    APIServer -->|watch| AIGatewayCR
+    APIServer -->|watch| DSCInit
+    APIServer -->|watch| KServeIS
+
+    APIServer -->|CRUD| GatewayAPIRes
+    APIServer -->|CRUD| KuadrantRes
+    APIServer -->|CRUD| IstioRes
+    APIServer -->|CRUD| CertMgrRes
+    APIServer -->|CRUD| LLMdRes
+    APIServer -->|CRUD| ObsRes
+    APIServer -->|CRUD| MaaSRes
+    APIServer -->|CRUD| NetPolRes
+
+    %% Styling
+    classDef operator fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    classDef service fill:#b8d4f0,stroke:#4a90e2,stroke-width:1px
+    classDef health fill:#ddd,stroke:#999,stroke-width:1px
+    classDef apiserver fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    classDef watched fill:#e8e8e8,stroke:#999,stroke-width:1px
+    classDef managed fill:#d5e8d4,stroke:#82b366,stroke-width:1px
+
+    class Operator operator
+    class MetricsSvc service
+    class HealthProbe health
+    class APIServer apiserver
+    class AIGatewayCR,DSCInit,KServeIS watched
+    class GatewayAPIRes,KuadrantRes,IstioRes,CertMgrRes,LLMdRes,ObsRes,MaaSRes,NetPolRes managed

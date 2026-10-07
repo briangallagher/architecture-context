@@ -1,0 +1,63 @@
+sequenceDiagram
+    participant Client as ML Client / SDK
+    participant Gunicorn as Gunicorn/Uvicorn<br/>Port 5000
+    participant KubeAuth as kubernetes-auth Plugin<br/>(mlflow-kubernetes-plugins)
+    participant K8sAPI as Kubernetes API<br/>SA Token Validation
+    participant RBAC as RBAC Module<br/>mlflow/server/auth
+    participant Workspace as Workspace Store<br/>kubernetes://
+    participant Tracking as Tracking API<br/>Experiment Handler
+    participant Registry as Model Registry<br/>API Handler
+    participant ArtifactProxy as Artifact Proxy
+    participant SQL as SQL Backend<br/>(PostgreSQL/SQLite)
+    participant S3 as S3-Compatible Storage<br/>(boto3)
+
+    Note over Client,S3: Experiment Tracking Flow
+
+    Client->>Gunicorn: POST /ajax-api/3.0/mlflow/runs/create<br/>Authorization: Bearer <SA Token><br/>X-MLFLOW-WORKSPACE: <namespace>
+    Gunicorn->>KubeAuth: Forward request
+    KubeAuth->>K8sAPI: Validate SA bearer token<br/>/var/run/secrets/.../token
+    K8sAPI-->>KubeAuth: Token valid, identity confirmed
+
+    KubeAuth->>Workspace: Resolve workspace<br/>from X-MLFLOW-WORKSPACE header
+    Workspace->>K8sAPI: Lookup namespace scope
+    K8sAPI-->>Workspace: Namespace confirmed
+    Workspace-->>KubeAuth: Workspace context set
+
+    KubeAuth->>RBAC: Check permissions<br/>(role, resource, action)
+    RBAC-->>KubeAuth: Authorized
+
+    KubeAuth->>Tracking: Dispatch to handler
+    Tracking->>SQL: INSERT experiment run<br/>SQLAlchemy / psycopg2
+    SQL-->>Tracking: Run ID created
+    Tracking-->>Gunicorn: 200 OK + Run metadata
+    Gunicorn-->>Client: JSON Response
+
+    Note over Client,S3: Artifact Upload Flow
+
+    Client->>Gunicorn: PUT /ajax-api/3.0/mlflow/artifacts<br/>Authorization: Bearer <SA Token>
+    Gunicorn->>KubeAuth: Forward request
+    KubeAuth->>K8sAPI: Validate token
+    K8sAPI-->>KubeAuth: Valid
+    KubeAuth->>RBAC: Check artifact write permission
+    RBAC-->>KubeAuth: Authorized
+    KubeAuth->>ArtifactProxy: Forward artifact data
+    ArtifactProxy->>S3: PUT object<br/>HTTPS/443, AWS IAM credentials
+    S3-->>ArtifactProxy: Upload confirmed
+    ArtifactProxy->>SQL: Update artifact metadata
+    SQL-->>ArtifactProxy: Metadata stored
+    ArtifactProxy-->>Gunicorn: 200 OK
+    Gunicorn-->>Client: Upload successful
+
+    Note over Client,S3: Model Registry Flow
+
+    Client->>Gunicorn: POST /{name}/versions<br/>Authorization: Bearer <SA Token>
+    Gunicorn->>KubeAuth: Forward request
+    KubeAuth->>K8sAPI: Validate token
+    K8sAPI-->>KubeAuth: Valid
+    KubeAuth->>RBAC: Check model write permission
+    RBAC-->>KubeAuth: Authorized
+    KubeAuth->>Registry: Create model version
+    Registry->>SQL: INSERT model version
+    SQL-->>Registry: Version created
+    Registry-->>Gunicorn: 200 OK + Version metadata
+    Gunicorn-->>Client: JSON Response

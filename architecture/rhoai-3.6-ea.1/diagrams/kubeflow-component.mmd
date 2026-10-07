@@ -1,0 +1,70 @@
+graph TB
+    subgraph "Kubeflow Notebooks Component"
+        direction TB
+
+        subgraph "notebook-controller (upstream)"
+            NC_Manager["/manager<br/>Go controller-runtime"]
+            NC_Culling[CullingReconciler]
+            NC_Reconciler[NotebookReconciler]
+            NC_Manager --> NC_Reconciler
+            NC_Manager --> NC_Culling
+        end
+
+        subgraph "odh-notebook-controller (downstream)"
+            ODH_Manager["/manager<br/>Go controller-runtime"]
+            ODH_Reconciler[OpenshiftNotebookReconciler]
+            ODH_MutatingWH["Mutating Webhook<br/>/mutate-notebook-v1"]
+            ODH_ValidatingWH["Validating Webhook<br/>/validate-notebook-v1"]
+            ODH_ConversionWH["Conversion Webhook<br/>/convert"]
+            ODH_DSPA[DSPA Integration]
+            ODH_Gateway[Gateway API Routing]
+            ODH_Manager --> ODH_Reconciler
+            ODH_Manager --> ODH_MutatingWH
+            ODH_Manager --> ODH_ValidatingWH
+            ODH_Manager --> ODH_ConversionWH
+            ODH_Reconciler --> ODH_DSPA
+            ODH_Reconciler --> ODH_Gateway
+        end
+    end
+
+    User[User / Dashboard] -->|"kubectl create Notebook"| NotebookCR["Notebook CR<br/>kubeflow.org/v1"]
+
+    NotebookCR -->|"admission"| ODH_MutatingWH
+    ODH_MutatingWH -->|"injects kube-rbac-proxy<br/>+ stop annotation lock"| NotebookCR
+
+    NotebookCR -->|"watched by"| NC_Reconciler
+    NC_Reconciler -->|creates| StatefulSet[StatefulSet]
+    NC_Reconciler -->|creates| Service[Service]
+    NC_Reconciler -->|creates| Events[Events]
+    NC_Culling -->|"idle culling"| NotebookCR
+
+    NotebookCR -->|"watched by"| ODH_Reconciler
+    ODH_Reconciler -->|creates| NetworkPolicy[NetworkPolicy]
+    ODH_Reconciler -->|creates| RoleBinding[RoleBinding]
+
+    ODH_Gateway -->|creates| HTTPRoute["HTTPRoute<br/>(central namespace)"]
+    ODH_Gateway -->|creates| ReferenceGrant["ReferenceGrant<br/>(central namespace)"]
+    ODH_Gateway -->|reads| Gateway["data-science-gateway"]
+
+    ODH_DSPA -->|reads| DSPA_CR["DataSciencePipelinesApplication CR"]
+    ODH_DSPA -->|creates| ElyraSecret["Elyra Runtime Secret"]
+
+    ODH_Manager -->|"reads TLS profile"| APIServer["OpenShift APIServer<br/>config.openshift.io"]
+
+    style NC_Manager fill:#4a90e2
+    style ODH_Manager fill:#4a90e2
+    style NC_Reconciler fill:#4a90e2
+    style NC_Culling fill:#4a90e2
+    style ODH_Reconciler fill:#4a90e2
+    style ODH_MutatingWH fill:#e87c3e
+    style ODH_ValidatingWH fill:#e87c3e
+    style ODH_ConversionWH fill:#e87c3e
+    style NotebookCR fill:#f5a623
+    style DSPA_CR fill:#f5a623
+    style HTTPRoute fill:#7ed321
+    style ReferenceGrant fill:#7ed321
+    style Gateway fill:#e8e8e8
+    style APIServer fill:#e8e8e8
+    style StatefulSet fill:#7ed321
+    style Service fill:#7ed321
+    style NetworkPolicy fill:#7ed321

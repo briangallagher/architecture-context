@@ -17,23 +17,26 @@ type rawJSON struct {
 	Summary         string `json:"summary"`
 
 	RBAC struct {
+		ClusterRoles       []rawRole `json:"cluster_roles"`
+		Roles              []rawRole `json:"roles"`
 		KubebuilderMarkers []struct {
 			File   string `json:"file"`
 			Line   int    `json:"line"`
 			Marker string `json:"marker"`
 			Parsed struct {
-				Groups    []string `json:"groups"`
-				Resources []string `json:"resources"`
-				Verbs     []string `json:"verbs"`
+				Groups          []string `json:"groups"`
+				Resources       []string `json:"resources"`
+				NonResourceURLs []string `json:"nonResourceURLs"`
+				Verbs           []string `json:"verbs"`
 			} `json:"parsed"`
 		} `json:"kubebuilder_markers"`
 	} `json:"rbac"`
 
 	Services []struct {
-		Name     string `json:"name"`
-		Source   string `json:"source"`
-		Type     string `json:"type"`
-		Ports    []struct {
+		Name   string `json:"name"`
+		Source string `json:"source"`
+		Type   string `json:"type"`
+		Ports  []struct {
 			Name       string `json:"name"`
 			Port       int    `json:"port"`
 			TargetPort any    `json:"targetPort"`
@@ -85,10 +88,10 @@ type rawJSON struct {
 			Line int    `json:"line"`
 			Note string `json:"note"`
 		} `json:"sources"`
-		Overlays             []string `json:"overlays"`
-		EnableCondition      string   `json:"enable_condition"`
-		Purpose              string   `json:"purpose"`
-		DataRead             []struct {
+		Overlays        []string `json:"overlays"`
+		EnableCondition string   `json:"enable_condition"`
+		Purpose         string   `json:"purpose"`
+		DataRead        []struct {
 			Kind  string `json:"kind"`
 			Group string `json:"group"`
 			Usage string `json:"usage"`
@@ -115,6 +118,12 @@ type rawJSON struct {
 		Issues       []string `json:"issues"`
 	} `json:"dockerfiles"`
 
+	CrossCuttingEvidence map[string][]struct {
+		Claim   string   `json:"claim"`
+		Status  string   `json:"status"`
+		Sources []string `json:"sources"`
+	} `json:"cross_cutting_evidence"`
+
 	Dependencies struct {
 		GoVersion   string `json:"go_version"`
 		InternalODH []struct {
@@ -122,6 +131,16 @@ type rawJSON struct {
 			Interaction string `json:"interaction"`
 		} `json:"internal_odh"`
 	} `json:"dependencies"`
+}
+
+type rawRole struct {
+	Name  string `json:"name"`
+	Rules []struct {
+		APIGroups       []string `json:"apiGroups"`
+		Resources       []string `json:"resources"`
+		NonResourceURLs []string `json:"nonResourceURLs"`
+		Verbs           []string `json:"verbs"`
+	} `json:"rules"`
 }
 
 // ParseComponentJSON reads a component-architecture.json file and returns
@@ -137,10 +156,25 @@ func ParseComponentJSON(fsys fs.FS, path string) (*types.ComponentDoc, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
+	if strings.TrimSpace(raw.Component) == "" {
+		return nil, fmt.Errorf("parsing %s: missing component identity", path)
+	}
 
 	doc := &types.ComponentDoc{
+		Name:            raw.Component,
+		Repository:      raw.Repo,
 		CommitSHA:       raw.CommitSHA,
 		AnalyzerVersion: raw.AnalyzerVersion,
+	}
+	if len(raw.CrossCuttingEvidence) > 0 {
+		doc.CrossCuttingEvidence = make(map[string][]types.CrossCuttingEvidence, len(raw.CrossCuttingEvidence))
+		for topic, records := range raw.CrossCuttingEvidence {
+			for _, record := range records {
+				doc.CrossCuttingEvidence[topic] = append(doc.CrossCuttingEvidence[topic], types.CrossCuttingEvidence{
+					Claim: record.Claim, Status: record.Status, Sources: record.Sources,
+				})
+			}
+		}
 	}
 
 	// RBAC from kubebuilder markers
@@ -148,11 +182,18 @@ func ParseComponentJSON(fsys fs.FS, path string) (*types.ComponentDoc, error) {
 		groups := strings.Join(m.Parsed.Groups, ",")
 		groups = strings.ReplaceAll(groups, `""`, "")
 		doc.RBACRoles = append(doc.RBACRoles, types.RBACRole{
-			RoleName:  m.File,
-			APIGroup:  groups,
-			Resources: strings.Join(m.Parsed.Resources, ","),
-			Verbs:     strings.Join(m.Parsed.Verbs, ","),
+			RoleName: m.File, APIGroup: groups,
+			Resources: strings.Join(m.Parsed.Resources, ","), NonResourceURLs: strings.Join(m.Parsed.NonResourceURLs, ","),
+			Verbs: strings.Join(m.Parsed.Verbs, ","),
 		})
+	}
+	for _, role := range append(raw.RBAC.ClusterRoles, raw.RBAC.Roles...) {
+		for _, rule := range role.Rules {
+			doc.RBACRoles = append(doc.RBACRoles, types.RBACRole{
+				RoleName: role.Name, APIGroup: strings.Join(rule.APIGroups, ","), Resources: strings.Join(rule.Resources, ","),
+				NonResourceURLs: strings.Join(rule.NonResourceURLs, ","), Verbs: strings.Join(rule.Verbs, ","),
+			})
+		}
 	}
 
 	// Services — one entry per port

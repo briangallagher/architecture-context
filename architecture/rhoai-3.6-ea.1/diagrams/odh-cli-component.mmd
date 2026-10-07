@@ -1,0 +1,81 @@
+graph TB
+    subgraph "odh-cli (rhai-cli)"
+        direction TB
+        RootCmd["Root Command<br/>kubectl-odh / rhai-cli"]
+
+        subgraph "Subcommands"
+            Status[status]
+            Diagnose[diagnose]
+            Migrate[migrate]
+            Lint[lint]
+            Components[components]
+            Deps[deps]
+            Events[events]
+            Logs[logs]
+            Get[get]
+            MCP[mcp]
+            API[api]
+            Version[version]
+            Completion[completion]
+        end
+
+        subgraph "Core Libraries"
+            Client["Unified Client<br/>pkg/util/client/"]
+            RBAC["RBAC Checker<br/>pkg/util/kube/rbac/"]
+            MCPServer["MCP Server<br/>pkg/mcp/server.go"]
+        end
+
+        RootCmd --> Status
+        RootCmd --> Diagnose
+        RootCmd --> Migrate
+        RootCmd --> Lint
+        RootCmd --> Components
+        RootCmd --> Deps
+        RootCmd --> Events
+        RootCmd --> Logs
+        RootCmd --> Get
+        RootCmd --> MCP
+        RootCmd --> API
+        RootCmd --> Version
+        RootCmd --> Completion
+    end
+
+    subgraph "Shared Infrastructure"
+        ConfigFlags["genericclioptions.ConfigFlags<br/>--kubeconfig, --token, --context"]
+    end
+
+    ConfigFlags -->|provides rest.Config| Client
+    Client -->|wraps| DynClient[Dynamic Client]
+    Client -->|wraps| DiscClient[Discovery Client]
+    Client -->|wraps| OLMClient[OLM Client]
+    Client -->|wraps| CoreClient[Core Client]
+    Client -->|wraps| AuthzClient[Authz Client]
+
+    Status -->|uses| Client
+    Diagnose -->|uses| Client
+    Migrate -->|uses| Client
+    Lint -->|uses| Client
+    Components -->|uses| Client
+    Deps -->|uses| Client
+    Events -->|uses| Client
+    Logs -->|uses| Client
+    Get -->|uses| Client
+
+    Diagnose -->|imports| ODHOperator["opendatahub-operator<br/>clusterhealth / failureclassifier"]
+    MCP -->|registers tools| MCPServer
+    MCPServer -->|stdio / SSE| AIAgent["AI Agent"]
+
+    RBAC -->|SelfSubjectAccessReview| K8sAPI["Kubernetes API<br/>6443/TCP"]
+    Client -->|HTTPS/WSS| K8sAPI
+
+    Migrate -->|HTTP GET/POST| TrustYAI["TrustYAI Service<br/>443/TCP"]
+
+    style RootCmd fill:#4a90e2,stroke:#333,color:#fff
+    style Client fill:#4a90e2,stroke:#333,color:#fff
+    style RBAC fill:#4a90e2,stroke:#333,color:#fff
+    style MCPServer fill:#4a90e2,stroke:#333,color:#fff
+    style ConfigFlags fill:#f5a623,stroke:#333,color:#333
+    style K8sAPI fill:#e8e8e8,stroke:#333
+    style TrustYAI fill:#e8e8e8,stroke:#333
+    style ODHOperator fill:#7ed321,stroke:#333
+    style AIAgent fill:#e8e8e8,stroke:#333

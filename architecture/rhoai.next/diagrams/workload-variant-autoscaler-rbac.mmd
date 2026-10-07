@@ -1,112 +1,91 @@
 graph TD
     subgraph ServiceAccounts["Service Accounts"]
-        SA_CM["controller-manager<br/>(NS: workload-variant-autoscaler-system)"]
-        SA_Prom["kube-prometheus-stack-prometheus<br/>(NS: monitoring)"]
-        SA_EPP["epp-metrics-reader<br/>(NS: workload-variant-autoscaler-system)"]
+        SA["controller-manager<br/>(wva-system)"]
     end
 
-    subgraph ClusterRoleBindings["Cluster Role Bindings"]
-        CRB_Manager["manager-rolebinding<br/>(ClusterRoleBinding)"]
-        CRB_Metrics["metrics-auth-rolebinding<br/>(ClusterRoleBinding)"]
-        CRB_PromMetrics["prometheus-metrics-auth-rolebinding<br/>(ClusterRoleBinding)"]
-        CRB_EPP["epp-metrics-reader-binding<br/>(ClusterRoleBinding)"]
+    subgraph ClusterBindings["Cluster-Wide Bindings"]
+        CRB["manager-rolebinding<br/>(ClusterRoleBinding)"]
     end
 
-    subgraph RoleBindings["Role Bindings (Namespaced)"]
-        RB_Leader["leader-election-rolebinding<br/>(NS: workload-variant-autoscaler-system)"]
+    subgraph NamespaceBindings["Namespace Bindings (wva-system)"]
+        RB["leader-election-rolebinding<br/>(RoleBinding)"]
     end
 
-    subgraph ClusterRoles["Cluster Roles"]
-        CR_Manager["manager-role<br/>(ClusterRole)"]
-        CR_Metrics["metrics-auth-role<br/>(ClusterRole)"]
-        CR_EPP["epp-metrics-reader-role<br/>(ClusterRole)"]
+    subgraph ClusterRoles["ClusterRole: manager-role"]
+        direction TB
+
+        subgraph CoreAPI["Core API ('')"]
+            Pods["pods, nodes,<br/>nodes/status,<br/>configmaps,<br/>namespaces,<br/>resourcequotas,<br/>services"]
+            CMStatus["configmaps/status"]
+            Events["events"]
+        end
+
+        subgraph AppsAPI["Apps API"]
+            Deployments["deployments"]
+            DeployScale["deployments/scale"]
+            RSandSS["replicasets,<br/>statefulsets"]
+        end
+
+        subgraph AutoscalingAPI["Autoscaling API"]
+            HPAs["horizontalpodautoscalers"]
+        end
+
+        subgraph InferenceAPI["inference.networking.k8s.io"]
+            InfPools["inferencepools"]
+        end
+
+        subgraph KedaAPI["keda.sh"]
+            ScaledObjs["scaledobjects"]
+        end
+
+        subgraph LWSAPI["leaderworkerset.x-k8s.io"]
+            LWSRes["leaderworkersets"]
+            LWSScale["leaderworkersets/scale"]
+        end
+
+        subgraph MonitoringAPI["monitoring.coreos.com"]
+            SvcMon["servicemonitors"]
+        end
     end
 
-    subgraph Roles["Roles (Namespaced)"]
-        R_Leader["leader-election-role<br/>(NS: workload-variant-autoscaler-system)"]
+    subgraph LeaderRole["Role: leader-election-role<br/>(wva-system)"]
+        LeaderRes["configmaps, leases<br/>→ get, list, watch,<br/>create, update, patch,<br/>delete"]
     end
 
     %% Bindings
-    SA_CM -->|"bound via"| CRB_Manager
-    SA_CM -->|"bound via"| CRB_Metrics
-    SA_CM -->|"bound via"| RB_Leader
-    SA_Prom -->|"bound via"| CRB_PromMetrics
-    SA_EPP -->|"bound via"| CRB_EPP
+    SA -->|"bound via"| CRB
+    SA -->|"bound via"| RB
+    CRB -->|"grants"| ClusterRoles
+    RB -->|"grants"| LeaderRole
 
-    CRB_Manager -->|"grants"| CR_Manager
-    CRB_Metrics -->|"grants"| CR_Metrics
-    CRB_PromMetrics -->|"grants"| CR_Metrics
-    CRB_EPP -->|"grants"| CR_EPP
-    RB_Leader -->|"grants"| R_Leader
-
-    subgraph Resources_LLMD["llmd.ai Resources"]
-        VA["variantautoscalings<br/>get, list, watch,<br/>create, update, patch, delete"]
-        VA_Status["variantautoscalings/status<br/>get, update, patch"]
-        VA_Finalizers["variantautoscalings/finalizers<br/>update"]
-    end
-
-    subgraph Resources_Core["Core Resources"]
-        ConfigMaps["configmaps<br/>get, list, update, watch"]
-        Events["events<br/>create, patch"]
-        Namespaces["namespaces, pods,<br/>secrets, services<br/>get, list, watch"]
-        Nodes["nodes, nodes/status<br/>get, list, patch, update, watch"]
-    end
-
-    subgraph Resources_Apps["apps Resources"]
-        Deployments["deployments<br/>get, list, patch, update, watch"]
-        DeployScale["deployments/scale<br/>get, update"]
-        ReplicaSets["replicasets, statefulsets<br/>get, list, watch"]
-    end
-
-    subgraph Resources_Inference["Inference & LWS Resources"]
-        InferencePools["inferencepools<br/>(inference.networking.k8s.io)<br/>get, list, watch"]
-        LWS["leaderworkersets<br/>get, list, patch, update, watch"]
-        LWS_Scale["leaderworkersets/scale<br/>get, update"]
-    end
-
-    subgraph Resources_Monitoring["Monitoring Resources"]
-        ServiceMonitors["servicemonitors<br/>(monitoring.coreos.com)<br/>get, list, watch"]
-    end
-
-    subgraph Resources_Leader["Leader Election Resources"]
-        Leases["leases<br/>(coordination.k8s.io)<br/>get, list, watch,<br/>create, update, patch, delete"]
-        LeaderEvents["events<br/>create, patch"]
-    end
-
-    %% Permission links
-    CR_Manager -->|"manages"| Resources_LLMD
-    CR_Manager -->|"accesses"| Resources_Core
-    CR_Manager -->|"manages"| Resources_Apps
-    CR_Manager -->|"watches"| Resources_Inference
-    CR_Manager -->|"watches"| Resources_Monitoring
-    R_Leader -->|"manages"| Resources_Leader
+    %% Verbs
+    Pods --- VerbsRead["get, list, watch"]
+    CMStatus --- VerbsGet["get"]
+    Events --- VerbsEvent["create, patch"]
+    Deployments --- VerbsDeploy["get, list, patch,<br/>update, watch"]
+    DeployScale --- VerbsScale["get, update"]
+    RSandSS --- VerbsRead2["get, list, watch"]
+    HPAs --- VerbsHPA["get, list, patch,<br/>update, watch"]
+    InfPools --- VerbsPool["get, list, watch"]
+    ScaledObjs --- VerbsSO["get, list, patch,<br/>update, watch"]
+    LWSRes --- VerbsLWS["get, list, patch,<br/>update, watch"]
+    LWSScale --- VerbsLScale["get, update"]
+    SvcMon --- VerbsMon["get, list, watch"]
 
     %% Styling
-    style SA_CM fill:#4a90e2,stroke:#333,color:#fff
-    style SA_Prom fill:#4a90e2,stroke:#333,color:#fff
-    style SA_EPP fill:#4a90e2,stroke:#333,color:#fff
-    style CR_Manager fill:#f5a623,stroke:#333
-    style CR_Metrics fill:#f5a623,stroke:#333
-    style CR_EPP fill:#f5a623,stroke:#333
-    style R_Leader fill:#f5a623,stroke:#333
-    style CRB_Manager fill:#e8e8e8,stroke:#333
-    style CRB_Metrics fill:#e8e8e8,stroke:#333
-    style CRB_PromMetrics fill:#e8e8e8,stroke:#333
-    style CRB_EPP fill:#e8e8e8,stroke:#333
-    style RB_Leader fill:#e8e8e8,stroke:#333
-    style VA fill:#7ed321,stroke:#333
-    style VA_Status fill:#7ed321,stroke:#333
-    style VA_Finalizers fill:#7ed321,stroke:#333
-    style ConfigMaps fill:#7ed321,stroke:#333
-    style Events fill:#7ed321,stroke:#333
-    style Namespaces fill:#7ed321,stroke:#333
-    style Nodes fill:#7ed321,stroke:#333
-    style Deployments fill:#7ed321,stroke:#333
-    style DeployScale fill:#7ed321,stroke:#333
-    style ReplicaSets fill:#7ed321,stroke:#333
-    style InferencePools fill:#7ed321,stroke:#333
-    style LWS fill:#7ed321,stroke:#333
-    style LWS_Scale fill:#7ed321,stroke:#333
-    style ServiceMonitors fill:#7ed321,stroke:#333
-    style Leases fill:#7ed321,stroke:#333
-    style LeaderEvents fill:#7ed321,stroke:#333
+    style SA fill:#4a90e2,stroke:#333,color:#fff
+    style CRB fill:#f5a623,stroke:#333,color:#fff
+    style RB fill:#f5a623,stroke:#333,color:#fff
+    style Pods fill:#7ed321,stroke:#333,color:#fff
+    style CMStatus fill:#7ed321,stroke:#333,color:#fff
+    style Events fill:#7ed321,stroke:#333,color:#fff
+    style Deployments fill:#7ed321,stroke:#333,color:#fff
+    style DeployScale fill:#7ed321,stroke:#333,color:#fff
+    style RSandSS fill:#7ed321,stroke:#333,color:#fff
+    style HPAs fill:#7ed321,stroke:#333,color:#fff
+    style InfPools fill:#7ed321,stroke:#333,color:#fff
+    style ScaledObjs fill:#7ed321,stroke:#333,color:#fff
+    style LWSRes fill:#7ed321,stroke:#333,color:#fff
+    style LWSScale fill:#7ed321,stroke:#333,color:#fff
+    style SvcMon fill:#7ed321,stroke:#333,color:#fff
+    style LeaderRes fill:#7ed321,stroke:#333,color:#fff

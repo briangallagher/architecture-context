@@ -1,0 +1,71 @@
+graph TB
+    subgraph External["EXTERNAL (No Ingress)"]
+        direction TB
+        NoIngress["No external endpoints exposed<br/>Cluster-internal operator only"]
+    end
+
+    subgraph ClusterInternal["CLUSTER INTERNAL (Kubernetes Network)"]
+        direction TB
+
+        subgraph OperatorPod["feast-module-operator Pod"]
+            direction TB
+            HealthProbe["Health/Readiness Probes<br/>:8081/TCP HTTP<br/>No Encryption<br/>No Auth"]
+            MetricsEndpoint["Metrics Endpoint<br/>:8443/TCP HTTPS<br/>TLS (controller-runtime)<br/>TokenReview/SAR Auth"]
+        end
+
+        subgraph MetricsSvc["opendatahub-feast-metrics-service"]
+            MetricsSvcPort["ClusterIP<br/>8443/TCP → 8443"]
+        end
+
+        subgraph Monitoring["Monitoring"]
+            Prometheus["Prometheus<br/>via ServiceMonitor"]
+        end
+
+        subgraph WatchedResources["Watched Resources"]
+            FeastOperatorCR["FeastOperator CR<br/>components.platform.opendatahub.io/v1alpha1<br/>(Cluster-scoped)"]
+            FeatureStoreCR["FeatureStore CR<br/>feast.dev"]
+            PlatformConfigMap["odh-feastoperator-config<br/>ConfigMap"]
+            KubeflowNotebooks["Kubeflow Notebooks<br/>kubeflow.org"]
+            OSRoutes["OpenShift Routes<br/>route.openshift.io"]
+        end
+
+        subgraph ManagedResources["Managed Resources (Applications NS)"]
+            Deploys["Deployments<br/>Services<br/>ServiceAccounts"]
+            RBACRes["Roles, ClusterRoles<br/>RoleBindings, CRBs"]
+            BatchRes["Jobs, CronJobs"]
+            MonRes["ServiceMonitors<br/>PDBs, HPAs"]
+        end
+    end
+
+    subgraph K8sAPIZone["KUBERNETES API"]
+        K8sAPI["API Server<br/>6443/TCP<br/>HTTPS/WSS<br/>TLS 1.2+<br/>ServiceAccount Token"]
+    end
+
+    %% Flows
+    Prometheus -->|"HTTPS/8443<br/>TLS<br/>ServiceMonitor"| MetricsSvcPort
+    MetricsSvcPort -->|"HTTPS/8443<br/>TLS<br/>TokenReview/SAR"| MetricsEndpoint
+
+    OperatorPod -->|"HTTPS/6443<br/>TLS 1.2+<br/>SA Token"| K8sAPI
+
+    K8sAPI -->|"Watch events"| FeastOperatorCR
+    K8sAPI -->|"Watch events"| FeatureStoreCR
+    K8sAPI -->|"Watch events"| PlatformConfigMap
+    K8sAPI -->|"Watch events"| KubeflowNotebooks
+    K8sAPI -->|"Watch events"| OSRoutes
+
+    OperatorPod -->|"CRUD via API"| ManagedResources
+
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#999,stroke-width:2px
+    classDef operator fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    classDef watched fill:#f5a623,stroke:#333,stroke-width:1px
+    classDef managed fill:#7ed321,stroke:#333,stroke-width:1px
+    classDef infra fill:#e8e8e8,stroke:#666,stroke-width:1px
+    classDef api fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+
+    class NoIngress external
+    class HealthProbe,MetricsEndpoint operator
+    class FeastOperatorCR,FeatureStoreCR,PlatformConfigMap,KubeflowNotebooks,OSRoutes watched
+    class Deploys,RBACRes,BatchRes,MonRes managed
+    class Prometheus,MetricsSvcPort infra
+    class K8sAPI api

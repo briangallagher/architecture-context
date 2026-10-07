@@ -1,0 +1,63 @@
+graph LR
+    MR["Model Registry<br/>(Hub Proxy + Controller + BFF + Async Upload)"]
+
+    %% Runtime Framework Dependencies
+    MR -->|"operator framework"| ControllerRuntime["controller-runtime<br/>v0.24.1"]
+    MR -->|"ORM / DB abstraction"| GORM["GORM<br/>v1.31.2"]
+    MR -->|"schema migrations"| Migrate["golang-migrate<br/>v4.19.1"]
+    MR -->|"HTTP routing"| Chi["go-chi<br/>v5.3.1"]
+
+    %% Database Dependencies
+    MR -->|"PostgreSQL driver"| PGX["pgx<br/>v5.10.0"]
+    MR -->|"MySQL driver"| MySQL["go-sql-driver/mysql<br/>v1.10.0"]
+    MR -->|"distributed locking"| PGLock["pglock<br/>v1.16.2"]
+
+    %% Internal RHOAI Dependencies
+    MR -->|"CRD watch / sync"| KServe["KServe<br/>v0.19.0"]
+    MR -->|"VirtualService +<br/>AuthorizationPolicy"| Istio["Istio<br/>Service Mesh"]
+
+    %% Kubernetes Dependencies
+    MR -->|"API operations"| K8sAPI["Kubernetes API<br/>v0.36.3"]
+    MR -->|"client operations"| K8sClient["client-go<br/>v0.36.3"]
+
+    %% Python Dependencies (Async Upload)
+    MR -->|"S3 uploads"| Boto3["boto3<br/>v1.43.50"]
+    MR -->|"model signing"| ModelSigning["rh-model-signing<br/>v1.0.3"]
+    MR -->|"artifact registry"| ORAS["oras<br/>v0.2.42"]
+    MR -->|"HF integration"| HFHub["huggingface-hub<br/>v1.23.0"]
+
+    %% Observability
+    MR -->|"structured logging"| Zap["zap<br/>v1.27.1"]
+    MR -->|"API docs"| Swag["swaggo/swag<br/>v1.16.6"]
+
+    %% External Services
+    MR -->|"model artifacts"| S3["S3-Compatible<br/>Storage"]
+    MR -->|"metadata persistence"| DB[("PostgreSQL /<br/>MySQL")]
+
+    %% Integration Points (consumers of Model Registry)
+    Dashboard["ODH Dashboard"] -.->|"UI integration"| MR
+    DSPipelines["Data Science<br/>Pipelines"] -.->|"model lookup"| MR
+
+    %% Styling
+    style MR fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style KServe fill:#7ed321,stroke:#333,color:#fff
+    style Istio fill:#7ed321,stroke:#333,color:#fff
+    style Dashboard fill:#7ed321,stroke:#333,color:#fff
+    style DSPipelines fill:#7ed321,stroke:#333,color:#fff
+    style S3 fill:#f5a623,stroke:#333,color:#fff
+    style DB fill:#f5a623,stroke:#333,color:#fff
+    style K8sAPI fill:#999,stroke:#333,color:#fff
+    style K8sClient fill:#999,stroke:#333,color:#fff
+    style ControllerRuntime fill:#999,stroke:#333
+    style GORM fill:#999,stroke:#333
+    style Migrate fill:#999,stroke:#333
+    style Chi fill:#999,stroke:#333
+    style PGX fill:#999,stroke:#333
+    style MySQL fill:#999,stroke:#333
+    style PGLock fill:#999,stroke:#333
+    style Boto3 fill:#999,stroke:#333
+    style ModelSigning fill:#999,stroke:#333
+    style ORAS fill:#999,stroke:#333
+    style HFHub fill:#999,stroke:#333
+    style Zap fill:#999,stroke:#333
+    style Swag fill:#999,stroke:#333

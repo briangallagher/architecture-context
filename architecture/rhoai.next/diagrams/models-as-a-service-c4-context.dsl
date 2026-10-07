@@ -1,58 +1,57 @@
 workspace {
     model {
-        datascientist = person "Data Scientist" "Creates subscriptions and uses LLM models via API keys"
-        platformadmin = person "Platform Admin" "Configures Tenant, creates MaaSModelRef, MaaSAuthPolicy, MaaSSubscription CRs"
+        datascientist = person "Data Scientist" "Creates and deploys ML models, manages API keys, queries LLM inference endpoints"
+        platformadmin = person "Platform Admin" "Manages AITenant CRs and platform configuration"
 
-        maas = softwareSystem "Models as a Service (MaaS)" "Subscription-based access control, API key management, token rate limiting, and policy-driven governance for LLM inference services" {
-            maasController = container "maas-controller" "Reconciles Tenant, MaaSModelRef, MaaSSubscription, MaaSAuthPolicy, ExternalModel CRs; deploys operands via kustomize SSA; creates Kuadrant policies and Istio resources" "Go Operator (controller-runtime)"
-            maasAPI = container "maas-api" "OpenAI-compatible REST API for key management, model discovery, subscription selection; internal Authorino callbacks" "Go REST Service (Gin)" {
-                healthHandler = component "Health Handler" "/health endpoint" "Go HTTP Handler"
-                modelsHandler = component "Models Handler" "/v1/models - OpenAI-compatible model listing" "Go HTTP Handler"
-                apiKeysHandler = component "API Keys Handler" "/v1/api-keys/* - Create, search, revoke API keys" "Go HTTP Handler"
-                subscriptionHandler = component "Subscription Handler" "/v1/subscriptions - List and select subscriptions" "Go HTTP Handler"
-                internalCallbacks = component "Internal Callbacks" "/internal/v1/* - Authorino validation and subscription selection" "Go HTTP Handler"
-                metricsHandler = component "Metrics Handler" "/metrics on :9090 - Prometheus metrics" "Go HTTP Handler"
-            }
-            payloadProcessing = container "payload-processing" "BBR ext_proc: body-based routing, model resolution, API translation, credential injection" "Go gRPC Service (Envoy ext_proc)"
+        maas = softwareSystem "Models-as-a-Service (MaaS)" "Kubernetes-native platform for exposing LLM inference endpoints with policy management, API key auth, subscriptions, and token rate limiting" {
+            maasController = container "maas-controller" "Reconciles MaaS CRDs into Gateway API HTTPRoutes, Kuadrant AuthPolicies, and TokenRateLimitPolicies" "Go Operator (controller-runtime)"
+            maasApi = container "maas-api" "Per-tenant API service for API key management, subscription selection, model discovery, and tenant metadata" "Go HTTP Service (Gin)"
+            payloadProcessing = container "payload-processing" "Pre/post-auth request/response payload processing via Envoy ext_proc" "Go gRPC Service"
+            webhookServer = container "Webhook Server" "Validates AITenant placement, MaaSSubscription/MaaSAuthPolicy namespace initialization" "Go (controller-runtime webhook)"
         }
 
-        maasGateway = softwareSystem "MaaS Gateway" "Gateway API (openshift-default) with TLS termination, HTTPRoute-based model routing" "Infrastructure"
+        kuadrant = softwareSystem "Kuadrant" "API gateway policy engine providing AuthPolicy, TokenRateLimitPolicy, and TelemetryPolicy" "External"
+        authorino = softwareSystem "Authorino" "Authentication/authorization enforcement at gateway level; credential stripping and identity injection" "External"
+        limitador = softwareSystem "Limitador" "Token rate limiting enforcement per-model per-subscription" "External"
+        kserve = softwareSystem "KServe" "LLM inference serving platform (LLMInferenceService CRD)" "Internal Platform"
+        gatewayAPI = softwareSystem "Gateway API" "Kubernetes Gateway and HTTPRoute resources for ingress" "External"
+        istio = softwareSystem "Istio / OpenShift Service Mesh" "EnvoyFilter for ext_proc pipeline, mTLS, telemetry" "External"
+        postgresql = softwareSystem "PostgreSQL" "API key hash storage, CRUD operations, schema migrations" "External"
+        k8sAPI = softwareSystem "Kubernetes API Server" "CRD operations, TokenReview, SubjectAccessReview, informers" "External"
+        oidcProvider = softwareSystem "OpenShift / OIDC Provider" "User authentication via OIDC tokens" "External"
+        externalModels = softwareSystem "External Model Providers" "OpenAI, Anthropic, etc. for external LLM inference" "External"
+        otlpCollector = softwareSystem "OpenTelemetry Collector" "Distributed tracing and usage logging" "External"
+        prometheus = softwareSystem "Prometheus" "Metrics collection from controller, API, and payload-processing" "External"
+        odhOperator = softwareSystem "ODH/RHOAI Platform Operator" "Platform lifecycle management (DSCInitialization)" "Internal Platform"
 
-        kuadrant = softwareSystem "Kuadrant" "Policy-driven API management: AuthPolicy (Authorino) for authentication, TokenRateLimitPolicy (Limitador) for rate limiting, TelemetryPolicy for metrics" "External"
-        kserve = softwareSystem "KServe" "LLMInferenceService CRDs for model serving backends" "Internal ODH"
-        istio = softwareSystem "Istio" "Service mesh: EnvoyFilter (ext_proc registration), DestinationRule (TLS origination), Telemetry (per-subscription metrics), ServiceEntry (external models)" "External"
-        gatewayAPI = softwareSystem "Gateway API" "HTTPRoute and Gateway resources for traffic routing" "External"
-        openshift = softwareSystem "OpenShift" "Platform: GatewayClass implementation, OAuth/OIDC provider, Route integration" "External"
-        postgresql = softwareSystem "PostgreSQL" "Durable storage for API keys (SHA-256 hashed), migration management" "External"
-        extProviders = softwareSystem "External Model Providers" "Third-party LLM APIs: OpenAI, Anthropic, etc." "External"
-        odhOperator = softwareSystem "ODH / RHOAI Operator" "Enables MaaS via DataScienceCluster.modelsAsService field; deploys maas-controller" "Internal ODH"
-        prometheus = softwareSystem "Prometheus / OpenShift Monitoring" "Metrics collection via PodMonitor CRDs" "External"
-        perses = softwareSystem "Perses (via COO)" "Optional observability dashboards (PersesDashboard, PersesDatasource)" "External"
+        # User interactions
+        datascientist -> maas "Inference requests via API key (sk-oai-*), API key management, model discovery" "HTTPS/443"
+        platformadmin -> maas "Creates AITenant, MaaSModelRef, MaaSSubscription, MaaSAuthPolicy CRs" "kubectl / HTTPS"
 
-        # Relationships
-        datascientist -> maasGateway "Creates API keys, lists models, sends inference requests" "HTTPS/443 TLS 1.3"
-        platformadmin -> maas "Creates Tenant, MaaSModelRef, MaaSSubscription, MaaSAuthPolicy CRs" "kubectl / HTTPS"
+        # MaaS internal relationships
+        maasController -> maasApi "Deploys per-tenant instances; revokes API keys on tenant deletion" "HTTPS/8443"
+        maasController -> webhookServer "Embedded in controller process" ""
 
-        maasGateway -> kuadrant "Auth and rate limit enforcement" "Wasm → gRPC"
-        maasGateway -> payloadProcessing "ext_proc body inspection" "gRPC/9004 TLS"
-        maasGateway -> maasAPI "Routes API requests" "HTTP/8080"
-        maasGateway -> kserve "Routes inference requests" "HTTPS/443"
-        maasGateway -> extProviders "Routes external model requests" "HTTPS/443"
+        # MaaS → External dependencies
+        maasController -> kuadrant "Creates AuthPolicy, TokenRateLimitPolicy, TelemetryPolicy CRs" "CRD CRUD"
+        maasController -> gatewayAPI "Creates HTTPRoutes, validates Gateway references" "CRD CRUD"
+        maasController -> istio "Creates EnvoyFilter for ext_proc pipeline, DestinationRules, ServiceEntries" "CRD CRUD"
+        maasController -> k8sAPI "CRD reconciliation, namespace/RBAC management, informers" "HTTPS/443"
+        maasController -> kserve "Watches LLMInferenceService readiness for MaaSModelRef status" "CRD Watch"
+        maasController -> odhOperator "Watches DSCInitialization for platform lifecycle" "CRD Watch"
 
-        kuadrant -> maasAPI "API key validation and subscription selection callbacks" "HTTP(S)/8080-8443"
+        maasApi -> postgresql "API key hash CRUD, schema migrations" "TCP/5432 TLS"
+        maasApi -> k8sAPI "TokenReview, SubjectAccessReview, MaaS CR informers" "HTTPS/443"
+        maasApi -> otlpCollector "Distributed trace export" "gRPC/4317"
 
-        maasController -> kuadrant "Creates AuthPolicy and TokenRateLimitPolicy per model" "CRD Create/Patch"
-        maasController -> istio "Creates EnvoyFilter, DestinationRule, Telemetry, ServiceEntry" "CRD Create"
-        maasController -> gatewayAPI "Creates HTTPRoute per model and maas-api" "CRD Create"
-        maasController -> kserve "Watches LLMInferenceService readiness" "CRD Watch"
-        maasController -> openshift "Reads OIDC issuer for external auth" "HTTPS/443"
+        authorino -> maasApi "API key validation callback, subscription selection" "HTTPS/8443"
 
-        maasAPI -> postgresql "API key CRUD (hash-based storage)" "PostgreSQL/5432 TLS"
-        payloadProcessing -> extProviders "Proxied inference with injected credentials" "HTTPS/443"
+        payloadProcessing -> istio "Receives ext_proc requests from Envoy via EnvoyFilter" "gRPC/9004 mTLS"
 
-        odhOperator -> maas "Enables/disables via DSC.modelsAsService" "CRD"
-        prometheus -> maasAPI "Scrapes metrics" "HTTP/9090"
-        prometheus -> maasController "Scrapes metrics" "HTTP/8080"
+        maas -> externalModels "Proxies inference to external providers via Gateway" "HTTPS/443"
+        authorino -> oidcProvider "Validates OIDC/OpenShift tokens" "HTTPS/443"
+
+        prometheus -> maas "Scrapes metrics from controller (8080), API (9090), payload-processing (9005)" "HTTP"
     }
 
     views {
@@ -66,22 +65,13 @@ workspace {
             autoLayout
         }
 
-        component maasAPI "MaaSAPIComponents" {
-            include *
-            autoLayout
-        }
-
         styles {
             element "External" {
                 background #999999
                 color #ffffff
             }
-            element "Internal ODH" {
+            element "Internal Platform" {
                 background #7ed321
-                color #ffffff
-            }
-            element "Infrastructure" {
-                background #e67e22
                 color #ffffff
             }
             element "Person" {
@@ -90,16 +80,12 @@ workspace {
                 color #ffffff
             }
             element "Software System" {
-                background #4a90e2
-                color #ffffff
-            }
-            element "Container" {
                 background #438dd5
                 color #ffffff
             }
-            element "Component" {
-                background #85bbf0
-                color #000000
+            element "Container" {
+                background #4a90e2
+                color #ffffff
             }
         }
     }

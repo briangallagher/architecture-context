@@ -1,56 +1,31 @@
 sequenceDiagram
-    participant User as Data Scientist
-    participant Dashboard as RHOAI Dashboard<br/>443/TCP HTTPS
-    participant Controller as odh-notebook-controller
-    participant K8sAPI as OpenShift API<br/>6443/TCP HTTPS
-    participant Registry as Container Registry<br/>443/TCP HTTPS
-    participant Gateway as Platform Gateway<br/>443/TCP HTTPS TLS 1.2+
-    participant KRBAC as kube-rbac-proxy<br/>8443/TCP HTTPS
-    participant Workbench as Workbench Pod<br/>8888/TCP HTTP
-    participant KFP as Kubeflow Pipelines<br/>443/TCP HTTPS
-    participant Runtime as Runtime Image
+    participant User as User Browser
+    participant GW as OpenShift Gateway<br/>(Envoy) 443/TCP
+    participant RBAC as kube-rbac-proxy<br/>8443/TCP TLS
+    participant WB as Workbench Container<br/>(JupyterLab 8888 /<br/>Code Server 8787 /<br/>RStudio 8787)
+    participant KFP as KFP Pipeline<br/>Controller
+    participant RT as Runtime Container<br/>(Minimal/DS/PyTorch/TF)
+    participant ExtData as External Data Sources<br/>(S3, Databases)
+    participant GH as GitHub<br/>443/TCP
+    participant PAC as PipelinesAsCode<br/>(Tekton)
+    participant Quay as quay.io Registry<br/>443/TCP
 
-    rect rgb(230, 240, 255)
-        Note over User,Workbench: Flow 1: User Creates Workbench
-        User->>Dashboard: Select workbench type<br/>HTTPS/443, OAuth
-        Dashboard->>Controller: Create Notebook CR<br/>Kubernetes API
-        Controller->>K8sAPI: Create StatefulSet + HTTPRoute<br/>HTTPS/6443, ServiceAccount
-        K8sAPI->>Registry: Pull workbench image<br/>HTTPS/443, Pull Secret
-        Registry-->>K8sAPI: Container image (digest-pinned)
-        Note over K8sAPI: StatefulSet creates Pod<br/>with kube-rbac-proxy sidecar
-        User->>Gateway: Access workbench<br/>HTTPS/443, TLS 1.2+
-        Gateway->>KRBAC: Forward request<br/>mTLS
-        KRBAC->>KRBAC: SubjectAccessReview<br/>OAuth token validation
-        KRBAC->>Workbench: Proxy to JupyterLab<br/>HTTP/8888
-        Workbench-->>KRBAC: Notebook UI
-        KRBAC-->>Gateway: Response
-        Gateway-->>User: JupyterLab UI
-    end
+    Note over User,WB: Flow 1: User Workbench Access
+    User->>GW: HTTPS/443<br/>TLS 1.2+, OIDC Auth
+    GW->>RBAC: HTTPS/8443<br/>TLS, Bearer Token
+    RBAC->>WB: HTTP/8888 or 8787<br/>No encryption (localhost)<br/>Pre-authenticated
+    WB-->>RBAC: Response
+    RBAC-->>GW: Response
+    GW-->>User: HTTPS Response
 
-    rect rgb(255, 240, 230)
-        Note over User,Runtime: Flow 2: Elyra Pipeline Submission
-        User->>Workbench: Submit pipeline via Elyra<br/>HTTP/8888, Token
-        Workbench->>KFP: Submit pipeline run<br/>HTTPS/443, ServiceAccount token
-        KFP->>Registry: Pull runtime image<br/>HTTPS/443, Pull Secret
-        Registry-->>KFP: Runtime container image
-        KFP->>Runtime: Execute pipeline step<br/>Container exec, ServiceAccount
-        Runtime-->>KFP: Step output
-        KFP-->>Workbench: Pipeline status
-    end
+    Note over KFP,ExtData: Flow 2: Pipeline Runtime Execution
+    KFP->>RT: Create Pod<br/>ServiceAccount auth
+    RT->>ExtData: HTTPS/443<br/>TLS 1.2+<br/>AWS IAM / Credentials
+    ExtData-->>RT: Data response
+    RT-->>KFP: Execution complete
 
-    rect rgb(240, 255, 240)
-        Note over User,Registry: Flow 3: Konflux Image Build
-        participant GitHub as GitHub PR
-        participant PaC as PipelinesAsCode
-        participant Tekton as Tekton PipelineRun
-        participant Quay as quay.io/opendatahub<br/>443/TCP HTTPS
-
-        GitHub->>PaC: Push/PR event<br/>HTTPS/443, Webhook
-        PaC->>Tekton: Trigger PipelineRun<br/>CEL path filter
-        Tekton->>GitHub: Clone repo<br/>HTTPS/443, git_auth_secret
-        Tekton->>Registry: Pull base images<br/>HTTPS/443, Pull Secret
-        Registry-->>Tekton: Base images (UBI9, CUDA, etc.)
-        Tekton->>Tekton: buildah build<br/>(sandbox.py context)
-        Tekton->>Quay: Push built image<br/>HTTPS/443, Push Secret
-        Quay-->>Tekton: Image digest
-    end
+    Note over GH,Quay: Flow 3: Image Build (Konflux)
+    GH->>PAC: PR webhook event<br/>HTTPS/443, TLS 1.2+<br/>GitHub webhook secret
+    PAC->>PAC: CEL filter evaluates<br/>changed files
+    PAC->>Quay: Build & push image<br/>HTTPS/443, TLS 1.2+<br/>Registry credentials
+    PAC->>Quay: skopeo inspect (validation)<br/>HTTPS/443, TLS 1.2+

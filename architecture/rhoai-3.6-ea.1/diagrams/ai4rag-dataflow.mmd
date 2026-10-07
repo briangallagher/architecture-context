@@ -1,0 +1,46 @@
+sequenceDiagram
+    participant Pipeline as Data Science Pipeline<br/>(KFP)
+    participant ai4rag as ai4rag Library
+    participant S3 as S3-Compatible Storage<br/>HTTPS/TLS
+    participant MaaS as MaaS Endpoint<br/>(vLLM / OpenAI-compatible)<br/>HTTPS/TLS
+    participant VectorDB as Vector Store<br/>(Milvus/PGVector/Chroma)
+
+    Note over Pipeline,VectorDB: Phase 1: Document Ingestion
+
+    Pipeline->>ai4rag: Execute RAG optimization task
+    ai4rag->>S3: GET documents<br/>Auth: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
+    S3-->>ai4rag: Raw documents
+    ai4rag->>ai4rag: Text extraction (Docling)<br/>Chunk documents (configurable strategy)
+
+    Note over Pipeline,VectorDB: Phase 2: Embedding & Indexing
+
+    ai4rag->>MaaS: POST /v1/embeddings<br/>Auth: API Key<br/>TLS (verify=False fallback)
+    MaaS-->>ai4rag: Embedding vectors
+    ai4rag->>VectorDB: Index vectors<br/>Milvus: gRPC/TLS (PEM cert)<br/>PGVector: PostgreSQL wire protocol<br/>Chroma: HTTP
+    VectorDB-->>ai4rag: Index confirmation
+
+    Note over Pipeline,VectorDB: Phase 3: RAG Query & Evaluation (per HPO iteration)
+
+    loop GAM Hyperparameter Optimization
+        ai4rag->>ai4rag: Select configuration<br/>(chunking, embedding model, LLM, retrieval params)
+
+        ai4rag->>MaaS: POST /v1/embeddings<br/>Embed evaluation question
+        MaaS-->>ai4rag: Query embedding
+
+        ai4rag->>VectorDB: Similarity search<br/>Retrieve relevant chunks
+        VectorDB-->>ai4rag: Retrieved context chunks
+
+        ai4rag->>ai4rag: Build prompt with context
+
+        ai4rag->>MaaS: POST /v1/chat/completions<br/>Auth: API Key<br/>TLS (verify=False fallback)
+        MaaS-->>ai4rag: LLM response (answer)
+
+        ai4rag->>ai4rag: Evaluate answer<br/>(faithfulness, answer correctness,<br/>context correctness)
+
+        ai4rag->>ai4rag: Update GAM model with scores
+    end
+
+    Note over Pipeline,VectorDB: Phase 4: Results
+
+    ai4rag->>ai4rag: Rank RAG configurations by score
+    ai4rag->>Pipeline: Report ranked patterns<br/>via KFP Event Handler

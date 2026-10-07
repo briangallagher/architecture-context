@@ -1,0 +1,26 @@
+sequenceDiagram
+    participant Client as API Client
+    participant Gateway as vllm-orchestrator-gateway<br/>8090/TCP HTTP
+    participant Orchestrator as vllm-orchestrator<br/>8032/TCP HTTP/HTTPS
+
+    Note over Client,Orchestrator: Flow 1: Non-Streaming Chat Completion
+
+    Client->>Gateway: POST /{route_name}/v1/chat/completions<br/>Content-Type: application/json<br/>Authorization: Bearer {token}<br/>{"stream": false, "messages": [...]}
+    Note over Gateway: Inject route detector config<br/>into request payload
+    Gateway->>Orchestrator: POST /api/v2/chat/completions-detection<br/>Authorization: Bearer {token} (forwarded)<br/>mTLS when certs at /etc/tls/private/
+    Orchestrator-->>Gateway: JSON Response<br/>(with detection results)
+    Note over Gateway: If detections found AND<br/>fallback_message configured:<br/>replace model output with fallback
+    Gateway-->>Client: JSON Response<br/>(original or fallback)
+
+    Note over Client,Orchestrator: Flow 2: Streaming Chat Completion (SSE)
+
+    Client->>Gateway: POST /{route_name}/v1/chat/completions<br/>Content-Type: application/json<br/>Authorization: Bearer {token}<br/>{"stream": true, "messages": [...]}
+    Note over Gateway: Inject route detector config<br/>into request payload
+    Gateway->>Orchestrator: POST /api/v2/chat/completions-detection<br/>Authorization: Bearer {token} (forwarded)<br/>mTLS when certs at /etc/tls/private/
+    loop Chunked HTTP Response
+        Orchestrator-->>Gateway: SSE chunk (data: {...})
+        Note over Gateway: Parse chunk; if detection<br/>in first chunk: inject fallback
+        Gateway-->>Client: SSE event (data: {...})
+    end
+    Orchestrator-->>Gateway: [DONE]
+    Gateway-->>Client: [DONE]

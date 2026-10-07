@@ -1,0 +1,87 @@
+graph LR
+    MLServer["MLServer<br/>(V2 Inference Runtime)"]
+
+    %% Core Framework Dependencies
+    MLServer -->|"REST framework"| FastAPI["FastAPI >=0.134.0"]
+    MLServer -->|"ASGI server"| Uvicorn["Uvicorn"]
+    MLServer -->|"HTTP framework"| Starlette["Starlette >=1.0.1"]
+    MLServer -->|"gRPC transport"| gRPC["gRPC >=1.67.1"]
+    MLServer -->|"serialization"| Protobuf["Protobuf >=5.27.2"]
+    MLServer -->|"data validation"| Pydantic["Pydantic ^2.7.1"]
+
+    %% ML Runtime Dependencies
+    MLServer -->|"sklearn runtime"| ScikitLearn["Scikit-Learn"]
+    MLServer -->|"xgboost runtime"| XGBoost["XGBoost"]
+    MLServer -->|"lightgbm runtime"| LightGBM["LightGBM"]
+    MLServer -->|"onnx runtime"| ONNXRuntime["ONNX Runtime<br/>>=1.20.0"]
+    MLServer -->|"mlflow runtime"| MLflow["MLflow >=2.19.0"]
+    MLServer -->|"huggingface runtime"| HuggingFace["HuggingFace<br/>(Optimum >=1.4)"]
+    MLServer -->|"catboost runtime"| CatBoost["CatBoost"]
+    MLServer -->|"alibi-detect runtime"| AlibiDetect["Alibi Detect"]
+    MLServer -->|"alibi-explain runtime"| AlibiExplain["Alibi"]
+    MLServer -->|"mllib runtime"| PySpark["PySpark<br/>(Spark MLlib)"]
+
+    %% Observability Dependencies
+    MLServer -->|"tracing"| OTelSDK["OpenTelemetry SDK<br/>^1.22.0"]
+    MLServer -->|"trace export"| OTelExporter["OTel OTLP<br/>gRPC Exporter"]
+    MLServer -->|"REST metrics"| StarletteExporter["starlette-exporter"]
+    MLServer -->|"gRPC metrics"| PyGRPCPrometheus["py-grpc-prometheus"]
+
+    %% Platform Dependencies (RHOAI)
+    KServe["KServe Platform"] -->|"manages pod"| MLServer
+    KubeRBACProxy["kube-rbac-proxy<br/>Sidecar"] -->|"auth enforcement"| MLServer
+    Prometheus["Prometheus"] -->|"scrapes 8082"| MLServer
+    OTelCollector["OTel Collector"] -.->|"receives traces"| MLServer
+
+    %% Data Dependencies
+    MLServer -->|"numpy arrays"| NumPy["NumPy"]
+    MLServer -->|"dataframes"| Pandas["Pandas"]
+    MLServer -->|"deep learning"| PyTorch["PyTorch"]
+    MLServer -->|"deep learning"| TensorFlow["TensorFlow"]
+
+    %% Runtime
+    MLServer -->|"requires"| Python["Python >=3.10,<3.13"]
+    MLServer -->|"async I/O"| UVLoop["uvloop"]
+
+    %% Styling
+    style MLServer fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+
+    %% Core framework - blue
+    style FastAPI fill:#5b9bd5,stroke:#333,color:#fff
+    style Uvicorn fill:#5b9bd5,stroke:#333,color:#fff
+    style Starlette fill:#5b9bd5,stroke:#333,color:#fff
+    style gRPC fill:#5b9bd5,stroke:#333,color:#fff
+    style Protobuf fill:#5b9bd5,stroke:#333,color:#fff
+    style Pydantic fill:#5b9bd5,stroke:#333,color:#fff
+
+    %% ML runtimes - green
+    style ScikitLearn fill:#7ed321,stroke:#333
+    style XGBoost fill:#7ed321,stroke:#333
+    style LightGBM fill:#7ed321,stroke:#333
+    style ONNXRuntime fill:#7ed321,stroke:#333
+    style MLflow fill:#7ed321,stroke:#333
+    style HuggingFace fill:#7ed321,stroke:#333
+    style CatBoost fill:#7ed321,stroke:#333
+    style AlibiDetect fill:#7ed321,stroke:#333
+    style AlibiExplain fill:#7ed321,stroke:#333
+    style PySpark fill:#7ed321,stroke:#333
+
+    %% Observability - yellow
+    style OTelSDK fill:#f5a623,stroke:#333
+    style OTelExporter fill:#f5a623,stroke:#333
+    style StarletteExporter fill:#f5a623,stroke:#333
+    style PyGRPCPrometheus fill:#f5a623,stroke:#333
+
+    %% Platform - orange
+    style KServe fill:#e8833a,stroke:#333,color:#fff
+    style KubeRBACProxy fill:#e8833a,stroke:#333,color:#fff
+    style Prometheus fill:#e8833a,stroke:#333,color:#fff
+    style OTelCollector fill:#e8833a,stroke:#333,color:#fff
+
+    %% Data/Runtime - gray
+    style NumPy fill:#999,stroke:#333,color:#fff
+    style Pandas fill:#999,stroke:#333,color:#fff
+    style PyTorch fill:#999,stroke:#333,color:#fff
+    style TensorFlow fill:#999,stroke:#333,color:#fff
+    style Python fill:#999,stroke:#333,color:#fff
+    style UVLoop fill:#999,stroke:#333,color:#fff

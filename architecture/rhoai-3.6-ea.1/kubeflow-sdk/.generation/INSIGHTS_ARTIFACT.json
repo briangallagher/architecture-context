@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "component": "kubeflow-sdk",
+  "platform": "rhoai",
+  "version": "rhoai-3.6-ea.1",
+  "insights": [
+    {
+      "id": "kubeflow-sdk-client-only-001",
+      "claim": "kubeflow-sdk is a pure client-side SDK that delegates all authentication and network transport to the kubernetes Python client and kfp libraries; it does not implement independent server endpoints or auth middleware.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "kubeflow/common/types.py:16-27"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "kubeflow/pipelines/api/pipelines_client.py:17"
+        },
+        {
+          "kind": "analyzer-fact",
+          "location": "component-architecture.json#/authentication"
+        }
+      ],
+      "reasoning": "The KubernetesBackendConfig wraps kubernetes.client.Configuration for auth, and PipelinesClient is a direct re-export from kfp. No HTTP server, FastAPI app, or auth middleware exists in the production code. The analyzer's HTTP API detection originated from test fixtures, not production endpoints.",
+      "applicability": "component",
+      "confidence": "high"
+    },
+    {
+      "id": "kubeflow-sdk-rhai-extensions-002",
+      "claim": "RHAI extensions under kubeflow.trainer.rhai provide Red Hat-specific training instrumentation (checkpoint management, progression tracking) that is injected into training pods at submission time, not at runtime via network calls.",
+      "category": "pattern",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "kubeflow/trainer/rhai/instrumentation/__init__.py:15-25"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "kubeflow/trainer/rhai/transformers.py:14-32"
+        }
+      ],
+      "reasoning": "The instrumentation __init__.py documents four code-generation submodules for TrainingHub and Transformers trainers. The transformers module imports checkpoint and progression instrumentation creators. These generate code injected into pod specs, operating as a build-time pattern rather than a runtime service interaction.",
+      "applicability": "cross-component",
+      "confidence": "high"
+    },
+    {
+      "id": "kubeflow-sdk-fips-passthrough-003",
+      "claim": "The SDK has no FIPS-specific configuration; cryptography is a transitive dependency and FIPS compliance depends entirely on the host platform's OpenSSL configuration.",
+      "category": "risk",
+      "provenance": [
+        {
+          "kind": "source-excerpt",
+          "location": "requirements.txt:416"
+        },
+        {
+          "kind": "source-excerpt",
+          "location": "pyproject.toml:28-35"
+        }
+      ],
+      "reasoning": "cryptography==46.0.5 appears only in the pinned requirements.txt lockfile as a transitive dependency, not in pyproject.toml direct dependencies. No FIPS mode, crypto provider selection, or hazmat backend configuration exists anywhere in the SDK source. FIPS compliance is entirely a platform-level concern for this component.",
+      "applicability": "component",
+      "confidence": "high"
+    }
+  ]
+}

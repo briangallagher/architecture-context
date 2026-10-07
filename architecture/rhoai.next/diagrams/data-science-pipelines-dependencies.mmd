@@ -1,41 +1,51 @@
 graph LR
-    DSP["Data Science Pipelines<br/>(API Server + Agents)"]
+    DSP["Data Science Pipelines<br/>(API Server + Driver +<br/>Launcher + Agents)"]
 
     %% External Dependencies (Required)
-    DSP -->|"workflow execution<br/>Workflow CRs"| Argo["Argo Workflows<br/>v3.7.11"]
-    DSP -->|"metadata persistence<br/>TCP 3306/5432"| Database["MySQL 8.x /<br/>PostgreSQL 15.x"]
-    DSP -->|"specs & artifacts<br/>HTTPS 443"| ObjectStore["MinIO / S3 / GCS"]
-    DSP -->|"execution metadata<br/>gRPC 8080"| MLMD["ML Metadata<br/>(MLMD)"]
-    DSP -->|"CRD ops, RBAC<br/>HTTPS 443"| K8s["Kubernetes 1.27+"]
+    DSP -->|"workflow execution"| ArgoWF["Argo Workflows v3"]
+    DSP -->|"SQL storage<br/>3306/5432/TCP"| Database["MySQL / PostgreSQL"]
+    DSP -->|"artifact storage<br/>443/TCP S3"| ObjectStore["MinIO / S3 / GCS"]
+    DSP -->|"execution tracking<br/>8080/TCP gRPC"| MLMD["ML Metadata<br/>(MLMD)"]
+    DSP -->|"RBAC, CRDs, Pods<br/>443/TCP HTTPS"| K8sAPI["Kubernetes 1.25+"]
 
-    %% Internal ODH Dependencies
-    DSPO["data-science-pipelines-<br/>operator (DSPO)"] -->|"deploys & manages<br/>DSPA CR"| DSP
-    Dashboard["RHOAI Dashboard"] -->|"REST API consumer<br/>HTTP 8888"| DSP
-    KFP["KFP Python SDK"] -->|"REST/gRPC consumer<br/>8888 + 8887"| DSP
+    %% Internal Platform Dependencies
+    DSP -->|"caching webhook<br/>443/TCP HTTPS"| CacheServer["Cache Server"]
+    DSP -->|"visualizations<br/>8888/TCP HTTP"| VizServer["Visualization Server"]
+    DSP -.->|"experiment tracking<br/>HTTP/HTTPS (plugin)"| MLflow["MLflow Tracking<br/>Server"]
 
-    %% CRDs Managed
-    DSP -.->|"creates/watches"| WF_CRD["Workflow CR<br/>argoproj.io/v1alpha1"]
-    DSP -.->|"creates/watches"| SWF_CRD["ScheduledWorkflow CR<br/>kubeflow.org/v1beta1"]
-    DSP -.->|"manages"| Pipeline_CRD["Pipeline CR<br/>pipelines.kubeflow.org/v2beta1"]
-    DSP -.->|"validates/mutates"| PV_CRD["PipelineVersion CR<br/>pipelines.kubeflow.org/v2beta1"]
-    DSP -.->|"creates"| Viewer_CRD["Viewer CR<br/>kubeflow.org/v1beta1"]
+    %% Integration Points (consumed by)
+    DSPO["Data Science Pipelines<br/>Operator (DSPO)"] -->|"deploys & manages<br/>via DSPApplication CRD"| DSP
+    PipelineUI["ML Pipeline UI<br/>(Frontend)"] -->|"REST API consumer<br/>8888/TCP HTTP"| DSP
+    Dashboard["ODH Dashboard"] -.->|"pipeline management"| DSP
 
-    %% Webhook
-    K8sAdmission["Kubernetes<br/>Admission Webhook"] -->|"PipelineVersion<br/>validation/mutation<br/>HTTPS 8443"| DSP
+    %% CRD Dependencies
+    DSP -->|"creates/watches"| ArgoWFCRD["Workflow CRD<br/>argoproj.io"]
+    DSP -->|"reconciles"| SWFCRD["ScheduledWorkflow CRD<br/>kubeflow.org"]
+    DSP -->|"manages"| PipelineCRD["Pipeline CRD<br/>pipelines.kubeflow.org"]
+    DSP -->|"validates/mutates"| PipelineVersionCRD["PipelineVersion CRD<br/>pipelines.kubeflow.org"]
 
     %% Styling
     style DSP fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
-    style Argo fill:#999,stroke:#333,color:#fff
+
+    %% External dependencies
+    style ArgoWF fill:#999,stroke:#333,color:#fff
     style Database fill:#999,stroke:#333,color:#fff
     style ObjectStore fill:#999,stroke:#333,color:#fff
-    style MLMD fill:#999,stroke:#333,color:#fff
-    style K8s fill:#999,stroke:#333,color:#fff
-    style DSPO fill:#7ed321,stroke:#333,color:#fff
-    style Dashboard fill:#7ed321,stroke:#333,color:#fff
-    style KFP fill:#7ed321,stroke:#333,color:#fff
-    style K8sAdmission fill:#f5a623,stroke:#333,color:#fff
-    style WF_CRD fill:#f5a623,stroke:#333,color:#fff
-    style SWF_CRD fill:#f5a623,stroke:#333,color:#fff
-    style Pipeline_CRD fill:#f5a623,stroke:#333,color:#fff
-    style PV_CRD fill:#f5a623,stroke:#333,color:#fff
-    style Viewer_CRD fill:#f5a623,stroke:#333,color:#fff
+    style K8sAPI fill:#999,stroke:#333,color:#fff
+
+    %% Internal platform
+    style MLMD fill:#7ed321,stroke:#333,color:#000
+    style CacheServer fill:#7ed321,stroke:#333,color:#000
+    style VizServer fill:#7ed321,stroke:#333,color:#000
+    style DSPO fill:#7ed321,stroke:#333,color:#000
+    style PipelineUI fill:#7ed321,stroke:#333,color:#000
+    style Dashboard fill:#7ed321,stroke:#333,color:#000
+
+    %% External services
+    style MLflow fill:#f5a623,stroke:#333,color:#000
+
+    %% CRDs
+    style ArgoWFCRD fill:#f5a623,stroke:#333,color:#000
+    style SWFCRD fill:#f5a623,stroke:#333,color:#000
+    style PipelineCRD fill:#f5a623,stroke:#333,color:#000
+    style PipelineVersionCRD fill:#f5a623,stroke:#333,color:#000

@@ -1,0 +1,97 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL (Untrusted)                                                   │
+│                                                                          │
+│  [External Client / ModelMesh / KServe]                                  │
+│         │                                                                │
+│         │ Port: Pod external interface                                   │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS (platform-managed)                             │
+│         │ Auth: OpenShift RBAC (kube-rbac-proxy validates)               │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  POD BOUNDARY (Authentication Sidecar)                                  │
+│                                                                          │
+│  [kube-rbac-proxy]                                                       │
+│  - Role: Authentication gateway sidecar                                  │
+│  - Listens: Pod external interface                                       │
+│  - AuthN: OpenShift RBAC (SubjectAccessReview)                          │
+│  - Forwards authenticated requests to loopback                           │
+│         │                                                                │
+│         │ Port: 8080/TCP                                                 │
+│         │ Protocol: HTTP                                                 │
+│         │ Encryption: None (loopback 127.0.0.1 only)                    │
+│         │ Auth: Pre-authenticated by kube-rbac-proxy                     │
+│         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  APPLICATION (Loopback - Trusted)                                       │
+│                                                                          │
+│  [TrustyAI Service - FastAPI/Hypercorn]                                  │
+│  - Namespace: {user-namespace}                                           │
+│  - Bind: 127.0.0.1:8080 (HTTP, loopback only)                          │
+│  - Bind: 0.0.0.0:4443 (HTTPS, when TLS certs mounted)                  │
+│  - No application-level auth middleware                                  │
+│  - 87 HTTP endpoints (consumer, metrics, explainers, info, health)      │
+│         │                                                                │
+│         │                                                                │
+│    ┌────┴───────────────────────────────────────┐                        │
+│    │                                            │                        │
+│    ▼                                            ▼                        │
+│  [PVC Storage]                             [MariaDB] (optional)          │
+│  - HDF5 files                              - Port: 3306/TCP             │
+│  - Local volume mount                      - Protocol: MySQL/MariaDB    │
+│  - Default storage backend                 - Encryption: TLS (optional)  │
+│  - No network egress                       - Auth: DATABASE_PASSWORD     │
+│                                            - TLS CA: DATABASE_TLS_CA_CERT│
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  OPTIONAL DIRECT ACCESS                                                  │
+│                                                                          │
+│  [Direct HTTPS Client]                                                   │
+│         │                                                                │
+│         │ Port: 4443/TCP                                                 │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS (Hypercorn termination)                        │
+│         │ Certs: /etc/tls/internal/tls.crt, tls.key                     │
+│         │ Auth: TLS client certificate (no app-level auth)              │
+│         ▼                                                                │
+│  [TrustyAI Service - Direct HTTPS Bind]                                  │
+│  - Bind: 0.0.0.0:4443                                                   │
+│  - Only active when TLS certs are mounted                                │
+│  - Bypasses kube-rbac-proxy                                              │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  OBSERVABILITY                                                           │
+│                                                                          │
+│  [Prometheus Scraper]                                                    │
+│         │                                                                │
+│         │ GET /q/metrics                                                 │
+│         │ Via kube-rbac-proxy (authenticated)                            │
+│         ▼                                                                │
+│  [TrustyAI /q/metrics endpoint]                                          │
+│  - Fairness gauges (SPD, DIR)                                            │
+│  - Drift metrics (KS, Jensen-Shannon, Fourier MMD)                      │
+│  - Computed every SERVICE_METRICS_SCHEDULE (default 30s)                 │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Secrets:
+- DATABASE_PASSWORD (env var) - MariaDB credentials, runtime environment provisioned
+- QUARKUS_DATASOURCE_PASSWORD (env var) - MariaDB credentials (legacy name), runtime environment provisioned
+
+Authentication Model:
+- Primary: kube-rbac-proxy sidecar performs SubjectAccessReview against OpenShift RBAC
+- HTTP bound to 127.0.0.1:8080 (loopback only) - not directly accessible from network
+- No application-level authentication middleware registered in FastAPI
+- Optional direct HTTPS on 0.0.0.0:4443 with TLS cert-based access (bypasses kube-rbac-proxy)
+
+TLS Configuration:
+- Service HTTP: No encryption (loopback only, behind kube-rbac-proxy)
+- Service HTTPS: TLS via Hypercorn, certs at /etc/tls/internal/{tls.crt, tls.key}
+- MariaDB: Optional TLS via DATABASE_TLS_CA_CERT environment variable
+- cryptography>=48.0.1,<50 library for TLS support
+- FIPS compliance: Not verified at application level (depends on base image)
+
+RBAC Summary:
+- No ClusterRoles or RoleBindings defined in component source
+- Authentication delegated entirely to kube-rbac-proxy sidecar
+- Platform operator (TrustyAI Operator / ODH Operator) expected to configure RBAC

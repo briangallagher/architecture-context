@@ -3,87 +3,102 @@ graph TB
         direction TB
 
         subgraph ServiceLayer["explainability-service (Quarkus REST)"]
-            direction LR
-            FairnessAPI["Fairness Endpoints<br/>/metrics/group/fairness/*<br/>SPD, DIR"]
-            DriftAPI["Drift Endpoints<br/>/metrics/drift/*<br/>KS, MMD, Meanshift"]
-            ExplainerAPI["Explainer Endpoints<br/>/explainers/*<br/>LIME, SHAP, CF, TSSaliency, PDP"]
-            DataAPI["Data Endpoints<br/>/data/upload, /data/download"]
-            ConsumerAPI["Consumer Endpoints<br/>/consumer/kserve/v2"]
-            InfoAPI["Info Endpoints<br/>/info, /info/tags, /info/names"]
-            HealthAPI["Health & Metrics<br/>/q/health/*, /q/metrics"]
+            MetricsEndpoints["Metrics Endpoints<br/>/metrics/group/fairness/*<br/>/metrics/drift/*"]
+            ExplainerEndpoints["Explainer Endpoints<br/>/explainers/local/*<br/>/explainers/global/*<br/>(disabled in RHOAI)"]
+            ConsumerEndpoint["Consumer Endpoint<br/>/consumer/kserve/v2"]
+            CloudEventConsumer["CloudEvent Consumer<br/>(Funqy function)"]
+            DataEndpoints["Data Endpoints<br/>/data/upload, /data/download"]
+            InfoEndpoints["Info Endpoints<br/>/info, /info/tags, /info/names"]
+            HealthEndpoints["Health & Metrics<br/>/q/health/*, /q/metrics"]
         end
 
-        subgraph StorageLayer["Storage Backends (pluggable)"]
-            direction LR
-            PVCStorage["PVC Storage<br/>(default, CSV at /inputs)"]
-            MinIOStorage["MinIO/S3 Storage<br/>(optional)"]
-            DBStorage["Hibernate/DB Storage<br/>(MariaDB/MySQL, optional)"]
-            MemoryStorage["In-Memory Storage<br/>(optional)"]
+        subgraph Reconcilers["Payload Reconcilers"]
+            MMReconciler["ModelMesh<br/>InferencePayload<br/>Reconciler"]
+            KSReconciler["KServe<br/>InferencePayload<br/>Reconciler"]
         end
 
-        subgraph CoreLib["explainability-core (Library)"]
-            direction LR
-            FairnessCalc["Fairness Metrics<br/>SPD, DIR"]
-            DriftCalc["Drift Detection<br/>KS, Fourier MMD, Meanshift"]
-            Explainers["Explainers<br/>LIME, SHAP, CF, TSSaliency, PDP"]
+        subgraph StorageLayer["Storage Backends (CDI selected)"]
+            PVCStorage["PVC Storage<br/>/inputs mount"]
+            MinIOStorage["MinIO/S3 Storage<br/>HTTP/HTTPS"]
+            DBStorage["Hibernate Storage<br/>MariaDB/MySQL"]
+            MemStorage["Memory Storage<br/>(dev/test only)"]
         end
 
-        subgraph Connectors["explainability-connectors (Library)"]
-            direction LR
-            KServeV1["KServe v1 HTTP<br/>Connector"]
-            KServeV2["KServe v2 HTTP<br/>Connector"]
-            KServeGRPC["KServe v2 gRPC<br/>Connector"]
+        subgraph Scheduling["Metric Scheduling"]
+            PrometheusScheduler["Prometheus<br/>Scheduler"]
+            PrometheusPublisher["Prometheus<br/>Publisher<br/>(Micrometer gauges)"]
         end
 
-        subgraph Reconciler["Inference Reconciliation"]
-            PayloadStorage["PayloadStorage<br/>(partial payloads)"]
-            PayloadReconciler["PayloadReconciler<br/>(match input+output by ID)"]
-            PayloadStorage --> PayloadReconciler
-        end
-
-        PrometheusScheduler["PrometheusScheduler<br/>(cron-triggered metric computation)"]
+        ConsumerEndpoint --> MMReconciler
+        CloudEventConsumer --> KSReconciler
+        MMReconciler --> PVCStorage
+        MMReconciler --> MinIOStorage
+        MMReconciler --> DBStorage
+        KSReconciler --> PVCStorage
+        KSReconciler --> MinIOStorage
+        KSReconciler --> DBStorage
+        MetricsEndpoints --> PrometheusScheduler
+        PrometheusScheduler --> PrometheusPublisher
     end
 
-    %% Internal flows
-    FairnessAPI --> FairnessCalc
-    DriftAPI --> DriftCalc
-    ExplainerAPI --> Explainers
-    ConsumerAPI --> PayloadStorage
-    PayloadReconciler --> StorageLayer
-    PrometheusScheduler --> StorageLayer
-    PrometheusScheduler --> FairnessCalc
-    PrometheusScheduler --> DriftCalc
-    Explainers --> Connectors
-    DataAPI --> StorageLayer
+    subgraph CoreLib["explainability-core (Library)"]
+        LIME["LIME"]
+        SHAP["SHAP"]
+        Counterfactual["Counterfactual<br/>(OptaPlanner)"]
+        TSSaliency["Time Series<br/>Saliency"]
+        SPD["SPD Metric"]
+        DIR["DIR Metric"]
+        DriftAlgos["Drift Detection<br/>KS-Test, Meanshift,<br/>Fourier MMD"]
+    end
+
+    subgraph ConnectorsLib["explainability-connectors (Library)"]
+        GRPCConnector["gRPC Connector<br/>KServe V2 Protocol"]
+        HTTPConnector["HTTP Connector<br/>KServe V2 Protocol"]
+    end
+
+    subgraph ArrowLib["explainability-arrow (Library)"]
+        ArrowInterchange["Apache Arrow<br/>Data Interchange"]
+    end
 
     %% External actors
-    User["User / Dashboard"] -->|REST 8080/TCP| FairnessAPI
-    User -->|REST 8080/TCP| DriftAPI
-    User -->|REST 8080/TCP| ExplainerAPI
-    User -->|REST 8080/TCP| DataAPI
+    Client["Client / Dashboard"]
+    ModelMesh["ModelMesh Serving"]
+    KServeService["KServe InferenceService"]
+    KnativeEventing["Knative Eventing<br/>(CloudEvents)"]
+    ModelServer["KServe/ModelMesh<br/>Model Server"]
+    Prometheus["Prometheus<br/>(ServiceMonitor)"]
 
-    KServeIS["KServe InferenceService<br/>(payload processor)"] -->|POST /consumer/kserve/v2<br/>8080/TCP| ConsumerAPI
-    ModelMesh["ModelMesh Serving"] -->|POST /consumer/kserve/v2<br/>8080/TCP| ConsumerAPI
-    CloudEvents["Kubeflow CloudEvents<br/>Broker"] -->|CloudEvent<br/>8080/TCP| ConsumerAPI
+    %% Inbound flows
+    Client -->|"REST 8080/TCP"| MetricsEndpoints
+    Client -->|"REST 8080/TCP"| ExplainerEndpoints
+    Client -->|"REST 8080/TCP"| DataEndpoints
+    Client -->|"REST 8080/TCP"| InfoEndpoints
+    ModelMesh -->|"REST 8080/TCP"| ConsumerEndpoint
+    KServeService -->|"CloudEvents via Knative"| KnativeEventing
+    KnativeEventing -->|"HTTP 8080/TCP"| CloudEventConsumer
+    Prometheus -->|"scrape /q/metrics"| HealthEndpoints
 
-    Connectors -->|gRPC 8033/TCP<br/>or HTTP| KServeModel["KServe Model Endpoint"]
-
-    Prometheus["Prometheus"] -->|GET /q/metrics<br/>8080/TCP| HealthAPI
-
-    TrustyAIOp["TrustyAI Operator"] -.->|manages| TrustyAI
+    %% Outbound flows
+    ExplainerEndpoints -->|"uses"| CoreLib
+    ExplainerEndpoints -->|"gRPC (plaintext)"| GRPCConnector
+    GRPCConnector -->|"gRPC V2 protocol"| ModelServer
+    MetricsEndpoints -->|"uses"| SPD
+    MetricsEndpoints -->|"uses"| DIR
+    MetricsEndpoints -->|"uses"| DriftAlgos
 
     %% Styling
-    style TrustyAI fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style TrustyAI fill:#e8f4f8,stroke:#4a90e2,stroke-width:2px
     style ServiceLayer fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style StorageLayer fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    style CoreLib fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
-    style Connectors fill:#f8cecc,stroke:#b85450,stroke-width:2px
-    style Reconciler fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    style CoreLib fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style ConnectorsLib fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style ArrowLib fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style StorageLayer fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style Reconcilers fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    style Scheduling fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
 
-    style User fill:#f9f9f9,stroke:#999
-    style KServeIS fill:#f9f9f9,stroke:#999
-    style ModelMesh fill:#f9f9f9,stroke:#999
-    style CloudEvents fill:#f9f9f9,stroke:#999
-    style KServeModel fill:#f9f9f9,stroke:#999
-    style Prometheus fill:#f9f9f9,stroke:#999
-    style TrustyAIOp fill:#7ed321,stroke:#333
+    style Client fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style ModelMesh fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style KServeService fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style KnativeEventing fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style ModelServer fill:#f9f9f9,stroke:#999,stroke-width:2px
+    style Prometheus fill:#f9f9f9,stroke:#999,stroke-width:2px

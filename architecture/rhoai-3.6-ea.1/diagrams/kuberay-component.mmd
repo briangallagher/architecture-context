@@ -1,0 +1,89 @@
+graph TB
+    subgraph KubeRayOperator["KubeRay Operator (ray-operator)"]
+        direction TB
+        Manager["/manager<br/>controller-runtime Process"]
+
+        subgraph Controllers["Controllers"]
+            RayClusterCtrl["RayCluster<br/>Reconciler"]
+            RayJobCtrl["RayJob<br/>Reconciler"]
+            RayServiceCtrl["RayService<br/>Reconciler"]
+            RayCronJobCtrl["RayCronJob<br/>Reconciler"]
+            AuthCtrl["Authentication<br/>Controller"]
+            NetPolCtrl["NetworkPolicy<br/>Controller"]
+            MTLSCtrl["RayClusterMTLS<br/>Controller"]
+            TLSWatcher["TLS Profile<br/>Watcher"]
+        end
+
+        subgraph Webhooks["Admission Webhooks"]
+            MutatingWH["Mutating Webhook<br/>/mutate-ray-io-v1-raycluster"]
+            ValidatingRCWH["Validating Webhook<br/>/validate-ray-io-v1-raycluster"]
+            ValidatingRJWH["Validating Webhook<br/>/validate-ray-io-v1-rayjob"]
+            ValidatingRSWH["Validating Webhook<br/>/validate-ray-io-v1-rayservice"]
+        end
+
+        MetricsSrv["Metrics Server<br/>:8080"]
+        HealthProbes["Health Probes<br/>:8082 /healthz /readyz"]
+
+        Manager --> Controllers
+        Manager --> Webhooks
+        Manager --> MetricsSrv
+        Manager --> HealthProbes
+    end
+
+    %% CRDs watched
+    RayClusterCR["RayCluster CR<br/>ray.io/v1"]
+    RayJobCR["RayJob CR<br/>ray.io/v1"]
+    RayServiceCR["RayService CR<br/>ray.io/v1"]
+    RayCronJobCR["RayCronJob CR<br/>ray.io/v1"]
+
+    RayClusterCR -->|watched by| RayClusterCtrl
+    RayClusterCR -->|watched by| AuthCtrl
+    RayClusterCR -->|watched by| NetPolCtrl
+    RayClusterCR -->|watched by| MTLSCtrl
+    RayJobCR -->|watched by| RayJobCtrl
+    RayServiceCR -->|watched by| RayServiceCtrl
+    RayCronJobCR -->|watched by| RayCronJobCtrl
+
+    %% Resources created
+    RayClusterCtrl -->|creates| Pods["Pods<br/>(Head + Workers)"]
+    RayClusterCtrl -->|creates| Services["Services"]
+    RayClusterCtrl -->|creates| Secrets["Secrets"]
+    AuthCtrl -->|injects| KRBPSidecar["kube-rbac-proxy<br/>Sidecar :8443"]
+    AuthCtrl -->|creates| HTTPRoute["HTTPRoute"]
+    AuthCtrl -->|creates| RefGrant["ReferenceGrant"]
+    AuthCtrl -->|creates| SA["ServiceAccount"]
+    NetPolCtrl -->|creates| NetPol["NetworkPolicy"]
+    MTLSCtrl -->|creates| Cert["cert-manager<br/>Certificate"]
+    MTLSCtrl -->|creates| Issuer["cert-manager<br/>Issuer"]
+    RayJobCtrl -->|creates| BatchJob["batch/v1 Job"]
+
+    %% External dependencies
+    KubeRayOperator -->|reads TLS profile| OpenShiftAPI["OpenShift APIServer<br/>config.openshift.io"]
+    KubeRayOperator -->|watches/creates| K8sAPI["Kubernetes API<br/>:6443"]
+
+    %% Styling
+    style KubeRayOperator fill:#e8f4fd,stroke:#4a90e2,stroke-width:2px
+    style Manager fill:#4a90e2,color:#fff
+    style RayClusterCtrl fill:#4a90e2,color:#fff
+    style RayJobCtrl fill:#4a90e2,color:#fff
+    style RayServiceCtrl fill:#4a90e2,color:#fff
+    style RayCronJobCtrl fill:#4a90e2,color:#fff
+    style AuthCtrl fill:#4a90e2,color:#fff
+    style NetPolCtrl fill:#4a90e2,color:#fff
+    style MTLSCtrl fill:#4a90e2,color:#fff
+    style TLSWatcher fill:#4a90e2,color:#fff
+    style MutatingWH fill:#9b59b6,color:#fff
+    style ValidatingRCWH fill:#9b59b6,color:#fff
+    style ValidatingRJWH fill:#9b59b6,color:#fff
+    style ValidatingRSWH fill:#9b59b6,color:#fff
+    style RayClusterCR fill:#f5a623
+    style RayJobCR fill:#f5a623
+    style RayServiceCR fill:#f5a623
+    style RayCronJobCR fill:#f5a623
+    style KRBPSidecar fill:#e74c3c,color:#fff
+    style HTTPRoute fill:#7ed321
+    style RefGrant fill:#7ed321
+    style Cert fill:#7ed321
+    style Issuer fill:#7ed321
+    style OpenShiftAPI fill:#e8e8e8
+    style K8sAPI fill:#e8e8e8

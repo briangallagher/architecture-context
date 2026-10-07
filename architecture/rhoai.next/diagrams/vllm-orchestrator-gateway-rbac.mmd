@@ -1,57 +1,52 @@
 graph TD
-    subgraph "vLLM Orchestrator Gateway - RBAC / Auth Model"
+    subgraph GatewayRBAC["vllm-orchestrator-gateway RBAC"]
         direction TB
 
-        subgraph NoK8sRBAC["Kubernetes RBAC"]
-            NoRoles["No ClusterRoles defined"]
-            NoBindings["No RoleBindings defined"]
-            NoSA["No ServiceAccount defined<br/>(uses pod default)"]
+        Note["NOTE: No RBAC Manifests Present"]
+
+        subgraph NoRBAC["Security Posture"]
+            NoClusterRole["No ClusterRoles defined"]
+            NoRole["No Roles defined"]
+            NoRoleBinding["No RoleBindings defined"]
+            NoSA["No ServiceAccount definitions"]
+            NoK8sAPI["No Kubernetes API access"]
         end
 
         subgraph AuthModel["Authentication & Authorization Model"]
             direction TB
+            GatewayAuth["Gateway Level<br/>Authentication: NONE<br/>Authorization: NONE"]
+            PassThrough["Pass-Through Headers<br/>Authorization: forwarded<br/>X-Forwarded-*: forwarded"]
+            OrchestratorAuth["Orchestrator Level<br/>Receives forwarded auth headers<br/>Enforces own auth policy"]
 
-            subgraph ClientAuth["Client → Gateway (Inbound)"]
-                InboundPort["Port: 8090/TCP"]
-                InboundProto["Protocol: HTTP (plaintext)"]
-                InboundAuth["Auth: None enforced at gateway<br/>Authorization header accepted<br/>but passed through transparently"]
-            end
-
-            subgraph GatewayToOrch["Gateway → Orchestrator (Outbound)"]
-                OutboundPort["Port: 8085/TCP (configurable)"]
-                OutboundProto["Protocol: HTTP or HTTPS"]
-                OutboundAuth["Auth Mechanisms:"]
-                PassThrough["1. Authorization header forwarded<br/>(Bearer token pass-through)"]
-                MTLSAuth["2. mTLS client certificate<br/>(when TLS certs present)"]
-            end
+            GatewayAuth -->|"forwards headers"| PassThrough
+            PassThrough -->|"delegated to"| OrchestratorAuth
         end
 
-        subgraph TLSIdentity["TLS / mTLS Identity"]
-            ClientCert["/etc/tls/private/tls.crt<br/>X.509 Client Certificate"]
-            ClientKey["/etc/tls/private/tls.key<br/>PEM Private Key"]
-            CACert["/etc/tls/ca/service-ca.crt<br/>CA Certificate (custom trust)"]
-            Identity["PKCS#12 Identity<br/>(constructed at startup)"]
-
-            ClientCert -->|"converted to"| Identity
-            ClientKey -->|"converted to"| Identity
-            CACert -->|"added to trust store"| Identity
+        subgraph Secrets["Secrets & Certificates"]
+            TLSSecret["TLS Client Cert<br/>Path: /etc/tls/private/tls.crt + tls.key<br/>Type: kubernetes.io/tls<br/>Provisioned: service-serving-cert-signer<br/>Auto-Rotate: Yes"]
+            CACert["CA Certificate<br/>Path: /etc/tls/ca/service-ca.crt<br/>Type: ConfigMap (projected)<br/>Provisioned: service-ca-operator<br/>Auto-Rotate: Yes"]
         end
 
-        OutboundAuth --> PassThrough
-        OutboundAuth --> MTLSAuth
-        MTLSAuth -->|"uses"| Identity
+        subgraph SecurityGaps["Security Gaps"]
+            Gap1["No NetworkPolicy shipped"]
+            Gap2["No auth at gateway level"]
+            Gap3["No resource limits defined"]
+            Gap4["Streaming: partial content<br/>delivered before detection"]
+        end
     end
 
-    Note["Note: This component has NO Kubernetes RBAC.<br/>It is a stateless HTTP proxy service.<br/>Auth is delegated to the orchestrator<br/>or upstream infrastructure (e.g., Istio, ingress)."]
-
-    style NoRoles fill:#f9f9f9,stroke:#999
-    style NoBindings fill:#f9f9f9,stroke:#999
-    style NoSA fill:#f9f9f9,stroke:#999
-    style InboundAuth fill:#ffe6cc,stroke:#d79b00
-    style PassThrough fill:#d5e8d4,stroke:#82b366
-    style MTLSAuth fill:#d5e8d4,stroke:#82b366
-    style ClientCert fill:#fff2cc,stroke:#d6b656
-    style ClientKey fill:#fff2cc,stroke:#d6b656
-    style CACert fill:#fff2cc,stroke:#d6b656
-    style Identity fill:#dae8fc,stroke:#6c8ebf
-    style Note fill:#f8cecc,stroke:#b85450
+    style Note fill:#ff6b6b,stroke:#333,color:#fff,font-weight:bold
+    style NoClusterRole fill:#ffe0e0,stroke:#cc0000
+    style NoRole fill:#ffe0e0,stroke:#cc0000
+    style NoRoleBinding fill:#ffe0e0,stroke:#cc0000
+    style NoSA fill:#ffe0e0,stroke:#cc0000
+    style NoK8sAPI fill:#ffe0e0,stroke:#cc0000
+    style GatewayAuth fill:#ffcc80,stroke:#e65100
+    style PassThrough fill:#fff9c4,stroke:#f57f17
+    style OrchestratorAuth fill:#c8e6c9,stroke:#2e7d32
+    style TLSSecret fill:#bbdefb,stroke:#1565c0
+    style CACert fill:#bbdefb,stroke:#1565c0
+    style Gap1 fill:#ffcdd2,stroke:#c62828
+    style Gap2 fill:#ffcdd2,stroke:#c62828
+    style Gap3 fill:#ffcdd2,stroke:#c62828
+    style Gap4 fill:#ffcdd2,stroke:#c62828

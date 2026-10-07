@@ -1,57 +1,89 @@
 graph TD
-    subgraph "Service Accounts (Helm-created)"
-        SA_API["{release}-apiserver<br/>ServiceAccount"]
-        SA_PROC["{release}-processor<br/>ServiceAccount"]
-        SA_GC["{release}-gc<br/>ServiceAccount"]
+    subgraph Legend["Legend"]
+        direction LR
+        L1["No Kubernetes RBAC defined"]
+        L2["Components use default SA permissions"]
+        L3["Auth delegated to external gateway"]
     end
 
-    subgraph "RBAC Bindings"
-        NoBind["No ClusterRoleBindings<br/>No RoleBindings<br/>(stateless service,<br/>no K8s API access)"]
+    subgraph ServiceAccounts["Service Accounts (Default Permissions)"]
+        SA_API["{release}-batch-gateway-apiserver"]
+        SA_Proc["{release}-batch-gateway-processor"]
+        SA_GC["{release}-batch-gateway-gc"]
     end
 
-    subgraph "Kubernetes API Access"
-        NoAccess["No Kubernetes API calls<br/>No watch/list/create permissions<br/>Not an operator"]
+    subgraph ExternalAuth["External Authentication (Kuadrant / Authorino)"]
+        direction TB
+        AuthPolicy["AuthPolicy<br/>Per-tier identity extraction"]
+
+        subgraph AuthMechanisms["Supported Auth Mechanisms"]
+            APIKey["API Key"]
+            SAToken["ServiceAccount Token"]
+            UserToken["OpenShift User Token"]
+        end
+
+        AuthPolicy --> APIKey
+        AuthPolicy --> SAToken
+        AuthPolicy --> UserToken
     end
 
-    subgraph "Application-Level Authorization"
+    subgraph TenantIsolation["Application-Level Tenant Isolation"]
+        direction TB
+        TenantHeader["X-MaaS-Username Header<br/>(injected by gateway)"]
+
+        subgraph DataScoping["Data Scoping by Tenant"]
+            PGScope["PostgreSQL: WHERE tenant_id = ?"]
+            RedisScope["Redis: Key-prefixed by tenant ID"]
+            S3Scope["S3: SHA256 folder paths per tenant"]
+        end
+
+        TenantHeader --> PGScope
+        TenantHeader --> RedisScope
+        TenantHeader --> S3Scope
+    end
+
+    subgraph Endpoints["Endpoint Access Control"]
         direction TB
 
-        TenantAuth["Tenant Isolation Model"]
-        ExtAuth["External AuthN<br/>(Kuadrant / Authorino)<br/>Envoy ext_authz"]
-        TenantHeader["Tenant Header Extraction<br/>X-MaaS-Username (last value)<br/>Envoy appends verified identity"]
-        DataScoping["Data Access Scoping<br/>All DB queries filtered by tenant_id<br/>Cross-tenant: HTTP 404"]
+        subgraph Protected["Protected Endpoints (Auth Required)"]
+            BatchEndpoints["/v1/batches<br/>GET, POST, CANCEL"]
+            FileEndpoints["/v1/files<br/>GET, POST, DELETE, Content"]
+        end
 
-        ExtAuth -->|"authenticates request"| TenantHeader
-        TenantHeader -->|"extracts tenant ID"| DataScoping
-        TenantAuth --- ExtAuth
+        subgraph Unprotected["Unprotected Endpoints (No Auth)"]
+            HealthEndpoints["/health, /ready<br/>Ports: 8081, 9090, 9091"]
+            MetricsEndpoints["/metrics<br/>Ports: 8081, 9090, 9091"]
+        end
     end
 
-    subgraph "Secrets Access"
-        Secret1["batch-gateway-secrets<br/>(Opaque)<br/>- redis-url<br/>- postgresql-url<br/>- inference-api-key<br/>- s3-secret-access-key<br/>Provisioned: Manual<br/>Auto-Rotate: No"]
-        Secret2["{release}-apiserver-tls<br/>(kubernetes.io/tls)<br/>- tls.crt<br/>- tls.key<br/>Provisioned: cert-manager (optional)<br/>Auto-Rotate: Yes (cert-manager)"]
+    subgraph InferenceAuth["Inference Auth"]
+        InfAPIKey["API Key (Bearer header)<br/>Per-model or global<br/>From secret: inference-api-key"]
     end
 
-    SA_API -->|"mounts"| Secret1
-    SA_API -->|"mounts (optional)"| Secret2
-    SA_PROC -->|"mounts"| Secret1
-    SA_GC -->|"mounts"| Secret1
+    %% Flows
+    AuthPolicy -->|"authenticates"| Protected
+    SA_API -->|"runs"| Protected
+    SA_Proc -->|"dispatches via"| InfAPIKey
+    SA_GC -->|"cleanup only<br/>no API exposure"| DataScoping
 
-    SA_API -.->|"no RBAC bindings"| NoBind
-    SA_PROC -.->|"no RBAC bindings"| NoBind
-    SA_GC -.->|"no RBAC bindings"| NoBind
-    NoBind -.->|"no API access"| NoAccess
-
-    SA_API -->|"uses"| TenantAuth
+    %% Cross-tenant protection
+    Protected -->|"tenant-scoped<br/>404 on cross-tenant"| TenantIsolation
 
     %% Styling
-    style SA_API fill:#4a90e2,stroke:#333,color:#fff
-    style SA_PROC fill:#4a90e2,stroke:#333,color:#fff
-    style SA_GC fill:#4a90e2,stroke:#333,color:#fff
-    style NoBind fill:#e8e8e8,stroke:#999
-    style NoAccess fill:#e8e8e8,stroke:#999
-    style ExtAuth fill:#ffe6cc,stroke:#d79b00
-    style TenantHeader fill:#d5e8d4,stroke:#82b366
-    style DataScoping fill:#d5e8d4,stroke:#82b366
-    style TenantAuth fill:#fff2cc,stroke:#d6b656
-    style Secret1 fill:#f8cecc,stroke:#b85450
-    style Secret2 fill:#f8cecc,stroke:#b85450
+    style Legend fill:#ffffcc,stroke:#999
+    style ServiceAccounts fill:#e8f0fe,stroke:#4a90e2
+    style ExternalAuth fill:#ffcccc,stroke:#cc3333
+    style TenantIsolation fill:#d5e8d4,stroke:#82b366
+    style Endpoints fill:#fff2cc,stroke:#d6b656
+    style InferenceAuth fill:#dae8fc,stroke:#6c8ebf
+
+    style SA_API fill:#4a90e2,color:#fff
+    style SA_Proc fill:#4a90e2,color:#fff
+    style SA_GC fill:#4a90e2,color:#fff
+    style AuthPolicy fill:#f5a623
+    style TenantHeader fill:#7ed321,color:#fff
+    style BatchEndpoints fill:#f5a623
+    style FileEndpoints fill:#f5a623
+    style HealthEndpoints fill:#e8e8e8
+    style MetricsEndpoints fill:#e8e8e8
+    style InfAPIKey fill:#6c8ebf,color:#fff

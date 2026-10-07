@@ -1,128 +1,128 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  BUILD-TIME ENVIRONMENT (CI/CD - Trusted)                               │
+│  CI/CD ENVIRONMENT (Build-time only)                                    │
 │                                                                          │
-│  [model-extractor] (Go CLI binary)                                       │
-│  - Executed during: CI/CD pipeline (Konflux/Tekton or GitHub Actions)    │
-│  - NOT shipped in final container image                                  │
-│  - Runs as: Pipeline task (non-root)                                     │
+│  [model-extractor CLI]                                                   │
+│  - Binary: model-extractor (Go, CGO_ENABLED=0)                          │
+│  - Runs in: CI/CD pipeline (not shipped in container)                    │
+│  - Concurrency: max 5 parallel workers (--max-concurrent)                │
 │         │                                                                │
-│         │ Port: 443/TCP                                                  │
-│         │ Protocol: HTTPS                                                │
-│         │ Encryption: TLS 1.2+ (Go default net/http)                     │
-│         │ Auth: Bearer Token (HF_TOKEN, optional)                        │
-│         │ Cert: System trust store                                       │
+│         ├─── Port: 443/TCP ──────────────────────────────────────────┐   │
+│         │    Protocol: HTTPS                                         │   │
+│         │    Encryption: TLS 1.2+                                    │   │
+│         │    Auth: Registry credentials                              │   │
+│         │    Destination: registry.redhat.io                         │   │
+│         │    Purpose: Fetch OCI manifests and modelcard layer blobs  │   │
+│         │                                                            │   │
+│         ├─── Port: 443/TCP ──────────────────────────────────────────┤   │
+│         │    Protocol: HTTPS                                         │   │
+│         │    Encryption: TLS 1.2+                                    │   │
+│         │    Auth: Registry credentials                              │   │
+│         │    Destination: quay.io                                     │   │
+│         │    Purpose: Fetch OCI image architectures and timestamps   │   │
+│         │                                                            │   │
+│         ├─── Port: 443/TCP ──────────────────────────────────────────┤   │
+│         │    Protocol: HTTPS                                         │   │
+│         │    Encryption: TLS 1.2+                                    │   │
+│         │    Auth: Bearer Token (HF_TOKEN, optional)                 │   │
+│         │    Destination: huggingface.co                              │   │
+│         │    Purpose: Model details, collections, README content     │   │
+│         │                                                            │   │
+│         ├─── Port: 443/TCP ──────────────────────────────────────────┤   │
+│         │    Protocol: HTTPS                                         │   │
+│         │    Encryption: TLS 1.2+                                    │   │
+│         │    Auth: Bearer Token (GITHUB_TOKEN, optional)             │   │
+│         │    Destination: api.github.com                              │   │
+│         │    Purpose: Branch validation, commit SHA resolution       │   │
+│         │                                                            │   │
+│         └─── Port: 443/TCP ──────────────────────────────────────────┘   │
+│              Protocol: HTTPS                                             │
+│              Encryption: TLS 1.2+                                        │
+│              Auth: Bearer Token (GITHUB_TOKEN, optional)                 │
+│              Destination: raw.githubusercontent.com                       │
+│              Purpose: Fetch agent.yaml and README.md                     │
+│                                                                          │
+│         │                                                                │
+│         │ File I/O (local)                                               │
 │         ▼                                                                │
-├─────────────────────────────────────────────────────────────────────────┤
-│  EXTERNAL SERVICES (Untrusted)                                           │
-│                                                                          │
-│  [HuggingFace API - huggingface.co]                                      │
-│  - Endpoints: /api/collections, /api/models, /{repo}/raw/main/README.md │
-│  - Port: 443/TCP                                                         │
-│  - Protocol: HTTPS (REST)                                                │
-│  - Encryption: TLS 1.2+                                                  │
-│  - Auth: Bearer Token (HF_TOKEN) - optional for public models           │
-│  - Purpose: Fetch model collections, details, README for enrichment      │
-│  - Graceful degradation: Works without token (public models only)        │
-│                                                                          │
-│  [OCI Registry - registry.redhat.io]                                     │
-│  - Endpoints: /v2/{repo}/manifests/{tag}, /v2/{repo}/blobs/{digest}     │
-│  - Port: 443/TCP                                                         │
-│  - Protocol: HTTPS (OCI Distribution Spec v2)                            │
-│  - Encryption: TLS 1.2+                                                  │
-│  - Auth: Registry API v2 auth (anonymous pull for public images)         │
-│  - Purpose: Pull OCI manifests, config blobs, model card layers          │
-│                                                                          │
-│  [Other OCI Registries] (MCP server images)                              │
-│  - Port: 443/TCP                                                         │
-│  - Protocol: HTTPS (OCI Distribution Spec v2)                            │
-│  - Encryption: TLS 1.2+                                                  │
-│  - Auth: Varies by registry                                              │
-│  - Purpose: Inspect MCP server container images (architecture/timestamps)│
-│                                                                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│  BUILD OUTPUT                                                            │
-│                                                                          │
-│  [Katalog YAML Files] (local filesystem)                                 │
+│  [data/*.yaml]                                                           │
 │  - models-catalog.yaml                                                   │
-│  - redhat-mcp-servers-catalog.yaml                                       │
-│  - Per-model metadata.yaml + enrichment.yaml                             │
-│         │                                                                │
-│         │ Mechanism: COPY in Dockerfile.konflux                          │
-│         │ No network transfer                                            │
-│         ▼                                                                │
-├─────────────────────────────────────────────────────────────────────────┤
-│  CONTAINER IMAGE BUILD (Konflux/Tekton)                                  │
+│  - mcp-servers-catalog.yaml                                              │
+│  - agents-catalog.yaml                                                   │
+│  - enrichment.yaml (per model)                                           │
 │                                                                          │
-│  [Dockerfile.konflux Build]                                              │
-│  - Base: ubi9-minimal                                                    │
-│  - User: 1001 (non-root)                                                 │
-│  - COPY data/*.yaml → /app/data/                                        │
-│  - CMD: sleep infinity                                                   │
-│  - No Go binary in final image                                          │
-│  - No network listeners                                                  │
-│  - No cryptographic operations at runtime                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  BUILD PIPELINE (Konflux)                                                │
+│                                                                          │
+│  [Konflux Tekton Pipeline]                                               │
+│  - Mode: hermetic: true                                                  │
+│  - Prefetch: gomod                                                       │
+│  - Architectures: x86_64, ppc64le, s390x, arm64                         │
 │         │                                                                │
 │         │ Port: 443/TCP                                                  │
 │         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
+│         │ Auth: Git credentials (git_auth_secret)                        │
+│         │ Source: Git repository clone                                    │
+│         │                                                                │
+│         │ Dockerfile.konflux:                                            │
+│         │   FROM ubi9-minimal                                            │
+│         │   COPY data/*.yaml /app/data/                                  │
+│         │   CMD ["sleep", "infinity"]                                    │
+│         │                                                                │
+│         │ Port: 443/TCP                                                  │
+│         │ Protocol: HTTPS                                                │
+│         │ Encryption: TLS 1.2+                                           │
 │         │ Auth: Registry push credentials                                │
 │         ▼                                                                │
-│  [quay.io/opendatahub/odh-model-metadata-collection]                     │
-│  - Container registry                                                    │
-│  - Tags: odh-stable, PR-specific                                        │
+│  [quay.io image registry]                                                │
+│  - Image: odh-model-metadata-collection                                  │
 │                                                                          │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  RUNTIME (Deployed - Zero Attack Surface)                                │
+│  RUNTIME (Kubernetes Cluster)                                            │
 │                                                                          │
-│  [odh-model-metadata-collection Container]                               │
-│  - Process: sleep infinity (data sidecar)                                │
-│  - Network listeners: NONE                                               │
-│  - Ingress: NONE                                                         │
-│  - Egress: NONE                                                          │
-│  - Ports: NONE                                                           │
-│  - Running code: NONE (data-only)                                        │
-│  - User: 1001 (non-root)                                                 │
+│  [Init Container: odh-model-metadata-collection]                         │
+│  - Image: quay.io/opendatahub/odh-model-metadata-collection             │
+│  - Base: registry.access.redhat.com/ubi9-minimal:latest                  │
+│  - Contains: Static YAML files only (no executables, no binaries)        │
+│  - Network: NONE (no listeners, no egress)                               │
+│  - RBAC: NONE (no Kubernetes API access)                                 │
 │         │                                                                │
-│         │ Mechanism: Volume mount (local filesystem)                     │
-│         │ Path: /app/data/                                               │
-│         │ No network transfer                                            │
+│         │ Filesystem (volume mount)                                      │
+│         │ No network traffic                                             │
+│         ▼                                                                │
+│  [Pod Volume: /app/data]                                                 │
+│  - models-catalog.yaml                                                   │
+│  - mcp-servers-catalog.yaml                                              │
+│  - agents-catalog.yaml                                                   │
+│         │                                                                │
+│         │ Filesystem read (no network)                                   │
 │         ▼                                                                │
 │  [RHOAI Dashboard]                                                       │
-│  - Reads: /app/data/models-catalog.yaml                                  │
-│  - Reads: /app/data/redhat-mcp-servers-catalog.yaml                      │
-│  - Purpose: Populate model catalog UI                                    │
-│  - Access: Read-only filesystem mount                                    │
+│  - Reads catalog files from shared volume                                │
+│  - No API calls to model-metadata-collection                             │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 
 RBAC Summary:
-- No Kubernetes RBAC definitions (not an operator/controller)
-- No ClusterRoles, Roles, or RoleBindings
-- No ServiceAccounts defined by this component
-
-Service Mesh Configuration:
-- N/A — the deployed container has no network services
-- No PeerAuthentication, AuthorizationPolicy, or DestinationRule needed
+- No Kubernetes RBAC required
+- Data container has no API access requirements
+- No ServiceAccount permissions beyond default
 
 Secrets:
-- HF_TOKEN (env var / .env file) - HuggingFace API auth, manual provisioning, no auto-rotation
-- git_auth_secret (Tekton workspace secret) - Git checkout auth, Konflux tenant config, no auto-rotation
-- QUAY_USERNAME / QUAY_PASSWORD (GitHub Actions secret) - Registry push creds, manual provisioning, no auto-rotation
+- HF_TOKEN (env var) - HuggingFace API auth, optional, manual provisioning, no auto-rotate
+- GITHUB_TOKEN (env var) - GitHub API auth, optional, manual/CI secret, no auto-rotate
+- git_auth_secret (K8s Secret) - Git auth for Konflux pipeline, provisioned by PipelinesAsCode, no auto-rotate
 
-FIPS Compliance:
-- Final container image: DATA ONLY (no binary, no crypto operations)
-- Build-time binary: CGO_ENABLED=0, uses Go default TLS (system trust store)
-- No OpenSSL in image (ubi9-minimal base, no Go binary shipped)
-- FIPS not directly applicable — no runtime cryptographic operations
+FIPS Notes:
+- Go binary built with CGO_ENABLED=0 (static, no FIPS crypto)
+- Go binary is NOT shipped in the container image
+- Container contains only static YAML/SVG files - no runtime crypto
+- Base image: UBI9-minimal (includes OpenSSL for FIPS at OS level)
+- check-payload FIPS validation: Not applicable (no binaries in image)
 
-Build Hermeticity:
-- Go dependencies: go.sum present (hermetic)
-- OS packages: No rpms.lock.yaml (likely on release branches)
-- Artifacts: No artifacts.lock.yaml
-- Hermeto/cachi2: Not configured (data-only image)
-
-Runtime Attack Surface Assessment:
-- Network attack surface: ZERO (no ports, no listeners, no ingress/egress)
-- Process attack surface: MINIMAL (sleep infinity only)
-- File attack surface: READ-ONLY YAML data files
-- No code execution at runtime
-- No secrets needed at runtime
+Network Summary:
+- Ingress: NONE
+- Runtime Egress: NONE (data container, no network activity)
+- Build-time Egress: 5 external HTTPS endpoints (registry.redhat.io, quay.io,
+  huggingface.co, api.github.com, raw.githubusercontent.com)
+- All build-time connections: HTTPS/443, TLS 1.2+

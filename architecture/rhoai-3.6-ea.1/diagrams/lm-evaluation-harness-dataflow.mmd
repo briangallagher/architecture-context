@@ -1,0 +1,33 @@
+sequenceDiagram
+    participant Operator as TrustyAI Service Operator
+    participant Job as lm-eval Container<br/>(Kubernetes Job)
+    participant LLM as LLM Provider API<br/>(OpenAI/Anthropic/watsonx/local)<br/>443/TCP HTTPS TLS
+    participant HF as Hugging Face Hub<br/>443/TCP HTTPS TLS
+    participant S3 as S3-Compatible Storage<br/>443/TCP HTTPS TLS
+    participant Output as Local Output Directory<br/>/opt/app-root/src/output
+
+    Note over Operator,Job: Step 1: Job Creation (Kubernetes RBAC)
+    Operator->>Job: Create Kubernetes Job<br/>env vars: API keys, model config<br/>args: evaluation parameters
+
+    Note over Job,HF: Step 2: Load Evaluation Tasks & Data
+    Job->>HF: GET datasets, models, tokenizers<br/>Auth: HF_TOKEN (env var)
+    HF-->>Job: Task definitions, datasets
+
+    opt S3 storage configured
+        Note over Job,S3: Step 3: Fetch Additional Data (optional)
+        Job->>S3: GET model artifacts / datasets<br/>Auth: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
+        S3-->>Job: Data artifacts
+    end
+
+    Note over Job,LLM: Step 4: Run Evaluation Prompts
+    loop For each evaluation task
+        Job->>LLM: POST inference request<br/>Auth: API key (OPENAI_API_KEY /<br/>ANTHROPIC_API_KEY / WATSONX_API_KEY)
+        LLM-->>Job: Model response
+        Job->>Job: Score response against<br/>evaluation criteria
+    end
+
+    Note over Job,Output: Step 5: Write Results
+    Job->>Output: Write structured evaluation results<br/>(JSON/CSV)
+
+    Note over Operator,Output: Job completes, operator collects results
+    Job-->>Operator: Job status: Completed

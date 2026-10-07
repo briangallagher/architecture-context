@@ -1,77 +1,71 @@
 graph LR
-    Caikit["Caikit<br/>AI Toolkit & Runtime"]
+    Caikit["Caikit<br/>AI Runtime Framework"]
 
-    %% Internal RHOAI Dependencies
-    Caikit -->|"ModelRuntime sidecar<br/>gRPC (Unix socket/TCP)"| ModelMesh["ModelMesh"]
-    Caikit -->|"container colocation<br/>ServingRuntime"| KServe["KServe"]
+    %% Internal RHOAI Dependencies (consume Caikit as library)
+    CaikitNLP["caikit-nlp"] -->|imports| Caikit
+    CaikitTGIS["caikit-tgis-serving"] -->|imports| Caikit
+    KServe["KServe"] -->|runs as<br/>ServingRuntime| Caikit
+    ModelMesh["ModelMesh"] -->|gRPC Unix socket<br/>model lifecycle| Caikit
 
-    %% Core Python Dependencies (Required)
-    subgraph CoreDeps["Core Dependencies (Required)"]
-        grpcio["grpcio<br/>≥1.35,<2.0"]
-        protobuf["protobuf<br/>≥3.19,<6"]
-        pyyaml["PyYAML<br/>≥6.0,<7.0"]
-        numpy["numpy<br/>≥1.22,<2"]
-        aconfig["alchemy-config<br/>≥1.1.1,<2.0"]
-        alog["alchemy-logging<br/>≥1.3.2,<2.0"]
-        pyToProto["py-to-proto<br/>≥0.5.0,<0.6"]
-        werkzeug["werkzeug<br/>≥2.3.7,<4.0"]
-    end
-    Caikit -->|"core framework"| CoreDeps
+    %% Core Python Dependencies
+    Caikit -->|gRPC protocol| grpcio["grpcio >=1.35,<2"]
+    Caikit -->|data serialization| protobuf["protobuf >=3.19,<6"]
+    Caikit -->|dynamic proto gen| py_to_proto["py-to-proto >=0.5,<0.6"]
+    Caikit -->|config mgmt| alchemy_config["alchemy-config >=1.1,<2"]
+    Caikit -->|structured logging| alchemy_logging["alchemy-logging >=1.3,<2"]
+    Caikit -->|YAML parsing| pyyaml["PyYAML >=6,<7"]
+    Caikit -->|array ops| numpy["numpy >=1.22,<2"]
 
     %% Optional Runtime Dependencies
-    subgraph RuntimeHTTP["HTTP Runtime (Optional)"]
-        fastapi["FastAPI<br/>≥0.100,<1"]
-        pydantic["Pydantic<br/>≥2.8,<3"]
-        sseStarlette["sse-starlette<br/>≥1.6.1,<3"]
-    end
-    Caikit -.->|"HTTP server"| RuntimeHTTP
+    Caikit -.->|HTTP server| fastapi["FastAPI >=0.100,<1"]
+    Caikit -.->|validation| pydantic["Pydantic >=2.8,<3"]
+    Caikit -.->|SSE streaming| sse_starlette["sse-starlette >=1.6,<3"]
+    Caikit -.->|metrics| prometheus["prometheus_client >=0.12,<1"]
+    Caikit -.->|gRPC metrics| grpc_prom["py-grpc-prometheus >=0.7,<0.9"]
+    Caikit -.->|tracing| otel_sdk["opentelemetry-sdk >=1.24,<2"]
+    Caikit -.->|trace export| otel_otlp["opentelemetry-exporter-otlp >=1.24,<2"]
 
-    subgraph RuntimeGRPC["gRPC Runtime (Optional)"]
-        grpcHealth["grpcio-health<br/>≥1.35,<2.0"]
-        grpcReflection["grpcio-reflection<br/>≥1.35,<2.0"]
-        promClient["prometheus_client<br/>≥0.12,<1.0"]
-        grpcProm["py-grpc-prometheus<br/>≥0.7,<0.9"]
-    end
-    Caikit -.->|"gRPC server"| RuntimeGRPC
+    %% Optional Interface Dependencies
+    Caikit -.->|timeseries| pandas["pandas >=1.4,<2"]
+    Caikit -.->|spark backend| pyspark["pyspark >=3.3,<3.6"]
+    Caikit -.->|image processing| pillow["Pillow >=6.2,<11"]
 
-    subgraph Tracing["Tracing (Optional)"]
-        otelSDK["opentelemetry-sdk<br/>≥1.24,<2"]
-        otelOTLP["opentelemetry-exporter-otlp<br/>≥1.24,<2"]
-    end
-    Caikit -.->|"distributed tracing"| Tracing
-
-    %% External Services
-    Caikit -->|"model storage<br/>HTTPS/443"| S3["S3-compatible<br/>Storage"]
-    Caikit -.->|"trace export<br/>OTLP"| OTel["OTel Collector"]
-    Caikit -.->|"remote proxy<br/>gRPC/HTTP"| RemoteRuntime["Remote Caikit<br/>Runtime"]
-
-    %% Monitoring (inbound)
-    Prometheus["Prometheus"] -->|"metrics scrape<br/>HTTP"| Caikit
-
-    %% Integration Points (inbound)
-    Dashboard["ODH Dashboard"] -.->|"UI management"| KServe
-    Pipelines["Data Science<br/>Pipelines"] -.->|"auto deploy"| KServe
-
-    %% Downstream consumers
-    subgraph Downstream["Downstream Libraries"]
-        caikitNLP["caikit-nlp"]
-        caikitTGIS["caikit-tgis-serving"]
-    end
-    Downstream -->|"implements modules<br/>Python import"| Caikit
+    %% Infrastructure Integration Points
+    Caikit -->|trace export| OTelCollector["OTel Collector<br/>4317/4318 TCP"]
+    Caikit -->|metrics scrape| PromServer["Prometheus<br/>8086/TCP"]
+    Caikit -.->|remote inference| RemoteCaikit["Remote Caikit Runtime<br/>gRPC"]
 
     %% Styling
     style Caikit fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
-    style ModelMesh fill:#7ed321,stroke:#333
-    style KServe fill:#7ed321,stroke:#333
-    style S3 fill:#f5a623,stroke:#333
-    style OTel fill:#e8e8e8,stroke:#666
-    style Prometheus fill:#e8e8e8,stroke:#666
-    style RemoteRuntime fill:#7ed321,stroke:#333
-    style Dashboard fill:#7ed321,stroke:#333
-    style Pipelines fill:#7ed321,stroke:#333
 
-    style CoreDeps fill:#dbeafe,stroke:#3b82f6
-    style RuntimeHTTP fill:#fef3c7,stroke:#f59e0b
-    style RuntimeGRPC fill:#fef3c7,stroke:#f59e0b
-    style Tracing fill:#fef3c7,stroke:#f59e0b
-    style Downstream fill:#d1fae5,stroke:#10b981
+    %% Internal RHOAI components
+    style CaikitNLP fill:#7ed321,stroke:#333,color:#fff
+    style CaikitTGIS fill:#7ed321,stroke:#333,color:#fff
+    style KServe fill:#7ed321,stroke:#333,color:#fff
+    style ModelMesh fill:#7ed321,stroke:#333,color:#fff
+
+    %% Required dependencies
+    style grpcio fill:#e8e8e8,stroke:#333
+    style protobuf fill:#e8e8e8,stroke:#333
+    style py_to_proto fill:#e8e8e8,stroke:#333
+    style alchemy_config fill:#e8e8e8,stroke:#333
+    style alchemy_logging fill:#e8e8e8,stroke:#333
+    style pyyaml fill:#e8e8e8,stroke:#333
+    style numpy fill:#e8e8e8,stroke:#333
+
+    %% Optional dependencies
+    style fastapi fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style pydantic fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style sse_starlette fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style prometheus fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style grpc_prom fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style otel_sdk fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style otel_otlp fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style pandas fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style pyspark fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+    style pillow fill:#f5f5f5,stroke:#999,stroke-dasharray: 5 5
+
+    %% Infrastructure
+    style OTelCollector fill:#f5a623,stroke:#333,color:#fff
+    style PromServer fill:#f5a623,stroke:#333,color:#fff
+    style RemoteCaikit fill:#f5a623,stroke:#333,color:#fff

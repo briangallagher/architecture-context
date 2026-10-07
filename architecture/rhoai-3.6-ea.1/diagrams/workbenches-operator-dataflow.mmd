@@ -1,0 +1,36 @@
+sequenceDiagram
+    participant Orchestrator as Platform Orchestrator<br/>(DSC/DSCI Reconciler)
+    participant K8sAPI as Kubernetes API Server<br/>6443/TCP HTTPS TLS 1.2+
+    participant Reconciler as WorkbenchesReconciler<br/>controller-runtime
+    participant NotebookCtrl as Kubeflow Notebook<br/>Controller
+    participant User as User / Data Scientist
+    participant HWWebhook as Hardware Profile<br/>Webhook :9443
+    participant ConnWebhook as Connection Notebook<br/>Webhook :9443
+    participant HWProfile as HardwareProfile CR
+    participant Secrets as Data Connection<br/>Secrets
+
+    Note over Orchestrator,Reconciler: Flow 1: Workbenches CR Reconciliation
+
+    Orchestrator->>K8sAPI: Create/Update Workbenches CR<br/>spec: gatewayDomain, mlflowEnabled, platform<br/>Auth: ServiceAccount token
+    K8sAPI-->>Reconciler: Watch event: Workbenches CR changed
+    Reconciler->>K8sAPI: Server-Side Apply kustomize manifests<br/>HTTPS/6443 TLS 1.2+<br/>Auth: ServiceAccount token
+    K8sAPI-->>Reconciler: Applied: Notebook Controller Deployment
+    Reconciler->>K8sAPI: Apply RBAC, CRDs, WebhookConfigs<br/>HTTPS/6443 TLS 1.2+<br/>Auth: ServiceAccount token
+    K8sAPI-->>Reconciler: Applied: ClusterRoles, CRDs, MutatingWebhookConfigs
+    Reconciler->>K8sAPI: Set owner references + finalizer<br/>on all managed resources
+    K8sAPI-->>Reconciler: Status updated
+
+    Note over User,Secrets: Flow 2: Notebook Admission Webhook
+
+    User->>K8sAPI: Create/Update Notebook CR<br/>(kubeflow.org)
+    K8sAPI->>HWWebhook: Admission Request (Mutating)<br/>HTTPS/443→9443<br/>TLS (service-ca cert)<br/>Policy: Fail
+    HWWebhook->>K8sAPI: Read HardwareProfile CR<br/>HTTPS/6443 TLS 1.2+<br/>Auth: ServiceAccount token
+    K8sAPI-->>HWWebhook: HardwareProfile spec<br/>(resource limits)
+    HWWebhook-->>K8sAPI: Mutated: resource requests/limits injected<br/>or Event on validation error
+
+    K8sAPI->>ConnWebhook: Admission Request (Mutating)<br/>HTTPS/443→9443<br/>TLS (service-ca cert)<br/>Policy: Fail
+    ConnWebhook->>K8sAPI: Read data connection Secrets<br/>HTTPS/6443 TLS 1.2+<br/>Auth: ServiceAccount token
+    K8sAPI-->>ConnWebhook: Secret data
+    ConnWebhook-->>K8sAPI: Mutated: connection metadata injected
+
+    K8sAPI-->>User: Notebook CR created/updated

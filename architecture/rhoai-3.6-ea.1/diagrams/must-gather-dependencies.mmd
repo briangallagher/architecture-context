@@ -1,0 +1,54 @@
+graph LR
+    MustGather["must-gather<br/>(Ephemeral Diagnostic Tool)"]
+
+    %% Internal RHOAI Dependencies
+    MustGather -->|"Subscription lookup<br/>(detect namespace + version)"| RHODSOperator["rhods-operator<br/>(RHOAI Operator)"]
+    MustGather -->|"Inspect CRs<br/>(DSCInitialization,<br/>DataScienceCluster)"| ODHCRDs["opendatahub-operator<br/>CRDs"]
+    MustGather -.->|"Collect logs +<br/>namespace resources"| RHOAIComponents["RHOAI Application<br/>Components"]
+
+    %% Cluster Infrastructure
+    MustGather -->|"REST API<br/>443/TCP HTTPS<br/>ServiceAccount token"| K8sAPI["Kubernetes API<br/>Server"]
+
+    %% CLI Tools (bundled in image)
+    MustGather -->|"Helm release data"| Helm["Helm CLI<br/>(bundled)"]
+
+    %% Component Namespaces Inspected
+    subgraph InspectedComponents["RHOAI Components Inspected"]
+        direction TB
+        KServe["KServe / Serving"]
+        Pipelines["Data Science Pipelines"]
+        ModelRegistry["Model Registry"]
+        Notebooks["Notebooks"]
+        KubeRay["KubeRay"]
+        Kueue["Kueue"]
+        TrustyAI["TrustyAI"]
+        LLMd["LLM-d"]
+        AIGateway["AIGateway"]
+        OGX["OGX"]
+        SparkOp["SparkOperator"]
+        MLFlow["MLFlow"]
+        MCPLifecycle["MCP Lifecycle Operator"]
+    end
+
+    RHOAIComponents --- InspectedComponents
+
+    %% Cluster Type Support
+    subgraph ClusterTypes["Supported Cluster Types"]
+        direction TB
+        OCP["OpenShift<br/>(oc adm inspect)"]
+        AKS["AKS<br/>(kubectl_inspect)"]
+        EKS["EKS<br/>(kubectl_inspect)"]
+        CKS["CoreWeave K8s<br/>(kubectl_inspect)"]
+    end
+
+    MustGather -.->|"auto-detects"| ClusterTypes
+
+    %% Styling
+    style MustGather fill:#4a90e2,stroke:#333,stroke-width:4px,color:#fff
+    style RHODSOperator fill:#7ed321,stroke:#333,color:#fff
+    style ODHCRDs fill:#7ed321,stroke:#333,color:#fff
+    style RHOAIComponents fill:#7ed321,stroke:#333,color:#fff
+    style K8sAPI fill:#f5a623,stroke:#333
+    style Helm fill:#999,stroke:#333,color:#fff
+    style InspectedComponents fill:#e8f5e9,stroke:#82b366
+    style ClusterTypes fill:#fff3e0,stroke:#f5a623
